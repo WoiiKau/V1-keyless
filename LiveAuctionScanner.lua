@@ -171,7 +171,6 @@ local function startBidLoop()
             if AB.currentBid >= AB.maxBid then
                 abLog("💸 Max bid reached", C.orange); AB.enabled = false; if updateToggleBtn then updateToggleBtn() end; break
             end
-            -- Bidding proceeds purely based on Max Bid constraints
             local ok = pcall(function() BidRemote:FireServer() end)
             if ok then AB.bidsThisRound = AB.bidsThisRound + 1 else abLog("❌ Bid failed", C.red) end
             task.wait(AB.speed)
@@ -180,20 +179,15 @@ local function startBidLoop()
 end
 
 -- ═════════════════════════════════════════════════════
--- VALUE CALCULATION (FIXED REVERSE LOOKUP FOR NAMES)
+-- VALUE CALCULATION
 -- ═════════════════════════════════════════════════════
 local function getItemData(identifier)
     if not ItemsData or type(ItemsData) ~= "table" then return "Unknown", 0 end
-    
     local identifierStr = tostring(identifier)
-    
-    -- 1. Try direct lookup (if identifier is a name)
     if ItemsData[identifierStr] then
         local d = ItemsData[identifierStr]
         return (d.Name or d.name or identifierStr), tonumber(d.BasePrice or d.basePrice or d.Value or d.value) or 0
     end
-    
-    -- 2. Reverse lookup (if identifier is an ID)
     for id, v in pairs(ItemsData) do
         if type(v) == "table" then
             if tostring(id) == identifierStr or tostring(v.Id or v.id) == identifierStr then
@@ -201,7 +195,6 @@ local function getItemData(identifier)
             end
         end
     end
-    
     return identifierStr, 0
 end
 
@@ -211,11 +204,9 @@ local function calcItemValue(itemName, rarity, mutator, grade, condition)
         local rarityFallbacks = { Common=15, Uncommon=35, Rare=80, Epic=200, Legendary=500, Mythical=1200, Exclusive=3000 }
         base = rarityFallbacks[rarity] or 15
     end
-    
     local mMult     = MUTATOR_MULT[mutator]  or 1
     local gMult     = GRADE_MULT[tonumber(grade)] or 1.0
     local cMult     = CONDITION_MULT[condition]    or 1.0
-    
     return realName, math.floor(base * mMult * gMult * cMult)
 end
 
@@ -235,13 +226,8 @@ local function isItemModel(model)
     local base = model.PrimaryPart or model:FindFirstChild("Base")
     if not base then return false end
     local itemName = model:GetAttribute("ItemName") or model:GetAttribute("Name") or model.Name
-    
-    -- Exclude garage structures
     local nameLower = itemName:lower()
-    if nameLower:find("garage") or nameLower == "right" or nameLower == "left" or nameLower == "door" or nameLower == "blocker" or nameLower == "button" or nameLower == "entrysquare" or nameLower == "npcspawns" then
-        return false
-    end
-    
+    if nameLower:find("garage") or nameLower == "right" or nameLower == "left" or nameLower == "door" or nameLower == "blocker" or nameLower == "button" or nameLower == "entrysquare" or nameLower == "npcspawns" then return false end
     local blacklist = { "Terrain", "Camera", "GarageSpawn", "AreaBoundary", "LostAndFoundBox", "Lost and Found Box", "Billy", "Sal", "Ted", "Steve", "Parts", "Part", "Model" }
     for _, b in ipairs(blacklist) do if itemName == b then return false end end
     return true
@@ -257,7 +243,6 @@ local function readItemAttributes(model)
         value     = model:GetAttribute("Value"),
         baseValue = model:GetAttribute("BaseValue"),
     }
-    
     local basePart = model.PrimaryPart or model:FindFirstChild("Base")
     if basePart then
         attrs.itemName  = attrs.itemName  or basePart:GetAttribute("ItemName")
@@ -267,16 +252,10 @@ local function readItemAttributes(model)
         attrs.grade     = attrs.grade     or basePart:GetAttribute("Grade")
         attrs.condition = attrs.condition or basePart:GetAttribute("Condition")
     end
-    
     local realName, calcPrice = calcItemValue(attrs.itemName, attrs.rarity, attrs.mutator, attrs.grade, attrs.condition)
     attrs.displayName = realName
-    
     local serverValue = tonumber(attrs.value or attrs.baseValue)
-    if serverValue and serverValue > 0 then 
-        attrs.calcValue = serverValue 
-    else
-        attrs.calcValue = calcPrice
-    end
+    if serverValue and serverValue > 0 then attrs.calcValue = serverValue else attrs.calcValue = calcPrice end
     return attrs
 end
 
@@ -320,18 +299,14 @@ local function scanAllAreas()
                         if string.find(spawn.Name:lower(), conf.name:lower()) then garageConf = conf; garageId = id; break end
                     end
                 end
-                
                 local conf = garageConf or { name="Unknown", tier=0, area=areaName, mascot="?", minNW=0, minBid=0, minProfit=0, maxProfit=0, items=6, entMin=0, entMax=0, col=Color3.fromRGB(100,100,100) }
-
                 local scannedItems = scanLot(spawn)
                 local totalVal = 0
                 for _, it in ipairs(scannedItems) do totalVal = totalVal + (it.calcValue or 0) end
-
                 local predictedAvg = conf.minBid + ((conf.minProfit + conf.maxProfit) / 2)
                 local entCost = (conf.entMin + conf.entMax) / 2
                 local useValue = (#scannedItems > 0) and totalVal or predictedAvg
                 local roi = entCost > 0 and ((useValue - entCost) / entCost * 100) or 0
-
                 table.insert(areaResult.lots, {
                     spawnName = spawn.Name, lotIndex = i, garageId = garageId, conf = conf,
                     items = scannedItems, scannedTotal = totalVal, predictedAvg = math.max(0, predictedAvg),
@@ -358,81 +333,73 @@ local function pad(px, p) return make("UIPadding", {PaddingTop=UDim.new(0,px), P
 local function corner(r, p) return make("UICorner", {CornerRadius=UDim.new(0,r)}, p) end
 local function stroke(th, col, p) return make("UIStroke", {Thickness=th, Color=col, ApplyStrokeMode=Enum.ApplyStrokeMode.Border}, p) end
 local function list(align, spacing, p) return make("UIListLayout", {HorizontalAlignment=align or Enum.HorizontalAlignment.Left, VerticalAlignment=Enum.VerticalAlignment.Top, Padding=UDim.new(0, spacing or 6), SortOrder=Enum.SortOrder.LayoutOrder}, p) end
-local function tw(inst, sec, props) 
-    local info = TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) 
-    pcall(function() local t = TweenService:Create(inst, info, props); t:Play() end)
-end
+local function tw(inst, sec, props) pcall(function() local t = TweenService:Create(inst, TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props); t:Play() end) end
 local function fm(num) return num >= 1000 and string.format("$%.1fk", num/1000) or string.format("$%d", num) end
 
--- Clean previous instances safely
-pcall(function()
-    for _, v in ipairs(TargetGui:GetChildren()) do
-        if v.Name == "AHScanner" then v:Destroy() end
-    end
-end)
+pcall(function() for _, v in ipairs(TargetGui:GetChildren()) do if v.Name == "AHScanner" then v:Destroy() end end end)
 
 -- ═════════════════════════════════════════════════════
 -- SCREEN GUI & MAGIC AUTO-SCALER
 -- ═════════════════════════════════════════════════════
-local ScreenGui = make("ScreenGui", {
-    Name="AHScanner", ResetOnSpawn=false,
-    ZIndexBehavior=Enum.ZIndexBehavior.Sibling, IgnoreGuiInset=true,
-}, TargetGui)
+local ScreenGui = make("ScreenGui", { Name="AHScanner", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, IgnoreGuiInset=true }, TargetGui)
 
 local ToggleBtn = make("TextButton", {
     Name = "AHToggle",
-    Size = UDim2.new(0, 36, 0, 36),
+    Size = UDim2.new(0, 48, 0, 48),
     Position = UDim2.new(0.02, 0, 0.15, 0),
     BackgroundColor3 = Color3.fromRGB(15, 12, 28),
     Text = "🔍",
-    TextSize = 18,
+    TextSize = 22,
     Font = Enum.Font.GothamBold,
     TextColor3 = C.accent,
     ZIndex = 99999,
     Active = true,
-    Draggable = true,
 }, ScreenGui)
-corner(18, ToggleBtn); stroke(1.5, C.accent, ToggleBtn)
+corner(24, ToggleBtn); stroke(1.5, C.accent, ToggleBtn)
 
-ToggleBtn.MouseButton1Click:Connect(function()
-    Win.Visible = not Win.Visible
+local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
+ToggleBtn.InputBegan:Connect(function(inp)
+    if isTouchOrClick(inp) then
+        togDragActive = true; togDragStart = inp.Position; togStartPos = ToggleBtn.Position; togMoved = false
+    end
+end)
+
+table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
+    if togDragActive and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+        local delta = inp.Position - togDragStart
+        if delta.Magnitude > 5 then togMoved = true end
+        ToggleBtn.Position = UDim2.new(togStartPos.X.Scale, togStartPos.X.Offset + delta.X, togStartPos.Y.Scale, togStartPos.Y.Offset + delta.Y)
+    end
+end))
+
+ToggleBtn.InputEnded:Connect(function(inp)
+    if isTouchOrClick(inp) then
+        togDragActive = false
+        if not togMoved then
+            tw(ToggleBtn, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
+            task.delay(0.1, function() tw(ToggleBtn, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
+            if Win then Win.Visible = not Win.Visible end
+        end
+    end
 end)
 
 local BASE_WIDTH = 840
 local BASE_HEIGHT = 460
 
-local Win = make("Frame", {
-    Name="Win", AnchorPoint=Vector2.new(0.5,0.5),
-    Position=UDim2.new(0.5,0,0.5,0),
-    Size=UDim2.new(0,BASE_WIDTH,0,BASE_HEIGHT),
-    BackgroundColor3=C.bg, ClipsDescendants=true,
-}, ScreenGui)
-corner(12, Win)
-stroke(1.5, C.border, Win)
+local Win = make("Frame", { Name="Win", AnchorPoint=Vector2.new(0.5,0.5), Position=UDim2.new(0.5,0,0.5,0), Size=UDim2.new(0,BASE_WIDTH,0,BASE_HEIGHT), BackgroundColor3=C.bg, ClipsDescendants=true }, ScreenGui)
+corner(12, Win); stroke(1.5, C.border, Win)
 
--- The magic scaler that zooms the UI to fit perfectly on any phone screen
 local uiScale = Instance.new("UIScale", Win)
-
 local function updateScale()
     local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
-    -- Zoom out to leave a 5% margin around the screen
     local scaleX = (viewport.X * 0.95) / BASE_WIDTH
     local scaleY = (viewport.Y * 0.95) / BASE_HEIGHT
     uiScale.Scale = math.min(scaleX, scaleY, 1)
 end
-
 updateScale()
 table.insert(cleanUpSignals, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
 
-local WinGrad = make("UIGradient", {
-    Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(13, 17, 28)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(9, 11, 17)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 7, 11)),
-    }),
-    Rotation = 45,
-}, Win)
-
+local WinGrad = make("UIGradient", { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(13, 17, 28)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(9, 11, 17)), ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 7, 11)) }), Rotation = 45 }, Win)
 local topBar = make("Frame", {Size=UDim2.new(1,0,0,3), BackgroundColor3=C.accent, BorderSizePixel=0}, Win)
 make("UIGradient", { Color=ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(60,140,255)), ColorSequenceKeypoint.new(0.4,Color3.fromRGB(120,60,255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255,90,150)) }) }, topBar)
 
@@ -481,7 +448,6 @@ MinBtn.MouseButton1Click:Connect(function() minned = not minned; tw(Win, 0.22, {
 -- ─────────────────────────────────────────────────────
 local Sidebar = make("Frame", { Size = UDim2.new(0, 300, 1, -67), Position = UDim2.new(0, 6, 0, 47), BackgroundColor3 = C.panel, BackgroundTransparency = 0.4, BorderSizePixel = 0, }, Win)
 corner(10, Sidebar); stroke(1.2, C.border, Sidebar)
-
 local StatsGrid = make("Frame", { Size = UDim2.new(1, -12, 0, 80), Position = UDim2.new(0, 6, 0, 6), BackgroundTransparency = 1, }, Sidebar)
 
 local function statPill(labelTxt, valInit, col, x, y)
@@ -630,8 +596,6 @@ local maxBidBox = make("TextBox", { Text=tostring(AB.maxBid), TextSize=11, TextC
 corner(5, maxBidBox); stroke(1, C.gold:Lerp(Color3.fromRGB(0,0,0),0.4), maxBidBox)
 maxBidBox.FocusLost:Connect(function() local v = tonumber(maxBidBox.Text); if v and v > 0 then AB.maxBid = v; abLog("💰 Max Bid: $"..v, C.gold) else maxBidBox.Text = tostring(AB.maxBid) end end)
 
--- Profit Guard removed by request
-
 local speedRow = make("Frame", { Size=UDim2.new(1,-12,0,24), Position=UDim2.new(0,6,0,68), BackgroundTransparency=1, }, ABPanel)
 list(nil, 4, speedRow); speedRow.UIListLayout.FillDirection = Enum.FillDirection.Horizontal; speedRow.UIListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 make("TextLabel", { Text="Spd:", TextSize=9, TextColor3=C.text2, Font=Enum.Font.GothamMedium, BackgroundTransparency=1, Size=UDim2.new(0,25,1,0), TextXAlignment=Enum.TextXAlignment.Left, }, speedRow)
@@ -738,10 +702,9 @@ local function renderLots(flatLots)
 end
 
 -- ─────────────────────────────────────────────────────
--- RENDER SHOP WORKSHOPS TAB (Wash, Repair, Grade, Locksmith)
+-- RENDER SHOP WORKSHOPS TAB
 -- ─────────────────────────────────────────────────────
 local activeTimersList = {} 
-
 local EventsObj = ReplicatedStorage:WaitForChild("Events", 10)
 
 local SHOPS = {
@@ -775,53 +738,13 @@ local SHOPS = {
     },
     Locksmith = {
         title = "🔑 Locksmith Desk", itemLabel = "Select a Safe/Chest", itemEmpty = "No locked chests or safes", maxSlots = 3,
-        getEligible = function()
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local oldCF = root and root.CFrame
-            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
-            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("GetLockableItems"):InvokeServer() end)
-            if root and oldCF then root.CFrame = oldCF end
-            if ok then return res else error(res) end
-        end,
+        getEligible = function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("GetLockableItems"):InvokeServer() end,
         getSlots    = function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("GetSlotState"):InvokeServer() end,
-        startWork   = function(slot, guid, src, vguid)
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local oldCF = root and root.CFrame
-            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
-            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("StartLocksmith"):InvokeServer(slot, guid, src, vguid) end)
-            if root and oldCF then root.CFrame = oldCF end
-            if ok then return res else error(res) end
-        end,
-        claimWork   = function(slot)
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local oldCF = root and root.CFrame
-            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
-            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("ClaimItem"):InvokeServer(slot) end)
-            if root and oldCF then root.CFrame = oldCF end
-            if ok then return res else error(res) end
-        end,
+        startWork   = function(slot, guid, src, vguid) return EventsObj:WaitForChild("Locksmith"):WaitForChild("StartLocksmith"):InvokeServer(slot, guid, src, vguid) end,
+        claimWork   = function(slot) return EventsObj:WaitForChild("Locksmith"):WaitForChild("ClaimItem"):InvokeServer(slot) end,
         unlockSlot  = function(slot) return EventsObj:WaitForChild("Locksmith"):WaitForChild("UnlockSlot"):InvokeServer(slot) end,
-        speedUp     = function(slot)
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local oldCF = root and root.CFrame
-            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
-            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("SpeedUp"):InvokeServer(slot) end)
-            if root and oldCF then root.CFrame = oldCF end
-            if ok then return res else error(res) end
-        end,
-        openSafe    = function(slot)
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local oldCF = root and root.CFrame
-            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
-            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("OpenSafe"):InvokeServer(slot) end)
-            if root and oldCF then root.CFrame = oldCF end
-            if ok then return res else error(res) end
-        end,
+        speedUp     = function(slot) return EventsObj:WaitForChild("Locksmith"):WaitForChild("SpeedUp"):InvokeServer(slot) end,
+        openSafe    = function(slot) return EventsObj:WaitForChild("Locksmith"):WaitForChild("OpenSafe"):InvokeServer(slot) end,
     }
 }
 
@@ -946,39 +869,16 @@ local function renderWorkshop(shopKey)
                     corner(5, actionBtn); stroke(1.2, btnColor:Lerp(Color3.fromRGB(0,0,0), 0.5), actionBtn)
                     actionBtn.MouseButton1Click:Connect(function()
                         actionBtn.Text = "Invoking..."
-                        task.spawn(function()
-                            local success, err = pcall(function()
-                                if action == "claim" then
-                                    cfg.claimWork(slotIndex)
-                                    statusLbl.Text = "✅ Claimed!"
-                                    statusLbl.TextColor3 = C.green
-                                elseif action == "collectWash" then
-                                    EventsObj:WaitForChild("Wash"):WaitForChild("CollectWash"):InvokeServer(slotIndex)
-                                    statusLbl.Text = "🛁 Wash collected!"
-                                    statusLbl.TextColor3 = C.green
-                                elseif action == "collectRepair" then
-                                    EventsObj:WaitForChild("Repair"):WaitForChild("CollectRepair"):InvokeServer(slotIndex)
-                                    statusLbl.Text = "🔧 Repair collected!"
-                                    statusLbl.TextColor3 = C.green
-                                elseif action == "rollGrade" then
-                                    cfg.collect(slotIndex)
-                                    statusLbl.Text = "🔬 Grade completed!"
-                                    statusLbl.TextColor3 = C.purple
-                                elseif action == "openSafe" then
-                                    cfg.openSafe(slotIndex)
-                                    task.wait(0.3)
-                                    cfg.claimWork(slotIndex)
-                                    statusLbl.Text = "🔓 Safe opened & claimed!"
-                                    statusLbl.TextColor3 = C.green
-                                end
-                            end)
-                            if not success then
-                                statusLbl.Text = "❌ Error: " .. tostring(err or "Unknown")
-                                statusLbl.TextColor3 = C.red
-                                actionBtn.Text = btnText
+                        task.spawn(function() pcall(function()
+                            if action == "claim" then if cfg.claimWork(slotIndex) then statusLbl.Text = "✅ Claimed!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() end
+                            elseif action == "collectWash" then if EventsObj:WaitForChild("Wash"):WaitForChild("CollectWash"):InvokeServer(slotIndex) then statusLbl.Text = "🛁 Wash collected!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() end
+                            elseif action == "collectRepair" then if EventsObj:WaitForChild("Repair"):WaitForChild("CollectRepair"):InvokeServer(slotIndex) then statusLbl.Text = "🔧 Repair collected!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() end
+                            elseif action == "rollGrade" then if cfg.collect(slotIndex) then statusLbl.Text = "🔬 Grade completed!"; statusLbl.TextColor3 = C.purple; refreshWorkshopView() end
+                            elseif action == "openSafe" then 
+                                cfg.openSafe(slotIndex); task.wait(0.3); cfg.claimWork(slotIndex)
+                                statusLbl.Text = "🔓 Safe opened & claimed!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() 
                             end
-                            refreshWorkshopView()
-                        end)
+                        end) end)
                     end)
                 end
             end
@@ -1000,8 +900,6 @@ table.insert(cleanUpSignals, RunService.Heartbeat:Connect(function()
                 session.lbl.Text = string.format("Processing... %d:%02d", math.floor(rem / 60), math.floor(rem) % 60)
             end
         end
-        
-
     end)
 end))
 
@@ -1035,8 +933,7 @@ if StartAuctionEvent then
     table.insert(cleanUpSignals, StartAuctionEvent.OnClientEvent:Connect(function(isOpen, data)
         AB.auctionOpen = isOpen
         if isOpen then
-            AB.bidsThisRound = 0
-            AB.currentBid = 0
+            AB.bidsThisRound = 0; AB.currentBid = 0
             local lotName = data and data.LotName or "Unknown"
             abLog("🔔 Started: " .. tostring(lotName), C.accent)
             if AB.enabled then startBidLoop() end
@@ -1044,9 +941,7 @@ if StartAuctionEvent then
             abLog("🔔 Auction closed", C.textMuted)
             stopBidLoop()
         end
-        if activeTab == "lots" then
-            renderLots(scanData)
-        end
+        if activeTab == "lots" then renderLots(scanData) end
     end))
 end
 
@@ -1054,9 +949,7 @@ if UpdateWinningBidEvent then
     table.insert(cleanUpSignals, UpdateWinningBidEvent.OnClientEvent:Connect(function(amount, winnerId)
         AB.currentBid = tonumber(amount) or AB.currentBid
         local isUs = (winnerId == LocalPlayer.UserId)
-        if isUs then
-            abLog("👑 WE'RE WINNING: $"..AB.currentBid, C.gold)
-        end
+        if isUs then abLog("👑 WE'RE WINNING: $"..AB.currentBid, C.gold) end
     end))
 end
 
@@ -1096,23 +989,10 @@ task.wait(0.05)
 tw(Win, 0.4, {BackgroundTransparency=0})
 
 _G.AHScanner_CleanUp = function()
-    -- Stop autobid
-    if AB then
-        AB.enabled = false
-        AB.auctionOpen = false
-        stopBidLoop()
-    end
-    -- Disconnect all events
-    for _, conn in ipairs(cleanUpSignals) do
-        pcall(function() conn:Disconnect() end)
-    end
+    if AB then AB.enabled = false; AB.auctionOpen = false; stopBidLoop() end
+    for _, conn in ipairs(cleanUpSignals) do pcall(function() conn:Disconnect() end) end
     table.clear(cleanUpSignals)
-    -- Destroy GUI
-    pcall(function()
-        for _, v in ipairs(TargetGui:GetChildren()) do
-            if v.Name == "AHScanner" then v:Destroy() end
-        end
-    end)
+    pcall(function() for _, v in ipairs(TargetGui:GetChildren()) do if v.Name == "AHScanner" then v:Destroy() end end end)
 end
 
 print("✅ [LiveAuctionScanner v10.2] Scaled Perfectly for Delta Mobile!")
