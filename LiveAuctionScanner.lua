@@ -179,15 +179,18 @@ local function startBidLoop()
 end
 
 -- ═════════════════════════════════════════════════════
--- VALUE CALCULATION
+-- VALUE CALCULATION (FIXED REVERSE LOOKUP FOR NAMES)
 -- ═════════════════════════════════════════════════════
 local function getItemData(identifier)
     if not ItemsData or type(ItemsData) ~= "table" then return "Unknown", 0 end
+    
     local identifierStr = tostring(identifier)
+    
     if ItemsData[identifierStr] then
         local d = ItemsData[identifierStr]
         return (d.Name or d.name or identifierStr), tonumber(d.BasePrice or d.basePrice or d.Value or d.value) or 0
     end
+    
     for id, v in pairs(ItemsData) do
         if type(v) == "table" then
             if tostring(id) == identifierStr or tostring(v.Id or v.id) == identifierStr then
@@ -204,9 +207,11 @@ local function calcItemValue(itemName, rarity, mutator, grade, condition)
         local rarityFallbacks = { Common=15, Uncommon=35, Rare=80, Epic=200, Legendary=500, Mythical=1200, Exclusive=3000 }
         base = rarityFallbacks[rarity] or 15
     end
+    
     local mMult     = MUTATOR_MULT[mutator]  or 1
     local gMult     = GRADE_MULT[tonumber(grade)] or 1.0
     local cMult     = CONDITION_MULT[condition]    or 1.0
+    
     return realName, math.floor(base * mMult * gMult * cMult)
 end
 
@@ -226,8 +231,12 @@ local function isItemModel(model)
     local base = model.PrimaryPart or model:FindFirstChild("Base")
     if not base then return false end
     local itemName = model:GetAttribute("ItemName") or model:GetAttribute("Name") or model.Name
+    
     local nameLower = itemName:lower()
-    if nameLower:find("garage") or nameLower == "right" or nameLower == "left" or nameLower == "door" or nameLower == "blocker" or nameLower == "button" or nameLower == "entrysquare" or nameLower == "npcspawns" then return false end
+    if nameLower:find("garage") or nameLower == "right" or nameLower == "left" or nameLower == "door" or nameLower == "blocker" or nameLower == "button" or nameLower == "entrysquare" or nameLower == "npcspawns" then
+        return false
+    end
+    
     local blacklist = { "Terrain", "Camera", "GarageSpawn", "AreaBoundary", "LostAndFoundBox", "Lost and Found Box", "Billy", "Sal", "Ted", "Steve", "Parts", "Part", "Model" }
     for _, b in ipairs(blacklist) do if itemName == b then return false end end
     return true
@@ -243,6 +252,7 @@ local function readItemAttributes(model)
         value     = model:GetAttribute("Value"),
         baseValue = model:GetAttribute("BaseValue"),
     }
+    
     local basePart = model.PrimaryPart or model:FindFirstChild("Base")
     if basePart then
         attrs.itemName  = attrs.itemName  or basePart:GetAttribute("ItemName")
@@ -252,10 +262,16 @@ local function readItemAttributes(model)
         attrs.grade     = attrs.grade     or basePart:GetAttribute("Grade")
         attrs.condition = attrs.condition or basePart:GetAttribute("Condition")
     end
+    
     local realName, calcPrice = calcItemValue(attrs.itemName, attrs.rarity, attrs.mutator, attrs.grade, attrs.condition)
     attrs.displayName = realName
+    
     local serverValue = tonumber(attrs.value or attrs.baseValue)
-    if serverValue and serverValue > 0 then attrs.calcValue = serverValue else attrs.calcValue = calcPrice end
+    if serverValue and serverValue > 0 then 
+        attrs.calcValue = serverValue 
+    else
+        attrs.calcValue = calcPrice
+    end
     return attrs
 end
 
@@ -299,14 +315,18 @@ local function scanAllAreas()
                         if string.find(spawn.Name:lower(), conf.name:lower()) then garageConf = conf; garageId = id; break end
                     end
                 end
+                
                 local conf = garageConf or { name="Unknown", tier=0, area=areaName, mascot="?", minNW=0, minBid=0, minProfit=0, maxProfit=0, items=6, entMin=0, entMax=0, col=Color3.fromRGB(100,100,100) }
+
                 local scannedItems = scanLot(spawn)
                 local totalVal = 0
                 for _, it in ipairs(scannedItems) do totalVal = totalVal + (it.calcValue or 0) end
+
                 local predictedAvg = conf.minBid + ((conf.minProfit + conf.maxProfit) / 2)
                 local entCost = (conf.entMin + conf.entMax) / 2
                 local useValue = (#scannedItems > 0) and totalVal or predictedAvg
                 local roi = entCost > 0 and ((useValue - entCost) / entCost * 100) or 0
+
                 table.insert(areaResult.lots, {
                     spawnName = spawn.Name, lotIndex = i, garageId = garageId, conf = conf,
                     items = scannedItems, scannedTotal = totalVal, predictedAvg = math.max(0, predictedAvg),
@@ -333,73 +353,59 @@ local function pad(px, p) return make("UIPadding", {PaddingTop=UDim.new(0,px), P
 local function corner(r, p) return make("UICorner", {CornerRadius=UDim.new(0,r)}, p) end
 local function stroke(th, col, p) return make("UIStroke", {Thickness=th, Color=col, ApplyStrokeMode=Enum.ApplyStrokeMode.Border}, p) end
 local function list(align, spacing, p) return make("UIListLayout", {HorizontalAlignment=align or Enum.HorizontalAlignment.Left, VerticalAlignment=Enum.VerticalAlignment.Top, Padding=UDim.new(0, spacing or 6), SortOrder=Enum.SortOrder.LayoutOrder}, p) end
-local function tw(inst, sec, props) pcall(function() local t = TweenService:Create(inst, TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props); t:Play() end) end
+local function tw(inst, sec, props) 
+    local info = TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) 
+    pcall(function() local t = TweenService:Create(inst, info, props); t:Play() end)
+end
 local function fm(num) return num >= 1000 and string.format("$%.1fk", num/1000) or string.format("$%d", num) end
 
-pcall(function() for _, v in ipairs(TargetGui:GetChildren()) do if v.Name == "AHScanner" then v:Destroy() end end end)
+pcall(function()
+    for _, v in ipairs(TargetGui:GetChildren()) do
+        if v.Name == "AHScanner" then v:Destroy() end
+    end
+end)
 
 -- ═════════════════════════════════════════════════════
 -- SCREEN GUI & MAGIC AUTO-SCALER
 -- ═════════════════════════════════════════════════════
-local ScreenGui = make("ScreenGui", { Name="AHScanner", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, IgnoreGuiInset=true }, TargetGui)
-
-local ToggleBtn = make("TextButton", {
-    Name = "AHToggle",
-    Size = UDim2.new(0, 48, 0, 48),
-    Position = UDim2.new(0.02, 0, 0.15, 0),
-    BackgroundColor3 = Color3.fromRGB(15, 12, 28),
-    Text = "🔍",
-    TextSize = 22,
-    Font = Enum.Font.GothamBold,
-    TextColor3 = C.accent,
-    ZIndex = 99999,
-    Active = true,
-}, ScreenGui)
-corner(24, ToggleBtn); stroke(1.5, C.accent, ToggleBtn)
-
-local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
-ToggleBtn.InputBegan:Connect(function(inp)
-    if isTouchOrClick(inp) then
-        togDragActive = true; togDragStart = inp.Position; togStartPos = ToggleBtn.Position; togMoved = false
-    end
-end)
-
-table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-    if togDragActive and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-        local delta = inp.Position - togDragStart
-        if delta.Magnitude > 5 then togMoved = true end
-        ToggleBtn.Position = UDim2.new(togStartPos.X.Scale, togStartPos.X.Offset + delta.X, togStartPos.Y.Scale, togStartPos.Y.Offset + delta.Y)
-    end
-end))
-
-ToggleBtn.InputEnded:Connect(function(inp)
-    if isTouchOrClick(inp) then
-        togDragActive = false
-        if not togMoved then
-            tw(ToggleBtn, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
-            task.delay(0.1, function() tw(ToggleBtn, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
-            if Win then Win.Visible = not Win.Visible end
-        end
-    end
-end)
+local ScreenGui = make("ScreenGui", {
+    Name="AHScanner", ResetOnSpawn=false,
+    ZIndexBehavior=Enum.ZIndexBehavior.Sibling, IgnoreGuiInset=true,
+}, TargetGui)
 
 local BASE_WIDTH = 840
 local BASE_HEIGHT = 460
 
-local Win = make("Frame", { Name="Win", AnchorPoint=Vector2.new(0.5,0.5), Position=UDim2.new(0.5,0,0.5,0), Size=UDim2.new(0,BASE_WIDTH,0,BASE_HEIGHT), BackgroundColor3=C.bg, ClipsDescendants=true }, ScreenGui)
-corner(12, Win); stroke(1.5, C.border, Win)
+local Win = make("Frame", {
+    Name="Win", AnchorPoint=Vector2.new(0.5,0.5),
+    Position=UDim2.new(0.5,0,0.5,0),
+    Size=UDim2.new(0,BASE_WIDTH,0,BASE_HEIGHT),
+    BackgroundColor3=C.bg, ClipsDescendants=true,
+}, ScreenGui)
+corner(12, Win)
+stroke(1.5, C.border, Win)
 
 local uiScale = Instance.new("UIScale", Win)
+
 local function updateScale()
     local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
     local scaleX = (viewport.X * 0.95) / BASE_WIDTH
     local scaleY = (viewport.Y * 0.95) / BASE_HEIGHT
     uiScale.Scale = math.min(scaleX, scaleY, 1)
 end
+
 updateScale()
 table.insert(cleanUpSignals, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
 
-local WinGrad = make("UIGradient", { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(13, 17, 28)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(9, 11, 17)), ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 7, 11)) }), Rotation = 45 }, Win)
+local WinGrad = make("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(13, 17, 28)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(9, 11, 17)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 7, 11)),
+    }),
+    Rotation = 45,
+}, Win)
+
 local topBar = make("Frame", {Size=UDim2.new(1,0,0,3), BackgroundColor3=C.accent, BorderSizePixel=0}, Win)
 make("UIGradient", { Color=ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(60,140,255)), ColorSequenceKeypoint.new(0.4,Color3.fromRGB(120,60,255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255,90,150)) }) }, topBar)
 
@@ -422,13 +428,13 @@ local listeningForKeybind = false
 local currentKeybind = Enum.KeyCode.RightShift
 BindBtn.MouseButton1Click:Connect(function() listeningForKeybind = true; BindBtn.Text = "Press Key..."; tw(BindBtn, 0.1, {BackgroundColor3=Color3.fromRGB(38,32,60), TextColor3=C.purple}) end)
 
-UserInputService.InputBegan:Connect(function(input, processed)
+table.insert(cleanUpSignals, UserInputService.InputBegan:Connect(function(input, processed)
     if listeningForKeybind and input.UserInputType == Enum.UserInputType.Keyboard then
         listeningForKeybind = false; currentKeybind = input.KeyCode; BindBtn.Text = "Bind: " .. input.KeyCode.Name; tw(BindBtn, 0.1, {BackgroundColor3=Color3.fromRGB(24,28,40), TextColor3=C.text2})
     elseif not processed and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == currentKeybind then
         Win.Visible = not Win.Visible
     end
-end)
+end))
 
 local function hdrBtn(icon, xOff, bgCol, hoverCol)
     local b = make("TextButton", { Text=icon, TextSize=11, TextColor3=C.text2, BackgroundColor3=bgCol, Position=UDim2.new(1,xOff,0.5,-12), Size=UDim2.new(0,24,0,24), Font=Enum.Font.GothamBold, AutoButtonColor=false, }, Hdr)
@@ -448,6 +454,7 @@ MinBtn.MouseButton1Click:Connect(function() minned = not minned; tw(Win, 0.22, {
 -- ─────────────────────────────────────────────────────
 local Sidebar = make("Frame", { Size = UDim2.new(0, 300, 1, -67), Position = UDim2.new(0, 6, 0, 47), BackgroundColor3 = C.panel, BackgroundTransparency = 0.4, BorderSizePixel = 0, }, Win)
 corner(10, Sidebar); stroke(1.2, C.border, Sidebar)
+
 local StatsGrid = make("Frame", { Size = UDim2.new(1, -12, 0, 80), Position = UDim2.new(0, 6, 0, 6), BackgroundTransparency = 1, }, Sidebar)
 
 local function statPill(labelTxt, valInit, col, x, y)
@@ -472,30 +479,6 @@ SortCycleBtn.MouseButton1Click:Connect(function() currentSort = currentSort % #S
 
 local RefreshBtn = make("TextButton", { Text = "⟳ Refresh", TextSize = 10, Font = Enum.Font.GothamBold, TextColor3 = C.text, BackgroundColor3 = C.accent:Lerp(C.bg, 0.4), Size = UDim2.new(0.4, 0, 0, 26), Position = UDim2.new(0.6, 4, 0, 0), AutoButtonColor = false, }, ControlsRow)
 corner(6, RefreshBtn); stroke(1, C.accent, RefreshBtn)
-
-local espActive = false; local espHighlights = {}; local scanData = {}
-local function clearESP() for _, h in ipairs(espHighlights) do if h and h.Parent then h:Destroy() end end; espHighlights = {} end
-local function applyESP()
-    clearESP(); if not espActive or not scanData then return end
-    for _, area in ipairs(scanData) do
-        if area and type(area) == "table" and area.lots then
-            for _, lot in ipairs(area.lots) do
-                if type(lot) == "table" and lot.liveScan then
-                    for _, item in ipairs(lot.items) do
-                        if item.model and item.model.Parent then
-                            local h = make("Highlight", { FillColor = RARITY_COL[item.rarity] or C.textMuted, FillTransparency = 0.45, OutlineColor = Color3.fromRGB(255,255,255), OutlineTransparency = 0.15, Adornee = item.model, }, ScreenGui)
-                            table.insert(espHighlights, h)
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
-local EspBtn = make("TextButton", { Text = "📦 ESP: OFF", TextSize = 9, Font = Enum.Font.GothamBold, TextColor3 = C.textMuted, BackgroundColor3 = C.card, Size = UDim2.new(0.5, -4, 0, 26), Position = UDim2.new(0, 0, 0, 32), AutoButtonColor = false, }, ControlsRow)
-corner(6, EspBtn); stroke(1, C.border, EspBtn)
-EspBtn.MouseButton1Click:Connect(function() espActive = not espActive; if espActive then EspBtn.Text = "📦 ESP: ON"; tw(EspBtn, 0.1, {BackgroundColor3 = C.green:Lerp(Color3.fromRGB(0,0,0), 0.8), TextColor3 = C.green}); stroke(1.2, C.green, EspBtn); applyESP() else EspBtn.Text = "📦 ESP: OFF"; tw(EspBtn, 0.1, {BackgroundColor3 = C.card, TextColor3 = C.textMuted}); stroke(1, C.border, EspBtn); clearESP() end end)
 
 local merchantIndex = 1
 local MERCHANTS = { { name = "Billy", area = "Junk Yard" }, { name = "Sal", area = "Back Alley" }, { name = "Ted", area = "Farmyard" }, { name = "Steve", area = "Shipyard" } }
@@ -642,8 +625,8 @@ local function applySliderAt(ratio)
 end
 
 sliderTrack.InputBegan:Connect(function(inp) if isTouchOrClick(inp) then sliderDragging = true; applySliderAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)) end end)
-UserInputService.InputChanged:Connect(function(inp) if sliderDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then applySliderAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)) end end)
-UserInputService.InputEnded:Connect(function(inp) if isTouchOrClick(inp) then sliderDragging = false end end)
+table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp) if sliderDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then applySliderAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)) end end))
+table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp) if isTouchOrClick(inp) then sliderDragging = false end end))
 
 selectPreset(2)
 
@@ -855,7 +838,7 @@ local function renderWorkshop(shopKey)
                     
                     local skipBtn = make("TextButton", { Text = "⚡ Skip", TextSize = 9, Font = Enum.Font.GothamBold, TextColor3 = C.purple, BackgroundColor3 = Color3.fromRGB(28, 16, 40), Position = UDim2.new(0.65, 0, 0.5, -11), Size = UDim2.new(0.35, -8, 0, 22), AutoButtonColor = false, }, card)
                     corner(5, skipBtn); stroke(1.2, C.purple:Lerp(Color3.fromRGB(0,0,0), 0.5), skipBtn)
-                    skipBtn.MouseButton1Click:Connect(function() task.spawn(function() pcall(function() cfg.speedUp(slotIndex) end); refreshWorkshopView() end) end)
+                    skipBtn.MouseButton1Click:Connect(function() task.spawn(function() pcall(function() if cfg.speedUp(slotIndex) then refreshWorkshopView() end end) end) end)
                 else
                     local btnText, btnColor, btnBg, action = "Claim", C.green, Color3.fromRGB(15, 30, 20), "claim"
                     if shopKey == "Wash" and not slotData.Washed then btnText, btnColor, btnBg, action = "🛁 Collect Wash", C.purple, Color3.fromRGB(25, 15, 35), "collectWash"
@@ -874,10 +857,7 @@ local function renderWorkshop(shopKey)
                             elseif action == "collectWash" then if EventsObj:WaitForChild("Wash"):WaitForChild("CollectWash"):InvokeServer(slotIndex) then statusLbl.Text = "🛁 Wash collected!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() end
                             elseif action == "collectRepair" then if EventsObj:WaitForChild("Repair"):WaitForChild("CollectRepair"):InvokeServer(slotIndex) then statusLbl.Text = "🔧 Repair collected!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() end
                             elseif action == "rollGrade" then if cfg.collect(slotIndex) then statusLbl.Text = "🔬 Grade completed!"; statusLbl.TextColor3 = C.purple; refreshWorkshopView() end
-                            elseif action == "openSafe" then 
-                                cfg.openSafe(slotIndex); task.wait(0.3); cfg.claimWork(slotIndex)
-                                statusLbl.Text = "🔓 Safe opened & claimed!"; statusLbl.TextColor3 = C.green; refreshWorkshopView() 
-                            end
+                            elseif action == "openSafe" then if cfg.openSafe(slotIndex) then statusLbl.Text = "🔓 Safe opened!"; statusLbl.TextColor3 = C.orange; refreshWorkshopView() end end
                         end) end)
                     end)
                 end
@@ -982,6 +962,49 @@ table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
 end))
 
 table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp) if isTouchOrClick(inp) then dragActive = false; resizeActive = false end end))
+
+-- ═════════════════════════════════════════════════════
+-- MOBILE FLOATING TOGGLE BUTTON (FIXED TAP/DRAG LOGIC)
+-- ═════════════════════════════════════════════════════
+if UserInputService.TouchEnabled then
+    local MobileToggle = make("TextButton", {
+        Name = "MobileToggle", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(0, 48, 0, 48),
+        Position = UDim2.new(0.9, 0, 0.3, 0), BackgroundColor3 = C.panel, Text = "🔍", TextSize = 18,
+        Font = Enum.Font.GothamBold, TextColor3 = C.accent, ZIndex = 9999, Active = true, AutoButtonColor = false,
+    }, ScreenGui)
+    corner(99, MobileToggle); stroke(2, C.accent, MobileToggle)
+
+    local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
+    
+    MobileToggle.InputBegan:Connect(function(inp)
+        if isTouchOrClick(inp) then 
+            togDragActive = true
+            togDragStart = inp.Position
+            togStartPos = MobileToggle.Position
+            togMoved = false
+        end
+    end)
+    
+    table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
+        if togDragActive and (inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement) then
+            local delta = inp.Position - togDragStart
+            if delta.Magnitude > 5 then togMoved = true end
+            MobileToggle.Position = UDim2.new(togStartPos.X.Scale, togStartPos.X.Offset + delta.X, togStartPos.Y.Scale, togStartPos.Y.Offset + delta.Y)
+        end
+    end))
+    
+    MobileToggle.InputEnded:Connect(function(inp)
+        if isTouchOrClick(inp) then
+            togDragActive = false
+            if not togMoved then
+                -- Pure Tap Action: Shrink animation, wait, pop back out, and toggle main window
+                tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
+                task.delay(0.1, function() tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
+                if Win then Win.Visible = not Win.Visible end
+            end
+        end
+    end)
+end
 
 -- Opening animation
 Win.BackgroundTransparency = 1
