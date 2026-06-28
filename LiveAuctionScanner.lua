@@ -1,6 +1,6 @@
 --[[
     ╔══════════════════════════════════════════════════════════════════════╗
-    ║  STORAGE HUNTERS — HORIZONTAL MOBILE AUCTION SCANNER v10.1           ║
+    ║  STORAGE HUNTERS — HORIZONTAL MOBILE AUCTION SCANNER v1              ║
     ║  Real-time scanner · Auto-Bid (FULLY RESTORED & OPTIMIZED)           ║
     ║  Asynchronous Workshops (Instant Invokes) · Sell All Items           ║
     ║  Robust timer calculations · Safe Config overrides & error handling  ║
@@ -2260,4 +2260,4 @@ Win.BackgroundTransparency = 1
 task.wait(0.05)
 tw(Win, 0.4, {Size=UDim2.new(0,W,0,H), BackgroundTransparency=0})
 
-print("✅ [LiveAuctionScanner v10.1] Loaded successfully with Mobile Fixes!")
+print("✅ [LiveAuctionScanner v1] Loaded successfully with Mobile Fixes!")
