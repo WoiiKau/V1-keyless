@@ -998,9 +998,11 @@ toggleBtn.MouseButton1Click:Connect(function()
         
         local bestVal = 0
         for _, area in ipairs(scanData) do
-            for _, lot in ipairs(area.lots) do
-                if lot.liveScan and lot.scannedTotal > bestVal then
-                    bestVal = lot.scannedTotal
+            if type(area) == "table" and area.lots then
+                for _, lot in ipairs(area.lots) do
+                    if lot.liveScan and lot.scannedTotal > bestVal then
+                        bestVal = lot.scannedTotal
+                    end
                 end
             end
         end
@@ -1379,251 +1381,7 @@ statusLbl = make("TextLabel", {
 }, StatusBar)
 
 -- ─────────────────────────────────────────────────────
--- LOT CARD BUILDER
--- ─────────────────────────────────────────────────────
-local function buildLotCard(lot, parent, layoutOrder)
-    local conf    = lot.conf
-    local tcol    = TIER_COL[conf.tier] or C.textMuted
-    local useVal  = lot.liveScan and lot.scannedTotal or lot.predictedAvg
-    local vcolor  = lot.verdict == "Profitable" and C.green or lot.verdict == "Break-Even" and C.gold or C.red
-    local isLive  = lot.liveScan
-    
-    local card = make("Frame", {
-        Size=UDim2.new(1,-8,0,84), BackgroundColor3=C.card, LayoutOrder=layoutOrder,
-        AutomaticSize=Enum.AutomaticSize.None, ClipsDescendants=true,
-    }, parent)
-    corner(8, card)
-    stroke(1.2, tcol:Lerp(Color3.fromRGB(0,0,0),0.65), card)
-    
-    local stripe = make("Frame", {
-        Size=UDim2.new(0,3,0.76,0), Position=UDim2.new(0,0,0.12,0),
-        BackgroundColor3=tcol, BorderSizePixel=0,
-    }, card)
-    corner(3, stripe)
-    
-    local modeBadge = make("TextLabel", {
-        Text = isLive and "🟢 LIVE" or "📊 PREDICTED", TextSize=8,
-        TextColor3 = isLive and C.green or C.textMuted,
-        BackgroundColor3 = isLive and Color3.fromRGB(8,20,12) or C.panel,
-        Font=Enum.Font.GothamBold, Position=UDim2.new(0,10,0,8), Size=UDim2.new(0,72,0,16),
-        TextXAlignment=Enum.TextXAlignment.Center,
-    }, card)
-    corner(4, modeBadge)
-    stroke(1, isLive and C.green:Lerp(Color3.fromRGB(0,0,0),0.5) or C.border, modeBadge)
-    
-    make("TextLabel", {
-        Text=conf.name, TextSize=11, TextColor3=tcol, Font=Enum.Font.GothamBold,
-        BackgroundTransparency=1, Position=UDim2.new(0,90,0,8), Size=UDim2.new(0.5,-90,0,16),
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, card)
-    
-    make("TextLabel", {
-        Text="Lot #"..lot.lotIndex.."  •  "..conf.area,
-        TextSize=9, TextColor3=C.text2, Font=Enum.Font.Gotham,
-        BackgroundTransparency=1, Position=UDim2.new(0,90,0,24), Size=UDim2.new(0.5,-90,0,14),
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, card)
-    
-    make("TextLabel", {
-        Text=isLive and (tostring(#lot.items).." items found") or (tostring(conf.items).." items expected"),
-        TextSize=9, TextColor3=C.textMuted, Font=Enum.Font.Gotham,
-        BackgroundTransparency=1, Position=UDim2.new(0,90,0,38), Size=UDim2.new(0.5,-90,0,14),
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, card)
-    
-    make("TextLabel", {
-        Text=fm(useVal), TextSize=18, TextColor3=vcolor, Font=Enum.Font.GothamBold,
-        BackgroundTransparency=1, Position=UDim2.new(0.6,0,0,6), Size=UDim2.new(0.4,-10,0,22),
-        TextXAlignment=Enum.TextXAlignment.Right,
-    }, card)
-    
-    make("TextLabel", {
-        Text = isLive and "scanned total" or "predicted avg",
-        TextSize=8, TextColor3=C.textMuted, Font=Enum.Font.Gotham,
-        BackgroundTransparency=1, Position=UDim2.new(0.6,0,0,28), Size=UDim2.new(0.4,-10,0,12),
-        TextXAlignment=Enum.TextXAlignment.Right,
-    }, card)
-    
-    local actionRow = make("Frame", {
-        Size=UDim2.new(0.4,-10,0,20), Position=UDim2.new(0.6,0,0,42),
-        BackgroundTransparency=1,
-    }, card)
-    list(nil, 4, actionRow)
-    actionRow.UIListLayout.FillDirection = Enum.FillDirection.Horizontal
-    actionRow.UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-    
-    local tpBtn = make("TextButton", {
-        Text="📍 TP", TextSize=9, TextColor3=C.accent,
-        BackgroundColor3=C.accent:Lerp(Color3.fromRGB(0,0,0),0.85),
-        Font=Enum.Font.GothamBold, Size=UDim2.new(0,40,1,0),
-        AutoButtonColor=false, LayoutOrder=2,
-    }, actionRow)
-    corner(5, tpBtn)
-    stroke(1, C.accent:Lerp(Color3.fromRGB(0,0,0),0.3), tpBtn)
-    
-    tpBtn.MouseButton1Click:Connect(function()
-        pcall(function()
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local spawnPart = workspace:FindFirstChild("Areas")
-                and workspace.Areas:FindFirstChild(conf.area)
-                and workspace.Areas[conf.area]:FindFirstChild("GarageSpawns")
-                and workspace.Areas[conf.area].GarageSpawns:FindFirstChild(lot.spawnName)
-            
-            if root and spawnPart and spawnPart:IsA("BasePart") then
-                root.CFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
-                statusLbl.Text = "⚡ Teleported to " .. lot.spawnName
-                statusLbl.TextColor3 = C.green
-            end
-        end)
-    end)
-    
-    local vBadge = make("TextLabel", {
-        Text = lot.verdict == "Profitable" and "BUY" or lot.verdict == "Break-Even" and "RISKY" or "SKIP",
-        TextSize=9, TextColor3=vcolor,
-        BackgroundColor3=vcolor:Lerp(Color3.fromRGB(0,0,0),0.88),
-        Font=Enum.Font.GothamBold, Size=UDim2.new(0,50,1,0),
-        TextXAlignment=Enum.TextXAlignment.Center, LayoutOrder=1,
-    }, actionRow)
-    corner(5, vBadge)
-    stroke(1, vcolor:Lerp(Color3.fromRGB(0,0,0),0.4), vBadge)
-    
-    local barBG = make("Frame", {
-        Size=UDim2.new(0.57,0,0,3), Position=UDim2.new(0,10,0,74),
-        BackgroundColor3=Color3.fromRGB(18,22,36), BorderSizePixel=0,
-    }, card)
-    corner(2, barBG)
-    local fillRatio = math.clamp(useVal / math.max(conf.maxProfit + conf.minBid, 1), 0, 1)
-    local barFill = make("Frame", {
-        Size=UDim2.new(fillRatio,0,1,0), BackgroundColor3=tcol, BorderSizePixel=0,
-    }, barBG)
-    corner(2, barFill)
-    
-    local expanded  = false
-    local itemFrame = nil
-    
-    local expandBtn = make("TextButton", {
-        Text = isLive and ("▼ " .. #lot.items .. " items ▼") or "▼ Estimated Breakdown ▼",
-        TextSize=8, TextColor3=C.textMuted, BackgroundTransparency=1,
-        Font=Enum.Font.Gotham, AutoButtonColor=false,
-        Position=UDim2.new(0,10,0,70), Size=UDim2.new(0.55,0,0,14),
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, card)
-    
-    local function collapse()
-        expanded = false
-        if itemFrame then itemFrame:Destroy() itemFrame = nil end
-        tw(card, 0.18, {Size=UDim2.new(1,-8,0,84)})
-        expandBtn.Text = isLive and ("▼ " .. #lot.items .. " items ▼") or "▼ Estimated Breakdown ▼"
-    end
-    
-    local function expand()
-        expanded = true
-        local baseH = 84
-        local itemH = 0
-        itemFrame = make("Frame", {
-            Size=UDim2.new(1,-10,0,0), Position=UDim2.new(0,5,0,86),
-            BackgroundColor3=Color3.fromRGB(12,16,26), AutomaticSize=Enum.AutomaticSize.Y,
-        }, card)
-        corner(6, itemFrame)
-        pad(6, itemFrame)
-        list(nil, 4, itemFrame)
-        
-        local hrow = make("Frame", {Size=UDim2.new(1,0,0,14), BackgroundTransparency=1, LayoutOrder=0}, itemFrame)
-        local colDef = { {"ItemName", 0, 0.42}, {"Rarity", 0.42, 0.18}, {"Mutator", 0.60, 0.18}, {"Value", 0.78, 0.22} }
-        for _, c in ipairs(colDef) do
-            make("TextLabel", {
-                Text=c[1], TextSize=8, TextColor3=C.textMuted, Font=Enum.Font.GothamBold,
-                BackgroundTransparency=1, Position=UDim2.new(c[2],0,0,0),
-                Size=UDim2.new(c[3],0,1,0), TextXAlignment=Enum.TextXAlignment.Left,
-            }, hrow)
-        end
-        itemH = itemH + 16
-        
-        local displayItems = lot.items
-        if #displayItems == 0 then
-            local rarityDist = {
-                {rarity="Common",    pct=0.40},
-                {rarity="Uncommon",  pct=0.30},
-                {rarity="Rare",      pct=0.18},
-                {rarity="Epic",      pct=0.08},
-                {rarity="Legendary", pct=0.03},
-                {rarity="Mythical",  pct=0.01},
-            }
-            local basePerItem = lot.predictedAvg / conf.items
-            for li, rd in ipairs(rarityDist) do
-                local row = make("Frame", {Size=UDim2.new(1,0,0,18), BackgroundTransparency=1, LayoutOrder=li+1}, itemFrame)
-                make("TextLabel", {
-                    Text="~"..rd.rarity, TextSize=9, TextColor3=C.text2, Font=Enum.Font.Gotham,
-                    BackgroundTransparency=1, Position=UDim2.new(0,0,0,0), Size=UDim2.new(0.42,0,1,0),
-                    TextXAlignment=Enum.TextXAlignment.Left,
-                }, row)
-                make("TextLabel", {
-                    Text=rd.rarity, TextSize=9, TextColor3=RARITY_COL[rd.rarity] or C.textMuted,
-                    Font=Enum.Font.GothamMedium, BackgroundTransparency=1, Position=UDim2.new(0.42,0,0,0),
-                    Size=UDim2.new(0.18,0,1,0), TextXAlignment=Enum.TextXAlignment.Left,
-                }, row)
-                make("TextLabel", {
-                    Text=string.format("%.0f%%", rd.pct*100), TextSize=9, TextColor3=C.textMuted, Font=Enum.Font.Gotham,
-                    BackgroundTransparency=1, Position=UDim2.new(0.60,0,0,0), Size=UDim2.new(0.18,0,1,0),
-                    TextXAlignment=Enum.TextXAlignment.Left,
-                }, row)
-                make("TextLabel", {
-                    Text=fm(basePerItem * (RARITY_MULT[rd.rarity] or 1)), TextSize=9, TextColor3=RARITY_COL[rd.rarity] or C.text2,
-                    Font=Enum.Font.GothamBold, BackgroundTransparency=1, Position=UDim2.new(0.78,0,0,0),
-                    Size=UDim2.new(0.22,0,1,0), TextXAlignment=Enum.TextXAlignment.Right,
-                }, row)
-                itemH = itemH + 20
-            end
-        else
-            for li, it in ipairs(displayItems) do
-                local irow = make("Frame", {
-                    Size=UDim2.new(1,0,0,18), LayoutOrder=li+1,
-                    BackgroundColor3 = li%2==0 and Color3.fromRGB(16,20,32) or Color3.fromRGB(0,0,0),
-                    BackgroundTransparency = li%2==0 and 0 or 1,
-                }, itemFrame)
-                if li%2==0 then corner(4, irow) end
-                
-                local mutC = MUT_COL[it.mutator] or C.text2
-                local rarC = RARITY_COL[it.rarity] or C.textMuted
-                make("TextLabel", {
-                    Text=(it.itemName or "Unknown"), TextSize=9, TextColor3=C.text,
-                    Font=Enum.Font.GothamMedium, BackgroundTransparency=1, Position=UDim2.new(0,2,0,0),
-                    Size=UDim2.new(0.42,-2,1,0), TextXAlignment=Enum.TextXAlignment.Left,
-                    TextTruncate=Enum.TextTruncate.AtEnd,
-                }, irow)
-                make("TextLabel", {
-                    Text=it.rarity or "Common", TextSize=9, TextColor3=rarC, Font=Enum.Font.GothamMedium,
-                    BackgroundTransparency=1, Position=UDim2.new(0.42,0,0,0), Size=UDim2.new(0.18,0,1,0),
-                    TextXAlignment=Enum.TextXAlignment.Left,
-                }, irow)
-                local mLabel = (it.mutator ~= "None" and it.mutator) and (it.mutator) or "—"
-                make("TextLabel", {
-                    Text=mLabel, TextSize=9, TextColor3=mutC, Font=Enum.Font.GothamMedium,
-                    BackgroundTransparency=1, Position=UDim2.new(0.60,0,0,0), Size=UDim2.new(0.18,0,1,0),
-                    TextXAlignment=Enum.TextXAlignment.Left,
-                }, irow)
-                make("TextLabel", {
-                    Text=fm(it.calcValue), TextSize=9, TextColor3=it.calcValue > 100 and C.gold or C.text2,
-                    Font=Enum.Font.GothamBold, BackgroundTransparency=1, Position=UDim2.new(0.78,0,0,0),
-                    Size=UDim2.new(0.22,0,1,0), TextXAlignment=Enum.TextXAlignment.Right,
-                }, irow)
-                itemH = itemH + 20
-            end
-        end
-        itemH = itemH + 10
-        tw(card, 0.2, {Size=UDim2.new(1,-8,0, baseH + itemH)})
-        expandBtn.Text = "▲ Collapse ▲"
-    end
-    expandBtn.MouseButton1Click:Connect(function() if expanded then collapse() else expand() end end)
-    card.MouseEnter:Connect(function() tw(card,0.12,{BackgroundColor3=C.cardHov}) end)
-    card.MouseLeave:Connect(function() tw(card,0.12,{BackgroundColor3=C.card}) end)
-    
-    return card
-end
-
--- ─────────────────────────────────────────────────────
--- RENDER LOTS TAB
+-- RENDER LOTS TAB (Updated: Stats work, list removed)
 -- ─────────────────────────────────────────────────────
 local function renderLots(flatLots)
     for _, c in ipairs(ScrollTab:GetChildren()) do
@@ -1642,48 +1400,15 @@ local function renderLots(flatLots)
         end
     end
     
-    if currentSort == 1 then
-        table.sort(flat, function(a,b)
-            local av = a.liveScan and a.scannedTotal or a.predictedAvg
-            local bv = b.liveScan and b.scannedTotal or b.predictedAvg
-            return (av or 0) > (bv or 0)
-        end)
-    elseif currentSort == 2 then
-        table.sort(flat, function(a,b)
-            local av = a.liveScan and a.scannedTotal or a.predictedAvg
-            local bv = b.liveScan and b.scannedTotal or b.predictedAvg
-            return (av or 0) < (bv or 0)
-        end)
-    elseif currentSort == 3 then
-        table.sort(flat, function(a,b) return (a.conf.tier or 0) > (b.conf.tier or 0) end)
-    elseif currentSort == 4 then
-        table.sort(flat, function(a,b) return (a.conf.tier or 0) < (b.conf.tier or 0) end)
-    elseif currentSort == 5 then
-        table.sort(flat, function(a,b) return (a._area or "") < (b._area or "") end)
-    end
-    
     local totalLots = #flat
     local totalItems = 0
     local totalVal = 0
     local bestVal = 0
     local bestName = "—"
-    local prevArea = nil
     
+    -- Loop only to calculate the Left Sidebar Stats
     for li, lot in ipairs(flat) do
-        if currentSort == 5 and lot._area ~= prevArea then
-            prevArea = lot._area
-            local div = make("Frame", {Size=UDim2.new(1,-8,0,24), BackgroundColor3=C.panel, LayoutOrder=li*100-1}, ScrollTab)
-            corner(5, div)
-            pad(4, div)
-            make("TextLabel", {
-                Text="📍 " .. lot._area, TextSize=10, TextColor3=C.accent, Font=Enum.Font.GothamBold,
-                BackgroundTransparency=1, Size=UDim2.new(1,0,1,0), TextXAlignment=Enum.TextXAlignment.Left,
-            }, div)
-        end
-        
         if lot.conf then
-            buildLotCard(lot, ScrollTab, li * 100)
-            
             local v = lot.liveScan and lot.scannedTotal or lot.predictedAvg
             totalItems = totalItems + (lot.items and #lot.items or 0)
             totalVal = totalVal + (v or 0)
@@ -1694,10 +1419,23 @@ local function renderLots(flatLots)
         end
     end
     
+    -- Update Sidebar
     statLots.Text = tostring(totalLots)
     statItems.Text = totalItems > 0 and tostring(totalItems) or "—"
     statTotal.Text = fm(totalVal)
     statBestLot.Text = bestName == "—" and "—" or (bestName .. " (" .. fm(bestVal) .. ")")
+
+    -- Show "Coming Soon" instead of generating heavy lot cards
+    make("TextLabel", {
+        Text = "🚧 Auction List Coming Soon 🚧",
+        TextSize = 16,
+        TextColor3 = C.text2,
+        Font = Enum.Font.GothamBold,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 200),
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, ScrollTab)
 end
 
 -- ─────────────────────────────────────────────────────
@@ -2196,13 +1934,8 @@ RefreshBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Auto scan loop
-task.spawn(function()
-    while ScreenGui.Parent do
-        doScan()
-        task.wait(5)
-    end
-end)
+-- Initialize scan on load
+doScan()
 
 -- Initialize tabs
 updateTabs()
