@@ -993,18 +993,29 @@ if UserInputService.TouchEnabled then
         end
     end))
     
+-- ═════════════════════════════════════════════════════
+    -- FIXED: MOBILE FLOATING TOGGLE BUTTON
+    -- ═════════════════════════════════════════════════════
     MobileToggle.InputEnded:Connect(function(inp)
         if isTouchOrClick(inp) then
             togDragActive = false
             if not togMoved then
-                -- Pure Tap Action: Shrink animation, wait, pop back out, and toggle main window
+                -- Visual feedback
                 tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
                 task.delay(0.1, function() tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
-                if Win then Win.Visible = not Win.Visible end
+                
+                -- FORCE VISIBILITY TOGGLE
+                if Win then
+                    local newState = not Win.Visible
+                    Win.Visible = newState
+                    -- If we are making it visible, ensure it's not transparent
+                    if newState then
+                        Win.BackgroundTransparency = 0
+                    end
+                end
             end
         end
     end)
-end
 
 -- Opening animation
 Win.BackgroundTransparency = 1
