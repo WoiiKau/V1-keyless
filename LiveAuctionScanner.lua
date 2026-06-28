@@ -1,6 +1,6 @@
 --[[
     ╔══════════════════════════════════════════════════════════════════════╗
-    ║  STORAGE HUNTERS — HORIZONTAL MOBILE AUCTION SCANNER v10.0           ║
+    ║  STORAGE HUNTERS — HORIZONTAL MOBILE AUCTION SCANNER v10.1           ║
     ║  Real-time scanner · Auto-Bid (FULLY RESTORED & OPTIMIZED)           ║
     ║  Asynchronous Workshops (Instant Invokes) · Sell All Items           ║
     ║  Robust timer calculations · Safe Config overrides & error handling  ║
@@ -158,8 +158,6 @@ local RARITY_COL = {
 -- ═════════════════════════════════════════════════════
 local AuctionEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Auction")
 local BidRemote              = AuctionEvents and AuctionEvents:FindFirstChild("Bid")
-local AuctionStateRemote     = AuctionEvents and AuctionEvents:FindFirstChild("GetAuctionState")
-local StartAuctionEvent      = AuctionEvents and AuctionEvents:FindFirstChild("StartAuction")
 local UpdateWinningBidEvent  = AuctionEvents and AuctionEvents:FindFirstChild("UpdateWinningBid")
 
 local AB = {
@@ -364,7 +362,6 @@ local function scanLot(spawnInst)
             end
         end
     end
-
     table.sort(items, function(a, b) return (a.calcValue or 0) > (b.calcValue or 0) end)
     return items
 end
@@ -447,7 +444,13 @@ local function pad(px, p) return make("UIPadding", {PaddingTop=UDim.new(0,px), P
 local function corner(r, p) return make("UICorner", {CornerRadius=UDim.new(0,r)}, p) end
 local function stroke(th, col, p) return make("UIStroke", {Thickness=th, Color=col, ApplyStrokeMode=Enum.ApplyStrokeMode.Border}, p) end
 local function list(align, spacing, p) return make("UIListLayout", {HorizontalAlignment=align or Enum.HorizontalAlignment.Left, VerticalAlignment=Enum.VerticalAlignment.Top, Padding=UDim.new(0, spacing or 6), SortOrder=Enum.SortOrder.LayoutOrder}, p) end
-local function tw(inst, sec, props) local info = TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) local t = TweenService:Create(inst, info, props) t:Play() return t end
+local function tw(inst, sec, props) 
+    local info = TweenInfo.new(sec, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) 
+    pcall(function()
+        local t = TweenService:Create(inst, info, props) 
+        t:Play() 
+    end)
+end
 local function fm(num) return num >= 1000 and string.format("$%.1fk", num/1000) or string.format("$%d", num) end
 
 -- Clean previous instances
@@ -471,25 +474,6 @@ local Win = make("Frame", {
 }, ScreenGui)
 corner(12, Win)
 stroke(1.5, C.border, Win)
-
-local toggling = false
-local function toggleUI(state)
-    if toggling then return end
-    toggling = true
-    if state == nil then state = not Win.Visible end
-    
-    if state then
-        Win.Visible = true
-        Win.Size = UDim2.new(0, W * 0.8, 0, H * 0.8)
-        tw(Win, 0.25, {Size = UDim2.new(0, W, 0, H)})
-        task.wait(0.25)
-    else
-        tw(Win, 0.2, {Size = UDim2.new(0, W * 0.8, 0, H * 0.8)})
-        task.wait(0.2)
-        Win.Visible = false
-    end
-    toggling = false
-end
 
 local WinGrad = make("UIGradient", {
     Color = ColorSequence.new({
@@ -590,7 +574,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
         end
     elseif not processed then
         if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == currentKeybind then
-            toggleUI()
+            Win.Visible = not Win.Visible
         end
     end
 end)
@@ -612,8 +596,8 @@ local CloseBtn = hdrBtn("✕", -32,  Color3.fromRGB(48,25,30), Color3.fromRGB(20
 local MinBtn   = hdrBtn("—", -62,  Color3.fromRGB(25,28,42), C.border)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    toggleUI(false)
-    task.delay(0.25, function() ScreenGui:Destroy() end)
+    tw(Win, 0.25, {Size=UDim2.new(0,W,0,0), BackgroundTransparency=1})
+    task.delay(0.3, function() ScreenGui:Destroy() end)
 end)
 local minned = false
 MinBtn.MouseButton1Click:Connect(function()
@@ -693,7 +677,6 @@ SortCycleBtn.MouseButton1Click:Connect(function()
     if onSortChange then onSortChange() end
 end)
 
-local refreshAll = nil
 local RefreshBtn = make("TextButton", {
     Text = "⟳ Refresh", TextSize = 10, Font = Enum.Font.GothamBold,
     TextColor3 = C.text, BackgroundColor3 = C.accent:Lerp(C.bg, 0.4),
@@ -868,7 +851,7 @@ JumpBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ➕ FEATURE 5: PAWN SHOP SELL ALL ITEMS (Instant 1-Click remote selling)
+-- ➕ FEATURE 5: PAWN SHOP SELL ALL ITEMS
 local function quickSellAll()
     task.spawn(function()
         pcall(function()
@@ -879,25 +862,25 @@ local function quickSellAll()
                 statusLbl.TextColor3 = C.red
                 return
             end
-
+            
             statusLbl.Text = "⏳ Fetching sellable items..."
             statusLbl.TextColor3 = C.gold
-
+            
             local items = getRemote:InvokeServer()
             if not items or not next(items) then
                 statusLbl.Text = "💰 Nothing to sell in your inventory!"
                 statusLbl.TextColor3 = C.orange
                 return
             end
-
+            
             local guids = {}
             for guid, data in pairs(items) do
                 table.insert(guids, guid)
             end
-
+            
             statusLbl.Text = "💰 Selling " .. #guids .. " items..."
             statusLbl.TextColor3 = C.gold
-
+            
             local res = sellRemote:InvokeServer(guids)
             if res and res.success then
                 statusLbl.Text = string.format("💰 Sold %d items for $%d!", res.sold or #guids, res.totalEarned or 0)
@@ -1002,13 +985,39 @@ local function updateToggleBtn()
     end
 end
 
+-- ==============================================================
+-- 🤖 AUTO-BID FORCED OVERRIDE LOGIC
+-- ==============================================================
 toggleBtn.MouseButton1Click:Connect(function()
     AB.enabled = not AB.enabled
     updateToggleBtn()
+
     if AB.enabled then
-        if AB.auctionOpen then startBidLoop() else abLog("⏳ Waiting for auction...", C.text2) end
+        AB.auctionOpen = true 
+        AB.currentBid = 0
+        
+        local bestVal = 0
+        for _, area in ipairs(scanData) do
+            for _, lot in ipairs(area.lots) do
+                if lot.liveScan and lot.scannedTotal > bestVal then
+                    bestVal = lot.scannedTotal
+                end
+            end
+        end
+        
+        if bestVal > 0 then
+            AB.predictedVal = bestVal
+            abLog("✅ Auto-Bid FORCE STARTED (Est: $"..bestVal..")", C.green)
+        else
+            AB.predictedVal = 0
+            abLog("✅ Auto-Bid FORCE STARTED (No scan data)", C.green)
+        end
+        
+        startBidLoop()
     else
-        stopBidLoop("Disabled")
+        AB.auctionOpen = false
+        stopBidLoop("Manually Disabled")
+        abLog("❌ Auto‑Bid disabled", C.red)
     end
 end)
 
@@ -1232,47 +1241,14 @@ AB.onLog = function()
     end
 end
 
--- Hook Auction State Events
-if StartAuctionEvent then
-    StartAuctionEvent.OnClientEvent:Connect(function(isOpen, data)
-        AB.auctionOpen = isOpen
-        if isOpen then
-            AB.bidsThisRound = 0
-            AB.currentBid = 0
-            
-            local lotName = data and data.LotName
-            local found = nil
-            if lotName then
-                for _, area in ipairs(scanData) do
-                    for _, lot in ipairs(area.lots) do
-                        if lot.spawnName == lotName then
-                            found = lot
-                            break
-                        end
-                    end
-                end
-            end
-            if found then
-                AB.predictedVal = found.liveScan and found.scannedTotal or found.predictedAvg
-                abLog("🔔 Started: " .. lotName .. " (Est: $" .. AB.predictedVal .. ")", C.accent)
-            else
-                AB.predictedVal = 0
-                abLog("🔔 Started: " .. tostring(lotName or "Unknown"), C.accent)
-            end
-            if AB.enabled then startBidLoop() end
-        else
-            abLog("🔔 Auction closed", C.textMuted)
-            stopBidLoop()
-        end
-    end)
-end
-
 if UpdateWinningBidEvent then
     UpdateWinningBidEvent.OnClientEvent:Connect(function(amount, winnerId)
         AB.currentBid = tonumber(amount) or AB.currentBid
         local isUs = (winnerId == LocalPlayer.UserId)
         if isUs then
             abLog("👑 WE'RE WINNING: $"..AB.currentBid, C.gold)
+        else
+            abLog("⚠️ Bid raised: $"..AB.currentBid, C.text2)
         end
     end)
 end
@@ -1315,7 +1291,7 @@ local function createTabBtn(name, id, size, pos)
     corner(5, b)
     stroke(1, C.border, b)
     tabButtons[id] = b
-
+    
     b.MouseButton1Click:Connect(function()
         activeTab = id
         updateTabs()
@@ -1411,20 +1387,20 @@ local function buildLotCard(lot, parent, layoutOrder)
     local useVal  = lot.liveScan and lot.scannedTotal or lot.predictedAvg
     local vcolor  = lot.verdict == "Profitable" and C.green or lot.verdict == "Break-Even" and C.gold or C.red
     local isLive  = lot.liveScan
-
+    
     local card = make("Frame", {
         Size=UDim2.new(1,-8,0,84), BackgroundColor3=C.card, LayoutOrder=layoutOrder,
         AutomaticSize=Enum.AutomaticSize.None, ClipsDescendants=true,
     }, parent)
     corner(8, card)
     stroke(1.2, tcol:Lerp(Color3.fromRGB(0,0,0),0.65), card)
-
+    
     local stripe = make("Frame", {
         Size=UDim2.new(0,3,0.76,0), Position=UDim2.new(0,0,0.12,0),
         BackgroundColor3=tcol, BorderSizePixel=0,
     }, card)
     corner(3, stripe)
-
+    
     local modeBadge = make("TextLabel", {
         Text = isLive and "🟢 LIVE" or "📊 PREDICTED", TextSize=8,
         TextColor3 = isLive and C.green or C.textMuted,
@@ -1434,40 +1410,40 @@ local function buildLotCard(lot, parent, layoutOrder)
     }, card)
     corner(4, modeBadge)
     stroke(1, isLive and C.green:Lerp(Color3.fromRGB(0,0,0),0.5) or C.border, modeBadge)
-
+    
     make("TextLabel", {
         Text=conf.name, TextSize=11, TextColor3=tcol, Font=Enum.Font.GothamBold,
         BackgroundTransparency=1, Position=UDim2.new(0,90,0,8), Size=UDim2.new(0.5,-90,0,16),
         TextXAlignment=Enum.TextXAlignment.Left,
     }, card)
-
+    
     make("TextLabel", {
         Text="Lot #"..lot.lotIndex.."  •  "..conf.area,
         TextSize=9, TextColor3=C.text2, Font=Enum.Font.Gotham,
         BackgroundTransparency=1, Position=UDim2.new(0,90,0,24), Size=UDim2.new(0.5,-90,0,14),
         TextXAlignment=Enum.TextXAlignment.Left,
     }, card)
-
+    
     make("TextLabel", {
         Text=isLive and (tostring(#lot.items).." items found") or (tostring(conf.items).." items expected"),
         TextSize=9, TextColor3=C.textMuted, Font=Enum.Font.Gotham,
         BackgroundTransparency=1, Position=UDim2.new(0,90,0,38), Size=UDim2.new(0.5,-90,0,14),
         TextXAlignment=Enum.TextXAlignment.Left,
     }, card)
-
+    
     make("TextLabel", {
         Text=fm(useVal), TextSize=18, TextColor3=vcolor, Font=Enum.Font.GothamBold,
         BackgroundTransparency=1, Position=UDim2.new(0.6,0,0,6), Size=UDim2.new(0.4,-10,0,22),
         TextXAlignment=Enum.TextXAlignment.Right,
     }, card)
-
+    
     make("TextLabel", {
         Text = isLive and "scanned total" or "predicted avg",
         TextSize=8, TextColor3=C.textMuted, Font=Enum.Font.Gotham,
         BackgroundTransparency=1, Position=UDim2.new(0.6,0,0,28), Size=UDim2.new(0.4,-10,0,12),
         TextXAlignment=Enum.TextXAlignment.Right,
     }, card)
-
+    
     local actionRow = make("Frame", {
         Size=UDim2.new(0.4,-10,0,20), Position=UDim2.new(0.6,0,0,42),
         BackgroundTransparency=1,
@@ -1475,7 +1451,7 @@ local function buildLotCard(lot, parent, layoutOrder)
     list(nil, 4, actionRow)
     actionRow.UIListLayout.FillDirection = Enum.FillDirection.Horizontal
     actionRow.UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-
+    
     local tpBtn = make("TextButton", {
         Text="📍 TP", TextSize=9, TextColor3=C.accent,
         BackgroundColor3=C.accent:Lerp(Color3.fromRGB(0,0,0),0.85),
@@ -1484,7 +1460,7 @@ local function buildLotCard(lot, parent, layoutOrder)
     }, actionRow)
     corner(5, tpBtn)
     stroke(1, C.accent:Lerp(Color3.fromRGB(0,0,0),0.3), tpBtn)
-
+    
     tpBtn.MouseButton1Click:Connect(function()
         pcall(function()
             local char = LocalPlayer.Character
@@ -1501,7 +1477,7 @@ local function buildLotCard(lot, parent, layoutOrder)
             end
         end)
     end)
-
+    
     local vBadge = make("TextLabel", {
         Text = lot.verdict == "Profitable" and "BUY" or lot.verdict == "Break-Even" and "RISKY" or "SKIP",
         TextSize=9, TextColor3=vcolor,
@@ -1511,7 +1487,7 @@ local function buildLotCard(lot, parent, layoutOrder)
     }, actionRow)
     corner(5, vBadge)
     stroke(1, vcolor:Lerp(Color3.fromRGB(0,0,0),0.4), vBadge)
-
+    
     local barBG = make("Frame", {
         Size=UDim2.new(0.57,0,0,3), Position=UDim2.new(0,10,0,74),
         BackgroundColor3=Color3.fromRGB(18,22,36), BorderSizePixel=0,
@@ -1522,7 +1498,7 @@ local function buildLotCard(lot, parent, layoutOrder)
         Size=UDim2.new(fillRatio,0,1,0), BackgroundColor3=tcol, BorderSizePixel=0,
     }, barBG)
     corner(2, barFill)
-
+    
     local expanded  = false
     local itemFrame = nil
     
@@ -1533,19 +1509,18 @@ local function buildLotCard(lot, parent, layoutOrder)
         Position=UDim2.new(0,10,0,70), Size=UDim2.new(0.55,0,0,14),
         TextXAlignment=Enum.TextXAlignment.Left,
     }, card)
-
+    
     local function collapse()
         expanded = false
         if itemFrame then itemFrame:Destroy() itemFrame = nil end
         tw(card, 0.18, {Size=UDim2.new(1,-8,0,84)})
         expandBtn.Text = isLive and ("▼ " .. #lot.items .. " items ▼") or "▼ Estimated Breakdown ▼"
     end
-
+    
     local function expand()
         expanded = true
         local baseH = 84
         local itemH = 0
-
         itemFrame = make("Frame", {
             Size=UDim2.new(1,-10,0,0), Position=UDim2.new(0,5,0,86),
             BackgroundColor3=Color3.fromRGB(12,16,26), AutomaticSize=Enum.AutomaticSize.Y,
@@ -1553,7 +1528,7 @@ local function buildLotCard(lot, parent, layoutOrder)
         corner(6, itemFrame)
         pad(6, itemFrame)
         list(nil, 4, itemFrame)
-
+        
         local hrow = make("Frame", {Size=UDim2.new(1,0,0,14), BackgroundTransparency=1, LayoutOrder=0}, itemFrame)
         local colDef = { {"ItemName", 0, 0.42}, {"Rarity", 0.42, 0.18}, {"Mutator", 0.60, 0.18}, {"Value", 0.78, 0.22} }
         for _, c in ipairs(colDef) do
@@ -1564,7 +1539,7 @@ local function buildLotCard(lot, parent, layoutOrder)
             }, hrow)
         end
         itemH = itemH + 16
-
+        
         local displayItems = lot.items
         if #displayItems == 0 then
             local rarityDist = {
@@ -1608,10 +1583,9 @@ local function buildLotCard(lot, parent, layoutOrder)
                     BackgroundTransparency = li%2==0 and 0 or 1,
                 }, itemFrame)
                 if li%2==0 then corner(4, irow) end
-
+                
                 local mutC = MUT_COL[it.mutator] or C.text2
                 local rarC = RARITY_COL[it.rarity] or C.textMuted
-
                 make("TextLabel", {
                     Text=(it.itemName or "Unknown"), TextSize=9, TextColor3=C.text,
                     Font=Enum.Font.GothamMedium, BackgroundTransparency=1, Position=UDim2.new(0,2,0,0),
@@ -1637,16 +1611,14 @@ local function buildLotCard(lot, parent, layoutOrder)
                 itemH = itemH + 20
             end
         end
-
         itemH = itemH + 10
         tw(card, 0.2, {Size=UDim2.new(1,-8,0, baseH + itemH)})
         expandBtn.Text = "▲ Collapse ▲"
     end
-
     expandBtn.MouseButton1Click:Connect(function() if expanded then collapse() else expand() end end)
     card.MouseEnter:Connect(function() tw(card,0.12,{BackgroundColor3=C.cardHov}) end)
     card.MouseLeave:Connect(function() tw(card,0.12,{BackgroundColor3=C.card}) end)
-
+    
     return card
 end
 
@@ -1657,7 +1629,7 @@ local function renderLots(flatLots)
     for _, c in ipairs(ScrollTab:GetChildren()) do
         if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
     end
-
+    
     local flat = {}
     for _, area in ipairs(flatLots) do
         if type(area) == "table" and area.lots then
@@ -1669,7 +1641,7 @@ local function renderLots(flatLots)
             end
         end
     end
-
+    
     if currentSort == 1 then
         table.sort(flat, function(a,b)
             local av = a.liveScan and a.scannedTotal or a.predictedAvg
@@ -1689,29 +1661,29 @@ local function renderLots(flatLots)
     elseif currentSort == 5 then
         table.sort(flat, function(a,b) return (a._area or "") < (b._area or "") end)
     end
-
+    
     local totalLots = #flat
     local totalItems = 0
     local totalVal = 0
     local bestVal = 0
     local bestName = "—"
     local prevArea = nil
-
+    
     for li, lot in ipairs(flat) do
+        if currentSort == 5 and lot._area ~= prevArea then
+            prevArea = lot._area
+            local div = make("Frame", {Size=UDim2.new(1,-8,0,24), BackgroundColor3=C.panel, LayoutOrder=li*100-1}, ScrollTab)
+            corner(5, div)
+            pad(4, div)
+            make("TextLabel", {
+                Text="📍 " .. lot._area, TextSize=10, TextColor3=C.accent, Font=Enum.Font.GothamBold,
+                BackgroundTransparency=1, Size=UDim2.new(1,0,1,0), TextXAlignment=Enum.TextXAlignment.Left,
+            }, div)
+        end
+        
         if lot.conf then
-            if currentSort == 5 and lot._area ~= prevArea then
-                prevArea = lot._area
-                local div = make("Frame", {Size=UDim2.new(1,-8,0,24), BackgroundColor3=C.panel, LayoutOrder=li*100-1}, ScrollTab)
-                corner(5, div)
-                pad(4, div)
-                make("TextLabel", {
-                    Text="📍 " .. lot._area, TextSize=10, TextColor3=C.accent, Font=Enum.Font.GothamBold,
-                    BackgroundTransparency=1, Size=UDim2.new(1,0,1,0), TextXAlignment=Enum.TextXAlignment.Left,
-                }, div)
-            end
-
             buildLotCard(lot, ScrollTab, li * 100)
-
+            
             local v = lot.liveScan and lot.scannedTotal or lot.predictedAvg
             totalItems = totalItems + (lot.items and #lot.items or 0)
             totalVal = totalVal + (v or 0)
@@ -1721,7 +1693,7 @@ local function renderLots(flatLots)
             end
         end
     end
-
+    
     statLots.Text = tostring(totalLots)
     statItems.Text = totalItems > 0 and tostring(totalItems) or "—"
     statTotal.Text = fm(totalVal)
@@ -1731,23 +1703,21 @@ end
 -- ─────────────────────────────────────────────────────
 -- RENDER SHOP WORKSHOPS TAB (Wash, Repair, Grade, Locksmith)
 -- ─────────────────────────────────────────────────────
-local activeTimersList = {} -- List to sync countdown timer labels in heartbeats
+local activeTimersList = {} 
 
 local function renderWorkshop(shopKey)
     for _, c in ipairs(ScrollTab:GetChildren()) do
         if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
     end
     activeTimersList = {}
-
+    
     local cfg = SHOPS[shopKey]
     if not cfg then return end
-
-    -- Layout split container frame
+    
     local SplitContainer = make("Frame", {
         Size = UDim2.new(1, 0, 0, 340), BackgroundTransparency = 1,
     }, ScrollTab)
-
-    -- Left Column: Eligible Items Scroll
+    
     local LeftCol = make("Frame", {
         Size = UDim2.new(0.44, -6, 1, 0), BackgroundColor3 = C.panel,
     }, SplitContainer)
@@ -1760,7 +1730,7 @@ local function renderWorkshop(shopKey)
         Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Left,
     }, LeftCol)
-
+    
     local ItemScroll = make("ScrollingFrame", {
         Size = UDim2.new(1, 0, 1, -22), Position = UDim2.new(0, 0, 0, 22),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
@@ -1768,8 +1738,7 @@ local function renderWorkshop(shopKey)
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
     }, LeftCol)
     list(nil, 4, ItemScroll)
-
-    -- Right Column: Work Slots Status
+    
     local RightCol = make("Frame", {
         Size = UDim2.new(0.56, -6, 1, 0), Position = UDim2.new(0.44, 6, 0, 0),
         BackgroundColor3 = C.panel,
@@ -1777,13 +1746,13 @@ local function renderWorkshop(shopKey)
     corner(8, RightCol)
     stroke(1.2, C.border, RightCol)
     pad(6, RightCol)
-
+    
     make("TextLabel", {
         Text = "🛠️ Workshop Slots", TextSize = 10, TextColor3 = C.purple,
         Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Left,
     }, RightCol)
-
+    
     local SlotsScroll = make("ScrollingFrame", {
         Size = UDim2.new(1, 0, 1, -22), Position = UDim2.new(0, 0, 0, 22),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
@@ -1791,14 +1760,13 @@ local function renderWorkshop(shopKey)
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
     }, RightCol)
     list(nil, 6, SlotsScroll)
-
+    
     local function refreshWorkshopView()
         if activeTab == shopKey:lower() or (activeTab == "grade" and shopKey == "Grading") then
             renderWorkshop(shopKey)
         end
     end
-
-    -- Asynchronously load eligible items from inventory
+    
     task.spawn(function()
         local ok, res = pcall(cfg.getEligible)
         if not ok or not res or not res.items then
@@ -1809,7 +1777,6 @@ local function renderWorkshop(shopKey)
             }, ItemScroll)
             return
         end
-
         local items = res.items
         if #items == 0 then
             local emptyLbl = make("TextLabel", {
@@ -1820,8 +1787,7 @@ local function renderWorkshop(shopKey)
             }, ItemScroll)
             return
         end
-
-        -- Build eligible item card list
+        
         local selectedStroke = nil
         for idx, item in ipairs(items) do
             local data = item.data
@@ -1831,23 +1797,22 @@ local function renderWorkshop(shopKey)
             local mut = data.Mutator or "None"
             local grade = data.Grade or 0
             local cond = data.Condition or 100
-
             local calcVal = calcItemValue(rawName, rar, mut, grade, cond)
-
+            
             local card = make("TextButton", {
                 Size = UDim2.new(1, -6, 0, 36), BackgroundColor3 = C.card,
                 Text = "", AutoButtonColor = false, LayoutOrder = idx,
             }, ItemScroll)
             corner(6, card)
             stroke(1, C.border, card)
-
+            
             make("TextLabel", {
                 Text = rawName, TextSize = 9, TextColor3 = C.text,
                 Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
                 Position = UDim2.new(0, 6, 0, 4), Size = UDim2.new(0.65, 0, 0, 14),
                 TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
             }, card)
-
+            
             make("TextLabel", {
                 Text = rar .. (mut ~= "None" and (" • " .. mut) or ""),
                 TextSize = 8, TextColor3 = RARITY_COL[rar] or C.textMuted,
@@ -1855,21 +1820,20 @@ local function renderWorkshop(shopKey)
                 Position = UDim2.new(0, 6, 0, 16), Size = UDim2.new(0.65, 0, 0, 14),
                 TextXAlignment = Enum.TextXAlignment.Left,
             }, card)
-
+            
             make("TextLabel", {
                 Text = fm(calcVal), TextSize = 10, TextColor3 = C.gold,
                 Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
                 Position = UDim2.new(0.65, 0, 0, 0), Size = UDim2.new(0.35, -6, 1, 0),
                 TextXAlignment = Enum.TextXAlignment.Right,
             }, card)
-
-            -- If item is selected, show purple highlight
+            
             if selectedItems[shopKey] and selectedItems[shopKey].guid == item.guid then
                 card.UIStroke.Color = C.purple
                 card.UIStroke.Thickness = 1.5
                 selectedStroke = card.UIStroke
             end
-
+            
             card.MouseButton1Click:Connect(function()
                 if selectedStroke then
                     selectedStroke.Color = C.border
@@ -1884,8 +1848,7 @@ local function renderWorkshop(shopKey)
             end)
         end
     end)
-
-    -- Asynchronously load slot status of shop
+    
     task.spawn(function()
         local ok, res = pcall(cfg.getSlots)
         if not ok or not res then
@@ -1896,37 +1859,33 @@ local function renderWorkshop(shopKey)
             }, SlotsScroll)
             return
         end
-
+        
         local unlockedCount = res.unlockedCount or 1
         local slots = res.slots or {}
-
+        
         for slotIndex = 1, cfg.maxSlots do
             local slotData = slots[tostring(slotIndex)]
-
             local card = make("Frame", {
                 Size = UDim2.new(1, -6, 0, 80), BackgroundColor3 = C.card,
                 LayoutOrder = slotIndex,
             }, SlotsScroll)
             corner(8, card)
             stroke(1, C.border, card)
-
-            -- Header line inside Slot Card
+            
             make("TextLabel", {
                 Text = "Slot #" .. slotIndex, TextSize = 8, TextColor3 = C.textMuted,
                 Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
                 Position = UDim2.new(0, 8, 0, 6), Size = UDim2.new(0.5, 0, 0, 14),
                 TextXAlignment = Enum.TextXAlignment.Left,
             }, card)
-
+            
             if slotIndex > unlockedCount then
-                -- Locked state
                 local lockText = make("TextLabel", {
                     Text = "🔒 LOCKED", TextSize = 10, TextColor3 = C.red,
                     Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
                     Position = UDim2.new(0, 8, 0, 24), Size = UDim2.new(0.5, 0, 0, 16),
                     TextXAlignment = Enum.TextXAlignment.Left,
                 }, card)
-
                 local unlockBtn = make("TextButton", {
                     Text = "🔑 Unlock", TextSize = 9, Font = Enum.Font.GothamBold,
                     TextColor3 = C.gold, BackgroundColor3 = Color3.fromRGB(35, 25, 15),
@@ -1935,7 +1894,7 @@ local function renderWorkshop(shopKey)
                 }, card)
                 corner(5, unlockBtn)
                 stroke(1.2, C.gold:Lerp(Color3.fromRGB(0,0,0), 0.5), unlockBtn)
-
+                
                 unlockBtn.MouseButton1Click:Connect(function()
                     task.spawn(function()
                         pcall(function()
@@ -1952,14 +1911,12 @@ local function renderWorkshop(shopKey)
                     end)
                 end)
             elseif not slotData then
-                -- Empty state
                 make("TextLabel", {
                     Text = "EMPTY", TextSize = 10, TextColor3 = C.textMuted,
                     Font = Enum.Font.GothamBold, BackgroundTransparency = 1,
                     Position = UDim2.new(0, 8, 0, 24), Size = UDim2.new(0.5, 0, 0, 16),
                     TextXAlignment = Enum.TextXAlignment.Left,
                 }, card)
-
                 local startBtn = make("TextButton", {
                     Text = "⚡ Start", TextSize = 9, Font = Enum.Font.GothamBold,
                     TextColor3 = C.green, BackgroundColor3 = Color3.fromRGB(15, 30, 20),
@@ -1968,7 +1925,7 @@ local function renderWorkshop(shopKey)
                 }, card)
                 corner(5, startBtn)
                 stroke(1.2, C.green:Lerp(Color3.fromRGB(0,0,0), 0.5), startBtn)
-
+                
                 startBtn.MouseButton1Click:Connect(function()
                     local chosen = selectedItems[shopKey]
                     if not chosen then
@@ -1994,7 +1951,6 @@ local function renderWorkshop(shopKey)
                     end)
                 end)
             else
-                -- Processing or Completed state
                 local itemEntry = slotData.Item or slotData.ItemData or slotData.Entry or {}
                 local itemName  = itemEntry.ItemName or itemEntry.Name or "Processing Item"
                 
@@ -2004,31 +1960,29 @@ local function renderWorkshop(shopKey)
                     Position = UDim2.new(0, 8, 0, 22), Size = UDim2.new(0.6, 0, 0, 16),
                     TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
                 }, card)
-
+                
                 local elapsed = workspace:GetServerTimeNow() - (slotData.StartTime or workspace:GetServerTimeNow())
                 local remaining = (slotData.Duration or 0) - elapsed
-
+                
                 if remaining > 0 and not slotData.Repaired and not slotData.Washed and not slotData.Grade and not slotData.Opened then
-                    -- Active Processing
                     local tBarBg = make("Frame", {
                         Size = UDim2.new(0.55, 0, 0, 4), Position = UDim2.new(0, 8, 0, 48),
                         BackgroundColor3 = Color3.fromRGB(15, 20, 32), BorderSizePixel = 0,
                     }, card)
                     corner(2, tBarBg)
-
+                    
                     local tBarFill = make("Frame", {
                         Size = UDim2.fromScale(math.clamp(elapsed / (slotData.Duration or 1), 0, 1), 1),
                         BackgroundColor3 = C.accent, BorderSizePixel = 0,
                     }, tBarBg)
                     corner(2, tBarFill)
-
+                    
                     local timeLbl = make("TextLabel", {
                         Text = "0:00", TextSize = 11, TextColor3 = C.gold, Font = Enum.Font.GothamBold,
                         BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 56), Size = UDim2.new(0.55, 0, 0, 16),
                         TextXAlignment = Enum.TextXAlignment.Left,
                     }, card)
-
-                    -- Register in active timers list to countdown in Heartbeat loop
+                    
                     table.insert(activeTimersList, {
                         bar = tBarFill,
                         lbl = timeLbl,
@@ -2037,8 +1991,7 @@ local function renderWorkshop(shopKey)
                         card = card,
                         onComplete = refreshWorkshopView
                     })
-
-                    -- Speed Up Skip Button
+                    
                     local skipBtn = make("TextButton", {
                         Text = "⚡ Skip", TextSize = 9, Font = Enum.Font.GothamBold,
                         TextColor3 = C.purple, BackgroundColor3 = Color3.fromRGB(28, 16, 40),
@@ -2047,7 +2000,7 @@ local function renderWorkshop(shopKey)
                     }, card)
                     corner(5, skipBtn)
                     stroke(1.2, C.purple:Lerp(Color3.fromRGB(0,0,0), 0.5), skipBtn)
-
+                    
                     skipBtn.MouseButton1Click:Connect(function()
                         task.spawn(function()
                             pcall(function()
@@ -2059,12 +2012,11 @@ local function renderWorkshop(shopKey)
                         end)
                     end)
                 else
-                    -- Completed (Ready to roll / claim)
                     local btnText = "Claim"
                     local btnColor = C.green
                     local btnBg    = Color3.fromRGB(15, 30, 20)
                     local action = "claim"
-
+                    
                     if shopKey == "Wash" and not slotData.Washed then
                         btnText = "🛁 Collect Wash"
                         btnColor = C.purple
@@ -2086,14 +2038,13 @@ local function renderWorkshop(shopKey)
                         btnBg    = Color3.fromRGB(35, 20, 15)
                         action = "openSafe"
                     end
-
-                    -- If Grade or Mutation is present, modify slot labels
+                    
                     if slotData.Grade then
                         itemName = itemName .. " (Grade: " .. tostring(slotData.Grade) .. ")"
                     elseif slotData.CleanMutation then
                         itemName = itemName .. " (" .. tostring(slotData.CleanMutation) .. ")"
                     end
-
+                    
                     local actionBtn = make("TextButton", {
                         Text = btnText, TextSize = 9, Font = Enum.Font.GothamBold,
                         TextColor3 = btnColor, BackgroundColor3 = btnBg,
@@ -2102,7 +2053,7 @@ local function renderWorkshop(shopKey)
                     }, card)
                     corner(5, actionBtn)
                     stroke(1.2, btnColor:Lerp(Color3.fromRGB(0,0,0), 0.5), actionBtn)
-
+                    
                     actionBtn.MouseButton1Click:Connect(function()
                         actionBtn.Text = "Invoking..."
                         task.spawn(function()
@@ -2152,7 +2103,6 @@ local function renderWorkshop(shopKey)
     end)
 end
 
--- Timer Heartbeat loop to count down inside the active tabs
 RunService.Heartbeat:Connect(function()
     pcall(function()
         local now = workspace:GetServerTimeNow()
@@ -2190,7 +2140,6 @@ function updateTabs()
         btn.UIStroke.Color = active and C.accent or C.border
         btn.UIStroke.Thickness = active and 1.5 or 1
     end
-
     if activeTab == "lots" then
         renderLots(scanData)
     elseif activeTab == "wash" then
@@ -2213,7 +2162,7 @@ local function doScan()
     scanning = true
     ScanTxt.Text = "SCANNING"
     tw(ScanDot, 0.5, {BackgroundColor3=C.gold})
-
+    
     task.spawn(function()
         local ok, result = pcall(scanAllAreas)
         scanning = false
@@ -2275,7 +2224,6 @@ Hdr.InputBegan:Connect(function(inp)
         dragActive = true dragStart = inp.Position startPos = Win.Position
     end
 end)
-
 ResizeHandle.InputBegan:Connect(function(inp)
     if inp.UserInputType == Enum.UserInputType.MouseButton1 then
         resizeActive = true resizeStart = inp.Position startSize = Win.Size
@@ -2306,63 +2254,10 @@ UserInputService.InputEnded:Connect(function(inp)
     end
 end)
 
--- Mobile Toggle Button Support
-if UserInputService.TouchEnabled then
-    local MobileToggle = make("TextButton", {
-        Name = "MobileToggle",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Size = UDim2.new(0, 48, 0, 48),
-        Position = UDim2.new(0.9, 0, 0.3, 0),
-        BackgroundColor3 = C.panel,
-        Text = "🔍",
-        TextSize = 18,
-        Font = Enum.Font.GothamBold,
-        TextColor3 = C.accent,
-        ZIndex = 9999,
-        Active = true,
-        AutoButtonColor = false,
-    }, ScreenGui)
-    corner(99, MobileToggle)
-    stroke(2, C.accent, MobileToggle)
+-- Opening animation
+Win.Size = UDim2.new(0,W,0,H)
+Win.BackgroundTransparency = 1
+task.wait(0.05)
+tw(Win, 0.4, {Size=UDim2.new(0,W,0,H), BackgroundTransparency=0})
 
-    -- Custom Drag-to-Move setup
-    local dragStart, startPos
-    MobileToggle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStart = input.Position
-            startPos = MobileToggle.Position
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) and dragStart then
-            local delta = input.Position - dragStart
-            MobileToggle.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStart = nil
-        end
-    end)
-
-    -- Click / Tap Event with micro-animations
-    MobileToggle.MouseButton1Click:Connect(function()
-        tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
-        task.delay(0.1, function()
-            tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)})
-        end)
-        toggleUI()
-    end)
-end
-
--- Opening animation with Zoom
-Win.Visible = true
-Win.Size = UDim2.new(0, W * 0.8, 0, H * 0.8)
-tw(Win, 0.35, {Size = UDim2.new(0, W, 0, H)})
-
-print("✅ [LiveAuctionScanner v10.0] Loaded successfully!")
+print("✅ [LiveAuctionScanner v10.1] Loaded successfully with Mobile Fixes!")
