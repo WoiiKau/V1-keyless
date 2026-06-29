@@ -418,23 +418,27 @@ end))
 MobileToggle.InputEnded:Connect(function(inp)
         if isTouchOrClick(inp) then
             if not togMoved then
-                -- 1. Run the animation
+                -- 1. Shrink animation
                 tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
                 task.delay(0.1, function() tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
                 
-                -- 2. FORCE-HIDE the Win frame using Tween instead of .Visible
-                if Win then
-                    local targetTransparency = (Win.BackgroundTransparency == 1) and 0 or 1
-                    local targetSize = (Win.BackgroundTransparency == 1) and UDim2.new(0, BASE_WIDTH, 0, BASE_HEIGHT) or UDim2.new(0, 0, 0, 0)
+                -- 2. Force find the Win frame directly from the ScreenGui
+                local targetWin = ScreenGui:FindFirstChild("Win")
+                if targetWin then
+                    local newState = not targetWin.Visible
+                    targetWin.Visible = newState
+                    targetWin.Active = newState
+                    targetWin.BackgroundTransparency = newState and 0 or 1
                     
-                    tw(Win, 0.3, {BackgroundTransparency = targetTransparency, Size = targetSize})
-                    
-                    -- Wait for animation, then set visibility
-                    task.delay(0.3, function()
-                        Win.Visible = (targetTransparency == 0)
-                        Win.Active = Win.Visible
-                    end)
-                    print("Debug: Toggle forced state to " .. tostring(targetTransparency == 0))
+                    -- If visibility is toggled off, also shrink the window size to zero
+                    if not newState then
+                        tw(targetWin, 0.2, {Size = UDim2.new(0, 0, 0, 0)})
+                    else
+                        tw(targetWin, 0.2, {Size = UDim2.new(0, 840, 0, 460)})
+                    end
+                    print("Debug: Toggle successful. Current Visible state: " .. tostring(targetWin.Visible))
+                else
+                    warn("Debug: Win frame not found in ScreenGui!")
                 end
             end
             togDragActive = false
