@@ -964,24 +964,21 @@ end))
 table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp) if isTouchOrClick(inp) then dragActive = false; resizeActive = false end end))
 
 -- ═════════════════════════════════════════════════════
--- MOBILE FLOATING TOGGLE BUTTON (FIXED TAP/DRAG LOGIC)
+-- FIXED: MOBILE FLOATING TOGGLE BUTTON (With Debug)
 -- ═════════════════════════════════════════════════════
 if UserInputService.TouchEnabled then
     local MobileToggle = make("TextButton", {
         Name = "MobileToggle", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(0, 48, 0, 48),
         Position = UDim2.new(0.9, 0, 0.3, 0), BackgroundColor3 = C.panel, Text = "🔍", TextSize = 18,
-        Font = Enum.Font.GothamBold, TextColor3 = C.accent, ZIndex = 9999, Active = true, AutoButtonColor = false,
-    }, ScreenGui)
+        Font = Enum.Font.GothamBold, TextColor3 = C.accent, ZIndex = 9999, Active = true, AutoButtonColor = false, Parent = ScreenGui
+    })
     corner(99, MobileToggle); stroke(2, C.accent, MobileToggle)
 
     local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
     
     MobileToggle.InputBegan:Connect(function(inp)
         if isTouchOrClick(inp) then 
-            togDragActive = true
-            togDragStart = inp.Position
-            togStartPos = MobileToggle.Position
-            togMoved = false
+            togDragActive = true; togDragStart = inp.Position; togStartPos = MobileToggle.Position; togMoved = false
         end
     end)
     
@@ -993,30 +990,24 @@ if UserInputService.TouchEnabled then
         end
     end))
     
--- ═════════════════════════════════════════════════════
-    -- FIXED: MOBILE FLOATING TOGGLE BUTTON
-    -- ═════════════════════════════════════════════════════
     MobileToggle.InputEnded:Connect(function(inp)
         if isTouchOrClick(inp) then
-            togDragActive = false
             if not togMoved then
-                -- Visual feedback
+                print("Debug: Toggle button tapped. Current Win.Visible: " .. tostring(Win.Visible))
+                
+                -- Force the toggle
+                local newState = not Win.Visible
+                Win.Visible = newState
+                Win.Active = newState
+                
+                -- Visual effect
                 tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
                 task.delay(0.1, function() tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
-                
-                -- FORCE VISIBILITY TOGGLE
-                if Win then
-                    local newState = not Win.Visible
-                    Win.Visible = newState
-                    -- If we are making it visible, ensure it's not transparent
-                    if newState then
-                        Win.BackgroundTransparency = 0
-                    end
-                end
             end
+            togDragActive = false
         end
     end)
-
+end
 -- Opening animation
 Win.BackgroundTransparency = 1
 task.wait(0.05)
