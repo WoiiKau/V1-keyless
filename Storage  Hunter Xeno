@@ -1,0 +1,2674 @@
+--[[
+    ╔══════════════════════════════════════════════════════════════════════╗
+    ║  NEX HUB — STORAGE HUNTERS OPEN WORLD                               ║
+    ╚══════════════════════════════════════════════════════════════════════╝
+--]]
+-- Configuration for bug report / suggestion webhook
+local BUG_REPORT_WEBHOOK = "https://discord.com/api/webhooks/1521449485778288640/4O0buZl5wpNbuJ7QUI3dS7kdpAwInrFYsi1tHOh6vWEPyzjz8f6HBEkCcyEruCcP1L04"
+-- Configuration for execution tracking webhook
+local EXECUTION_WEBHOOK = "https://discord.com/api/webhooks/1521885431044636722/L0MqFHOIO8HJFtPpuP-mR6T7dUUfk74mSwCXOtLFMStAoh3rjm0OjeW_twgZIoxfwTBT"
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+local require = getrenv and getrenv().require or require
+
+-- ═════════════════════════════════════════════════════
+-- EXECUTOR DETECTOR & COMPATIBILITY CHECK
+-- ═════════════════════════════════════════════════════
+local execName = "Unknown"
+pcall(function()
+    if identifyexecutor then
+        local res = identifyexecutor()
+        if res and res ~= "" then execName = tostring(res) end
+    end
+end)
+local execLower = string.lower(execName)
+
+local lowLevelExecutors = {"xeno", "solara", "celery", "incognito", "lunar", "zorara", "awp", "jjsploit", "valyse", "nihon", "swift", "apple", "macsploit"}
+local isKnownLowLevel = false
+for _, v in ipairs(lowLevelExecutors) do
+    if string.find(execLower, v) then
+        isKnownLowLevel = true
+        break
+    end
+end
+
+
+-- Send execution log
+local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
+if req and EXECUTION_WEBHOOK and EXECUTION_WEBHOOK ~= "" then
+    task.spawn(function()
+        pcall(function()
+            local payload = {
+                ["embeds"] = {{
+                    ["title"] = "✅ Successful Execution",
+                    ["color"] = 3066993,
+                    ["fields"] = {
+                        { ["name"] = "💻 Executor", ["value"] = execName, ["inline"] = true },
+                        { ["name"] = "⏰ Time", ["value"] = "<t:" .. tostring(os.time()) .. ":f>", ["inline"] = true }
+                    }
+                }}
+            }
+            req({
+                Url = EXECUTION_WEBHOOK,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = game:GetService("HttpService"):JSONEncode(payload)
+            })
+        end)
+    end)
+end
+-- ═════════════════════════════════════════════════════
+-- SERVICES
+-- ═════════════════════════════════════════════════════
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ItemsData = nil
+local LocalPlayer = Players.LocalPlayer
+-- DELTA MOBILE BYPASS: Safely get the secure UI container
+local TargetGui
+pcall(function() TargetGui = gethui and gethui() end)
+if not TargetGui then pcall(function() TargetGui = game:GetService("CoreGui") end) end
+if not TargetGui then TargetGui = LocalPlayer:WaitForChild("PlayerGui") end
+-- CLEANUP PREVIOUS RUN
+_G.AHScanner_RunID = (_G.AHScanner_RunID or 0) + 1
+local myRunID = _G.AHScanner_RunID
+if _G.AHScanner_CleanUp then
+    pcall(_G.AHScanner_CleanUp)
+end
+-- Teleport helper function
+local function fastTP(cf)
+    local char = game:GetService("Players").LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        if typeof(cf) == "Vector3" then
+            cf = CFrame.new(cf)
+        end
+        root.CFrame = cf
+    end
+end
+local cleanUpSignals = {}
+-- TOUCH SUPPORT HELPER
+local function isTouchOrClick(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+end
+local statusLbl = nil
+local asToggleBtn = nil
+local acToggleBtn = nil
+local doScan = nil
+local updateToggleBtn = nil
+-- ═════════════════════════════════════════════════════
+-- LOAD LIVE MODULES & SCREEN CONTROLLERS
+-- ═════════════════════════════════════════════════════
+local Modules = ReplicatedStorage:FindFirstChild("Modules")
+local ItemsData   = {}
+local GaragesData = {}
+local RarityData  = {}
+if Modules then
+    pcall(function() ItemsData   = require(Modules:WaitForChild("Items",    3)) end)
+    pcall(function() GaragesData = require(Modules:WaitForChild("Garages",  3)) end)
+    pcall(function() RarityData  = require(Modules:WaitForChild("Rarities", 3)) end)
+end
+-- ═════════════════════════════════════════════════════
+-- RARITY / MUTATOR MULTIPLIERS
+-- ═════════════════════════════════════════════════════
+local RARITY_MULT = { Common = 1.0, Uncommon = 1.3, Rare = 2.0, Epic = 4.0, Legendary = 8.0, Mythical = 15.0, Exclusive = 25.0 }
+local MUTATOR_MULT = { None = 1, Silver = 2, Gold = 4, Corrupted = 6, Diamond = 8, Gem = 12, Rainbow = 20 }
+local GRADE_MULT = { [0] = 0.6, [1] = 0.8, [2] = 1.0, [3] = 1.25 }
+local CONDITION_MULT = { Broken = 0.3, Poor = 0.55, Fair = 0.75, Good = 0.9, Excellent = 1.0, Mint = 1.15 }
+-- ═════════════════════════════════════════════════════
+-- GARAGE CATALOGUE
+-- ═════════════════════════════════════════════════════
+local GARAGE_CATALOG = {
+    ["Scrap Garage 2"]          = { name="Scrap Garage",          tier=1, area="Junk Yard",  mascot="Billy", minNW=0,       minBid=0,   minProfit=-5,    maxProfit=100,  items=6, entMin=0,   entMax=0,    col=Color3.fromRGB(120,140,150) },
+    ["Scrap Garage 3"]          = { name="Scrap Garage",          tier=1, area="Junk Yard",  mascot="Billy", minNW=0,       minBid=0,   minProfit=-5,    maxProfit=100,  items=6, entMin=0,   entMax=0,    col=Color3.fromRGB(120,140,150) },
+    ["Shop Front"]              = { name="Shop Front",            tier=2, area="Back Alley", mascot="Sal",   minNW=750,     minBid=40,  minProfit=-20,   maxProfit=200,  items=6, entMin=5,   entMax=60,   col=Color3.fromRGB(80,200,120)  },
+    ["Camo Shop Front"]         = { name="Camo Shop Front",       tier=2, area="Back Alley", mascot="Sal",   minNW=3000,    minBid=0,   minProfit=-50,   maxProfit=500,  items=6, entMin=5,   entMax=60,   col=Color3.fromRGB(130,200,80)  },
+    ["Stable Garage"]           = { name="Stable Garage",         tier=3, area="Farmyard",   mascot="Ted",   minNW=10000,   minBid=100, minProfit=-50,   maxProfit=500,  items=6, entMin=15,  entMax=100,  col=Color3.fromRGB(100,160,255) },
+    ["Barn Garage"]             = { name="Barn Garage",           tier=4, area="Farmyard",   mascot="Ted",   minNW=50000,   minBid=100, minProfit=-100,  maxProfit=750,  items=6, entMin=25,  entMax=250,  col=Color3.fromRGB(200,130,255) },
+    ["Jurassic Stable Garage"]  = { name="Jurassic Stable",       tier=3, area="Jurassic",   mascot="Ted",   minNW=10000,   minBid=100, minProfit=-50,   maxProfit=500,  items=6, entMin=15,  entMax=100,  col=Color3.fromRGB(80,180,200),  event=true },
+    ["Jurassic Barn Garage"]    = { name="Jurassic Barn",         tier=4, area="Jurassic",   mascot="Ted",   minNW=50000,   minBid=100, minProfit=-100,  maxProfit=750,  items=6, entMin=25,  entMax=250,  col=Color3.fromRGB(150,80,220),  event=true },
+    ["Small Container Garage"]  = { name="Small Container",       tier=5, area="Shipyard",   mascot="Steve", minNW=125000,  minBid=300, minProfit=-200,  maxProfit=1500, items=6, entMin=50,  entMax=400,  col=Color3.fromRGB(255,185,60)  },
+    ["Large Container Garage"]  = { name="Large Container",       tier=6, area="Shipyard",   mascot="Steve", minNW=400000,  minBid=400, minProfit=-300,  maxProfit=2000, items=6, entMin=100, entMax=700,  col=Color3.fromRGB(255,130,50)  },
+    ["Warehouse Garage"]        = { name="Warehouse",             tier=7, area="Shipyard",   mascot="Steve", minNW=1250000, minBid=500, minProfit=-1000, maxProfit=5000, items=6, entMin=150, entMax=1500, col=Color3.fromRGB(255,80,90)   },
+}
+for id, gConfig in pairs(GARAGE_CATALOG) do
+    local live = GaragesData[id]
+    if live then
+        gConfig.minNW     = tonumber(live.MinNetWorth)     or gConfig.minNW
+        gConfig.minBid    = tonumber(live.MinAuctionValue) or gConfig.minBid
+        gConfig.minProfit = tonumber(live.MinProfit)       or gConfig.minProfit
+        gConfig.maxProfit = tonumber(live.MaxProfit)       or gConfig.maxProfit
+        gConfig.items     = tonumber(live.NumItems)        or gConfig.items
+    end
+end
+-- ═════════════════════════════════════════════════════
+-- THEME & PALETTES
+-- ═════════════════════════════════════════════════════
+local C = {
+    bg        = Color3.fromRGB(9,  11, 17),
+    panel     = Color3.fromRGB(14, 18, 28),
+    card      = Color3.fromRGB(19, 24, 38),
+    cardHov   = Color3.fromRGB(27, 34, 54),
+    border    = Color3.fromRGB(38, 48, 72),
+    accent    = Color3.fromRGB(82, 162, 255),
+    green     = Color3.fromRGB(60, 210, 120),
+    gold      = Color3.fromRGB(255, 198, 55),
+    red       = Color3.fromRGB(255, 80,  80),
+    orange    = Color3.fromRGB(255, 155, 60),
+    purple    = Color3.fromRGB(160, 90, 255),
+    t1        = Color3.fromRGB(120, 140, 150),
+    t2        = Color3.fromRGB(80, 200, 120),
+    t3        = Color3.fromRGB(100, 160, 255),
+    t4        = Color3.fromRGB(200, 130, 255),
+    t5        = Color3.fromRGB(255, 185, 60),
+    t6        = Color3.fromRGB(255, 130, 50),
+    t7        = Color3.fromRGB(255, 80,  90),
+    text      = Color3.fromRGB(228, 234, 255),
+    text2     = Color3.fromRGB(130, 148, 185),
+    textMuted = Color3.fromRGB(68,  85,  120),
+    mutNone   = Color3.fromRGB(130, 148, 185),
+    mutSilver = Color3.fromRGB(195, 210, 225),
+    mutGold   = Color3.fromRGB(255, 198, 55),
+    mutCorr   = Color3.fromRGB(155, 75,  255),
+    mutDia    = Color3.fromRGB(90,  220, 255),
+    mutGem    = Color3.fromRGB(255, 100, 180),
+    mutRainbow= Color3.fromRGB(255, 255, 80),
+}
+local TIER_COL = {[0]=C.textMuted,[1]=C.t1,[2]=C.t2,[3]=C.t3,[4]=C.t4,[5]=C.t5,[6]=C.t6,[7]=C.t7}
+local MUT_COL  = { None=C.mutNone, Silver=C.mutSilver, Gold=C.mutGold, Corrupted=C.mutCorr,
+                   Diamond=C.mutDia, Gem=C.mutGem, Rainbow=C.mutRainbow }
+local RARITY_COL = {
+    Common=C.textMuted, Uncommon=C.green, Rare=C.accent,
+    Epic=C.purple, Legendary=C.gold, Mythical=C.orange, Exclusive=C.red
+}
+-- ═════════════════════════════════════════════════════
+-- GLOBAL CONFIGURATION FOR AUTO-FARM
+-- ═════════════════════════════════════════════════════
+_G.gConfig = _G.gConfig or {
+    autoBuyStorages = false,
+    autoSellStore = false,
+    autoCollectWon = false,
+    minPickupValue = 0,
+    autoBuyArea = "Any Area",
+    selectedGarages = nil, -- nil = all enabled; set by garage picker UI
+    garages = GARAGE_CATALOG
+}
+local function getSpawnPos(spawnInst)
+    if not spawnInst then return nil end
+    if spawnInst:IsA("BasePart") then return spawnInst.Position end
+    local bp = spawnInst:FindFirstChildWhichIsA("BasePart")
+    if bp then return bp.Position end
+    return nil
+end
+
+local gConfig = _G.gConfig
+-- Default: all garages selected
+if not gConfig.selectedGarages then
+    gConfig.selectedGarages = {}
+    for id, _ in pairs(GARAGE_CATALOG) do gConfig.selectedGarages[id] = false end
+end
+-- AUTO-BID ENGINE SETUP
+-- ═════════════════════════════════════════════════════
+local AuctionEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Auction")
+local BidRemote              = AuctionEvents and AuctionEvents:FindFirstChild("Bid")
+-- Correct remote name confirmed via remote spy: UpdateCurrentWinningBid (not UpdateWinningBid)
+local UpdateWinningBidEvent  = AuctionEvents and AuctionEvents:FindFirstChild("UpdateCurrentWinningBid")
+local AB = {
+    enabled = false, maxBid = 2000, minBid = 0, speed = 0.3,
+    minStartBid = 0,       -- skip auctions whose starting bid is below this
+    minBidBlocked = false, -- true when current auction was blocked by minStartBid
+    auctionJustOpened = false, -- true from open until first bid update received
+    weAreWinning = false, -- track if we are winning the current active auction
+    currentBid = 0, predictedVal = 0, bidsThisRound = 0, auctionOpen = false,
+    activeLot = nil, activeLotData = nil,
+    logLines = {}, onLog = nil
+}
+local SPEED_PRESETS = { { label="Safe 0.5s", val=0.50 }, { label="Normal 0.3s",val=0.30 }, { label="Fast 0.1s", val=0.10 } }
+local function abLog(msg, col)
+    local t = os.date("%H:%M:%S")
+    local plainText = tostring(msg):gsub("<[^>]+>", "")
+    print("[Nex HUB] " .. plainText)
+    table.insert(AB.logLines, 1, { text="["..t.."] "..msg, col=col or C.text2 })
+    if #AB.logLines > 10 then table.remove(AB.logLines) end
+    if AB.onLog then AB.onLog() end
+end
+local bidThread = nil
+local function stopBidLoop(reason)
+    if bidThread then task.cancel(bidThread) bidThread = nil end
+    if reason then abLog("⚠️ Stopped: "..reason, C.red) end
+end
+
+local function firePrompt(prompt)
+    if fireproximityprompt then
+        pcall(function() fireproximityprompt(prompt) end)
+    else
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration + 0.05)
+            prompt:InputHoldEnd()
+        end)
+    end
+end
+
+local function matchLotName(n1, n2)
+    if not n1 or not n2 then return false end
+    n1 = n1:lower()
+    n2 = n2:lower()
+    
+    -- If numbers exist, they MUST match
+    local num1 = n1:match("%d+")
+    local num2 = n2:match("%d+")
+    if num1 or num2 then
+        if num1 ~= num2 then
+            return false
+        end
+    end
+    
+    -- Remove common generic suffixes but KEEP main words
+    local clean1 = n1:gsub("garage", ""):gsub("container", ""):gsub("shop", ""):gsub("front", ""):gsub("%s+", "")
+    local clean2 = n2:gsub("garage", ""):gsub("container", ""):gsub("shop", ""):gsub("front", ""):gsub("%s+", "")
+    
+    -- Prevent empty matches
+    if clean1 == "" or clean2 == "" then
+        return false
+    end
+    
+    return clean1:find(clean2) or clean2:find(clean1)
+end
+
+local function isVehicleOverweight()
+    local vehicle = nil
+    for _, desc in ipairs(workspace:GetChildren()) do
+        if desc:IsA("Model") and desc:GetAttribute("OwnerUserId") == LocalPlayer.UserId then
+            vehicle = desc
+            break
+        end
+    end
+    if vehicle then
+        local weight = vehicle:GetAttribute("CargoWeight") or 0
+        local limit = vehicle:GetAttribute("CargoWeightLimit") or 99999
+        if weight >= limit then
+            return true
+        end
+    end
+    return false
+end
+
+local function triggerAutoPickup(lotName)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        AB.lastWonLot = lotName or "Unknown"
+        AB.originalPosition = root.CFrame
+        AB.isCollecting = true
+        AB.collectionStartTime = os.clock()
+        abLog("🎁 Auto-Pickup Armed", C.green)
+    end
+end
+
+local function belongsToUs(itemModel)
+    if not itemModel then return false end
+    local owner = itemModel:GetAttribute("Owner")
+    local base = itemModel:FindFirstChild("Base")
+    local baseOwner = base and base:GetAttribute("Owner")
+    
+    local targetOwner = owner or baseOwner
+    if targetOwner then
+        return tonumber(targetOwner) == LocalPlayer.UserId
+    end
+    return false
+end
+
+if _G.AHCollectorThread then
+    pcall(function() task.cancel(_G.AHCollectorThread) end)
+end
+_G.AHCollectorThread = task.spawn(function()
+    local lastWarning = 0
+    local firedPrompts = {}
+    while true do
+        task.wait(0.3)
+        -- Clean up expired fired prompts (older than 5s)
+        for p, t in pairs(firedPrompts) do
+            if os.clock() - t > 5 then
+                firedPrompts[p] = nil
+            end
+        end
+        
+        if gConfig.autoCollectWon and AB.isCollecting then
+            -- Timeout check (60 seconds max for safety)
+            if os.clock() - (AB.collectionStartTime or 0) > 60 then
+                abLog("⏰ Auto-Pickup: Timeout reached. Returning.", C.orange)
+                if AB.originalPosition then
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then root.CFrame = AB.originalPosition end
+                end
+                AB.isCollecting = false
+                AB.originalPosition = nil
+            else
+                if isVehicleOverweight() then
+                    if os.clock() - lastWarning > 10 then
+                        lastWarning = os.clock()
+                        abLog("⚠️ Auto-Pickup Paused: Vehicle is overweight!", C.orange)
+                    end
+                else
+                    pcall(function()
+                        if not ItemsData then
+                            pcall(function() ItemsData = require(ReplicatedStorage.Modules.Items) end)
+                        end
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local folders = {}
+                            if workspace:FindFirstChild("_Carryables") then table.insert(folders, workspace._Carryables) end
+                            if workspace:FindFirstChild("_LostItems") then table.insert(folders, workspace._LostItems) end
+                            
+                            local targetItem = nil
+                            local targetPrompt = nil
+                            local itemsLeft = 0
+                            
+                            for _, folder in ipairs(folders) do
+                                for _, itemModel in ipairs(folder:GetChildren()) do
+                                    if belongsToUs(itemModel) then
+                                        local part = itemModel.PrimaryPart or itemModel:FindFirstChild("Base") or itemModel:FindFirstChildWhichIsA("BasePart")
+                                        local insideActiveGarage = false
+                                        if part and AB.originalPosition then
+                                            insideActiveGarage = ((part.Position - AB.originalPosition.Position).Magnitude <= 120)
+                                        end
+                                        
+                                        if insideActiveGarage then
+                                            itemsLeft = itemsLeft + 1
+                                            for _, desc in ipairs(itemModel:GetDescendants()) do
+                                                if desc:IsA("ProximityPrompt") and desc.Enabled and not firedPrompts[desc] then
+                                                    local parent = desc.Parent
+                                                    local promptPart = parent and (parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart"))
+                                                    if promptPart then
+                                                        local name = desc.Name:lower()
+                                                        local action = desc.ActionText:lower()
+                                                        local objText = desc.ObjectText:lower()
+                                                        
+                                                        local isDoor = parent.Name:lower():find("door") and not parent.Name:lower():find("garage")
+                                                        if not isDoor then
+                                                            if name:find("vehicle") or name:find("pack") or name:find("pickup") or name:find("collect") or name:find("open") or name:find("unlock") or name:find("crack") or name:find("lockpick")
+                                                               or action:find("vehicle") or action:find("pack") or action:find("pickup") or action:find("collect") or action:find("add") or action:find("open") or action:find("unlock") or action:find("crack") or action:find("lockpick")
+                                                               or objText:find("vehicle") or objText:find("pack") or objText:find("pickup") or objText:find("collect") or objText:find("open") or objText:find("unlock") or objText:find("crack") or objText:find("lockpick") then
+                                                                
+                                                                targetItem = promptPart
+                                                                targetPrompt = desc
+                                                                break
+                                                            end
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    if targetItem then break end
+                                end
+                                if targetItem then break end
+                            end
+                            
+                            local elapsed = os.clock() - (AB.collectionStartTime or 0)
+                            if targetItem and targetPrompt then
+                                -- Teleport to the item
+                                root.CFrame = targetItem.CFrame * CFrame.new(0, 1.5, 0)
+                                task.wait(0.08)
+                                firedPrompts[targetPrompt] = os.clock()
+                                firePrompt(targetPrompt)
+                                task.wait(0.6) -- slowed down pickup
+                            elseif itemsLeft == 0 and elapsed >= 6 then
+                                abLog("✅ Auto-Pickup: Finished collecting all items!", C.green)
+                                if AB.originalPosition then
+                                    root.CFrame = AB.originalPosition
+                                end
+                                AB.isCollecting = false
+                                AB.originalPosition = nil
+                            end
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end)
+local function startBidLoop()
+    stopBidLoop()
+    if not BidRemote then abLog("❌ Bid remote not found", C.red); AB.enabled = false; if updateToggleBtn then updateToggleBtn() end; return end
+    -- Block if this auction was flagged by min-bid filter
+    if AB.minBidBlocked then
+        abLog("🚫 Bid blocked: below min $" .. AB.minStartBid, Color3.fromRGB(255,140,60))
+        return
+    end
+    AB.bidsThisRound = 0
+    abLog("🤖 BidLoop armed: spd=" .. AB.speed .. "s", C.green)
+    bidThread = task.spawn(function()
+        -- ── PRE-BID OPENING CHECK ──────────────────────────────────
+        -- Wait for UpdateCurrentWinningBid to fire with the opening price.
+        -- AB.auctionJustOpened stays true until the first bid update is received.
+        if AB.minStartBid > 0 then
+            local waited = 0
+            while AB.auctionJustOpened and waited < 2.0 do
+                task.wait(0.1)
+                waited = waited + 0.1
+            end
+            -- After wait: currentBid was set by UpdateCurrentWinningBid
+            if AB.currentBid > 0 and AB.currentBid < AB.minStartBid then
+                AB.minBidBlocked = true
+                AB.auctionOpen  = false
+                abLog(string.format("⏭️ SKIPPED: opening $%d < min $%d", AB.currentBid, AB.minStartBid), Color3.fromRGB(255,140,60))
+                return
+            end
+        end
+        -- ── MAIN BID LOOP ────────────────────────────────────────
+        while AB.enabled and AB.auctionOpen do
+            local ok = pcall(function() BidRemote:FireServer() end)
+            if ok then AB.bidsThisRound = AB.bidsThisRound + 1 else abLog("❌ Bid failed", C.red) end
+            task.wait(AB.speed)
+        end
+    end)
+end
+-- ═════════════════════════════════════════════════════
+-- VALUE CALCULATION (FIXED REVERSE LOOKUP FOR NAMES)
+-- ═════════════════════════════════════════════════════
+local function getItemData(identifier)
+    if not ItemsData or type(ItemsData) ~= "table" then return "Unknown", 0, "Common" end
+    
+    local identifierStr = tostring(identifier)
+    
+    -- 1. Try direct lookup (if identifier is a name)
+    if ItemsData[identifierStr] then
+        local d = ItemsData[identifierStr]
+        return (d.Name or d.name or identifierStr), tonumber(d.BasePrice or d.basePrice or d.Value or d.value) or 0, (d.Rarity or d.rarity or "Common")
+    end
+    
+    -- 2. Reverse lookup (if identifier is an ID)
+    for id, v in pairs(ItemsData) do
+        if type(v) == "table" then
+            if tostring(id) == identifierStr or tostring(v.Id or v.id) == identifierStr then
+                return (v.Name or v.name or "Unknown"), tonumber(v.BasePrice or v.basePrice or v.Value or v.value) or 0, (v.Rarity or v.rarity or "Common")
+            end
+        end
+    end
+    
+    return identifierStr, 0, "Common"
+end
+local function calcItemValue(itemName, rarity, mutator, grade, condition)
+    local realName, base, baseRar = getItemData(itemName)
+    
+    -- Override missing/default rarity with the actual module rarity
+    if (not rarity or rarity == "Common") and baseRar and baseRar ~= "Common" then
+        rarity = baseRar
+    end
+    
+    if base <= 0 then
+        local rarityFallbacks = { Common=15, Uncommon=35, Rare=80, Epic=200, Legendary=500, Mythical=1200, Exclusive=3000 }
+        base = rarityFallbacks[rarity] or 15
+    end
+    
+    local mMult     = MUTATOR_MULT[mutator]  or 1
+    local gMult     = GRADE_MULT[tonumber(grade)] or 1.0
+    local cMult     = CONDITION_MULT[condition]    or 1.0
+    
+    return realName, math.floor(base * mMult * gMult * cMult), rarity
+end
+-- ═════════════════════════════════════════════════════
+-- WORKSPACE SCANNER
+-- ═════════════════════════════════════════════════════
+local SCAN_RADIUS = 50
+local function isItemModel(model)
+    if not model:IsA("Model") then return false end
+    local base = model.PrimaryPart or model:FindFirstChild("Base")
+    if not base then return false end
+    local itemName = model:GetAttribute("ItemName") or model:GetAttribute("Name") or model.Name
+    
+    -- Exclude garage structures
+    local nameLower = itemName:lower()
+    if nameLower:find("garage") or nameLower == "right" or nameLower == "left" or nameLower == "door" or nameLower == "blocker" or nameLower == "button" or nameLower == "entrysquare" or nameLower == "npcspawns" then
+        return false
+    end
+    
+    local blacklist = { "Terrain", "Camera", "GarageSpawn", "AreaBoundary", "LostAndFoundBox", "Lost and Found Box", "Billy", "Sal", "Ted", "Steve", "Parts", "Part", "Model" }
+    for _, b in ipairs(blacklist) do if itemName == b then return false end end
+    return true
+end
+local function readItemAttributes(model)
+    local attrs = {
+        itemName  = model:GetAttribute("ItemName")  or model.Name,
+        rarity    = model:GetAttribute("Rarity")    or "Common",
+        mutator   = model:GetAttribute("Mutator")   or "None",
+        grade     = model:GetAttribute("Grade"),
+        condition = model:GetAttribute("Condition"),
+        value     = model:GetAttribute("Value"),
+        baseValue = model:GetAttribute("BaseValue"),
+    }
+    
+    local basePart = model.PrimaryPart or model:FindFirstChild("Base")
+    if basePart then
+        attrs.itemName  = attrs.itemName  or basePart:GetAttribute("ItemName")
+        attrs.rarity    = attrs.rarity    or basePart:GetAttribute("Rarity")
+        attrs.mutator   = attrs.mutator   or basePart:GetAttribute("Mutator")
+        attrs.value     = attrs.value     or basePart:GetAttribute("Value")
+        attrs.grade     = attrs.grade     or basePart:GetAttribute("Grade")
+        attrs.condition = attrs.condition or basePart:GetAttribute("Condition")
+    end
+    
+    local realName, calcPrice, finalRarity = calcItemValue(attrs.itemName, attrs.rarity, attrs.mutator, attrs.grade, attrs.condition)
+    attrs.displayName = realName
+    attrs.rarity = finalRarity
+    
+    local serverValue = tonumber(attrs.value or attrs.baseValue)
+    if serverValue and serverValue > 0 then 
+        attrs.calcValue = serverValue 
+    else
+        attrs.calcValue = calcPrice
+    end
+    return attrs
+end
+local function scanLot(spawnInst)
+    local pos = getSpawnPos(spawnInst)
+    if not pos then return {} end
+    local items = {}
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("Model") and isItemModel(desc) then
+            local bp = desc.PrimaryPart or desc:FindFirstChild("Base")
+            if bp and bp:IsA("BasePart") then
+                local dist = (bp.Position - pos).Magnitude
+                if dist <= SCAN_RADIUS then
+                    local info = readItemAttributes(desc)
+                    info.distance = math.floor(dist)
+                    info.model = desc
+                    table.insert(items, info)
+                end
+            end
+        end
+    end
+    table.sort(items, function(a, b) return (a.calcValue or 0) > (b.calcValue or 0) end)
+    return items
+end
+local function scanAllAreas()
+    local results = {}
+    local areasFolder = workspace:FindFirstChild("Areas")
+    if not areasFolder then return results end
+    for _, areaFolder in ipairs(areasFolder:GetChildren()) do
+        local areaName = areaFolder.Name
+        local gsFolder = areaFolder:FindFirstChild("GarageSpawns")
+        if gsFolder then
+            local areaResult = { name = areaName, lots = {} }
+            for i, spawn in ipairs(gsFolder:GetChildren()) do
+                local garageId    = spawn:GetAttribute("GarageType") or spawn.Name
+                local garageConf  = GARAGE_CATALOG[garageId]
+                if not garageConf then
+                    for id, conf in pairs(GARAGE_CATALOG) do
+                        if string.find(spawn.Name:lower(), conf.name:lower()) then garageConf = conf; garageId = id; break end
+                    end
+                end
+                
+                local conf = garageConf or { name="Unknown", tier=0, area=areaName, mascot="?", minNW=0, minBid=0, minProfit=0, maxProfit=0, items=6, entMin=0, entMax=0, col=Color3.fromRGB(100,100,100) }
+                local scannedItems = scanLot(spawn)
+                local totalVal = 0
+                for _, it in ipairs(scannedItems) do totalVal = totalVal + (it.calcValue or 0) end
+                local predictedAvg = conf.minBid + ((conf.minProfit + conf.maxProfit) / 2)
+                local entCost = (conf.entMin + conf.entMax) / 2
+                local useValue = (#scannedItems > 0) and totalVal or predictedAvg
+                local roi = entCost > 0 and ((useValue - entCost) / entCost * 100) or 0
+                table.insert(areaResult.lots, {
+                    spawnName = spawn.Name, lotIndex = i, garageId = garageId, conf = conf,
+                    items = scannedItems, scannedTotal = totalVal, predictedAvg = math.max(0, predictedAvg),
+                    liveScan = #scannedItems > 0, entCostMid = entCost, roi = roi,
+                    verdict = useValue > entCost and "Profitable" or useValue > 0 and "Break-Even" or "Loss Risk",
+                })
+            end
+            table.insert(results, areaResult)
+        end
+    end
+    return results
+end
+-- ═════════════════════════════════════════════════════
+-- ═════════════════════════════════════════════════════
+-- RAYFIELD STYLE UI IMPLEMENTATION (NO EMOJIS, NO SCANNER)
+-- ═════════════════════════════════════════════════════
+
+local COLORS = {
+    BG           = Color3.fromRGB(19, 19, 21),
+    Sidebar      = Color3.fromRGB(23, 23, 26),
+    TabBtnActive = Color3.fromRGB(30, 30, 35),
+    Card         = Color3.fromRGB(26, 26, 30),
+    CardHover    = Color3.fromRGB(33, 33, 38),
+    Border       = Color3.fromRGB(38, 38, 42),
+    Accent       = Color3.fromRGB(0, 125, 255), -- Rayfield Neon Blue
+    Text         = Color3.fromRGB(240, 240, 240),
+    TextDim      = Color3.fromRGB(160, 160, 165),
+    Green        = Color3.fromRGB(46, 204, 113),
+    Red          = Color3.fromRGB(231, 76, 60),
+    Gold         = Color3.fromRGB(245, 190, 70),
+    Purple       = Color3.fromRGB(150, 100, 255),
+    Orange       = Color3.fromRGB(240, 140, 60),
+}
+
+local function make(class, props, parent)
+    local inst = Instance.new(class)
+    for k, v in pairs(props) do inst[k] = v end
+    if parent then inst.Parent = parent end
+    return inst
+end
+local function pad(px, p) return make("UIPadding", {PaddingTop=UDim.new(0,px), PaddingBottom=UDim.new(0,px), PaddingLeft=UDim.new(0,px), PaddingRight=UDim.new(0,px)}, p) end
+local function corner(r, p) return make("UICorner", {CornerRadius=UDim.new(0,r)}, p) end
+local function stroke(th, col, p) return make("UIStroke", {Thickness=th, Color=col, ApplyStrokeMode=Enum.ApplyStrokeMode.Border}, p) end
+local function list(align, spacing, p) return make("UIListLayout", {HorizontalAlignment=align or Enum.HorizontalAlignment.Left, VerticalAlignment=Enum.VerticalAlignment.Top, Padding=UDim.new(0, spacing or 6), SortOrder=Enum.SortOrder.LayoutOrder}, p) end
+local function tw(inst, sec, props, style, dir) 
+    local info = TweenInfo.new(sec, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out) 
+    pcall(function() local t = TweenService:Create(inst, info, props); t:Play() end)
+end
+local function fm(num) return num >= 1000 and string.format("$%.1fk", num/1000) or string.format("$%d", num) end
+
+-- Clean previous instances safely
+pcall(function()
+    for _, v in ipairs(TargetGui:GetChildren()) do
+        if v.Name == "AHScanner" then v:Destroy() end
+    end
+end)
+
+-- ScreenGui Setup
+local ScreenGui = make("ScreenGui", {
+    Name="AHScanner", ResetOnSpawn=false,
+    ZIndexBehavior=Enum.ZIndexBehavior.Sibling, IgnoreGuiInset=true,
+}, TargetGui)
+
+-- ── MOBILE FLOATING BUTTONS ────────────────────────
+local MobileToggle = make("TextButton", {
+    Name = "MobileToggle",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Size = UDim2.new(0, 48, 0, 48),
+    Position = UDim2.new(0.9, 0, 0.3, 0),
+    BackgroundColor3 = COLORS.Sidebar,
+    Text = "Menu",
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    TextColor3 = COLORS.Accent,
+    ZIndex = 999999,
+    Active = true,
+    AutoButtonColor = false,
+}, ScreenGui)
+corner(99, MobileToggle); stroke(2, COLORS.Accent, MobileToggle)
+
+local NextGarageToggle = make("TextButton", {
+    Name = "NextGarageToggle",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Size = UDim2.new(0, 48, 0, 48),
+    Position = UDim2.new(0.9, 0, 0.3, 55),
+    BackgroundColor3 = COLORS.Sidebar,
+    Text = "Next",
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    TextColor3 = COLORS.Green,
+    ZIndex = 999999,
+    Active = true,
+    AutoButtonColor = false,
+    Visible = gConfig.autoBuyStorages,
+}, ScreenGui)
+corner(99, NextGarageToggle); stroke(2, COLORS.Green, NextGarageToggle)
+local NextGarageScale = Instance.new("UIScale", NextGarageToggle)
+NextGarageScale.Scale = gConfig.autoBuyStorages and 1 or 0
+
+local function animateNextButton(visible)
+    if visible then
+        NextGarageToggle.Visible = true
+        tw(NextGarageScale, 0.5, {Scale = 1}, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    else
+        tw(NextGarageScale, 0.5, {Scale = 0}, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
+        task.delay(0.5, function()
+            if not gConfig.autoBuyStorages then
+                NextGarageToggle.Visible = false
+            end
+        end)
+    end
+end
+
+-- Teleport Logic for Next Button
+local lastVisitedGarage = nil
+NextGarageToggle.MouseButton1Click:Connect(function()
+    tw(NextGarageToggle, 0.12, {Size = UDim2.new(0, 58, 0, 34)}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    task.delay(0.12, function()
+        tw(NextGarageToggle, 0.45, {Size = UDim2.new(0, 48, 0, 48)}, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+    end)
+    
+    pcall(function()
+        local targetArea = gConfig.autoBuyArea
+        local targetGarages = {}
+        for name, conf in pairs(GARAGE_CATALOG) do
+            local areaOk = (targetArea == "Any Area" or conf.area == targetArea)
+            local selectedOk = (gConfig.selectedGarages == nil) or (gConfig.selectedGarages[name] == true)
+            if areaOk and selectedOk then
+                targetGarages[name] = conf
+            end
+        end
+        
+        local debris = workspace:FindFirstChild("_Debris")
+        local garagesFolder = debris and debris:FindFirstChild("Garages")
+        if not garagesFolder then return end
+        
+        local list = {}
+        for _, garage in ipairs(garagesFolder:GetChildren()) do
+            local matched = false
+            for gName, conf in pairs(targetGarages) do
+                if string.find(garage.Name:lower(), conf.name:lower()) or string.find(gName:lower(), garage.Name:lower()) then
+                    matched = true
+                    break
+                end
+            end
+            if matched then
+                table.insert(list, garage)
+            end
+        end
+        
+        table.sort(list, function(a, b) return a.Name < b.Name end)
+        if #list == 0 then return end
+        
+        local nextIndex = 1
+        if lastVisitedGarage then
+            for i, g in ipairs(list) do
+                if g == lastVisitedGarage then
+                    nextIndex = (i % #list) + 1
+                    break
+                end
+            end
+        end
+        
+        local targetGarage = list[nextIndex]
+        if targetGarage then
+            local entry = targetGarage:FindFirstChild("EntrySquare")
+            local promptPart = entry and entry:FindFirstChild("PromptPart")
+            if promptPart then
+                lastVisitedGarage = targetGarage
+                fastTP(promptPart.CFrame)
+                abLog("TP: " .. targetGarage.Name, COLORS.Green)
+                local prompt = promptPart:FindFirstChild("EnterAuction")
+                if prompt and prompt.Enabled then
+                    task.wait(0.5)
+                    if fireproximityprompt then
+                        fireproximityprompt(prompt)
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+-- Mobile Toggle Dragging & UI Visibilty
+local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
+MobileToggle.InputBegan:Connect(function(inp)
+    if isTouchOrClick(inp) then 
+        togDragActive = true
+        togDragStart = inp.Position
+        togStartPos = MobileToggle.Position
+        togMoved = false
+    end
+end)
+table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
+    if togDragActive and (inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = inp.Position - togDragStart
+        if delta.Magnitude > 5 then togMoved = true end
+        MobileToggle.Position = UDim2.new(togStartPos.X.Scale, togStartPos.X.Offset + delta.X, togStartPos.Y.Scale, togStartPos.Y.Offset + delta.Y)
+        NextGarageToggle.Position = UDim2.new(MobileToggle.Position.X.Scale, MobileToggle.Position.X.Offset, MobileToggle.Position.Y.Scale, MobileToggle.Position.Y.Offset + 55)
+    end
+end))
+
+local uiIsVisible = true
+local lastSize = UDim2.new(0, 520, 0, 360)
+local function toggleUI(targetWin, state)
+    if state == nil then state = not uiIsVisible end
+    if state == uiIsVisible then return end
+    uiIsVisible = state
+    if not state then
+        lastSize = targetWin.Size
+        tw(targetWin, 0.35, {Size = UDim2.new(0, 0, 0, 0)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+        task.delay(0.35, function() targetWin.Visible = false; targetWin.Active = false; targetWin.BackgroundTransparency = 1 end)
+    else
+        targetWin.Visible = true
+        targetWin.Active = true
+        tw(targetWin, 0.45, {Size = lastSize}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        task.delay(0.1, function() targetWin.BackgroundTransparency = 0 end)
+    end
+end
+
+-- RAYFIELD FRAME (520x360)
+local Win = make("Frame", {
+    Name="Win", AnchorPoint=Vector2.new(0.5,0.5),
+    Position=UDim2.new(0.5,0,0.5,0),
+    Size=UDim2.new(0, 520, 0, 360),
+    BackgroundColor3=COLORS.BG, ClipsDescendants=true,
+    Active=true,
+}, ScreenGui)
+corner(9, Win)
+stroke(1.2, COLORS.Border, Win)
+
+local uiScale = Instance.new("UIScale", Win)
+local function updateScale()
+    local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+    local scaleX = (viewport.X * 0.95) / 520
+    local scaleY = (viewport.Y * 0.95) / 360
+    uiScale.Scale = math.min(scaleX, scaleY, 1)
+end
+updateScale()
+table.insert(cleanUpSignals, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
+
+MobileToggle.InputEnded:Connect(function(inp)
+    if isTouchOrClick(inp) then
+        if not togMoved then
+            tw(MobileToggle, 0.1, {Size = UDim2.new(0, 40, 0, 40)})
+            task.delay(0.1, function() tw(MobileToggle, 0.1, {Size = UDim2.new(0, 48, 0, 48)}) end)
+            toggleUI(Win)
+        end
+        togDragActive = false
+    end
+end)
+
+-- TITLE / BANNER BAR
+local TitleBar = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = COLORS.Sidebar,
+    BorderSizePixel = 0,
+}, Win)
+
+local TitleLabel = make("TextLabel", {
+    Size = UDim2.new(0.5, 0, 1, 0),
+    Position = UDim2.new(0, 14, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "NEX HUB v6.0",
+    TextColor3 = COLORS.Text,
+    TextSize = 13,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, TitleBar)
+
+local function createHeaderBtn(text, offset, bg, hover, clickCallback)
+    local b = make("TextButton", {
+        Size = UDim2.new(0, 24, 0, 24),
+        Position = UDim2.new(1, offset, 0.5, -12),
+        BackgroundColor3 = bg,
+        Text = text,
+        TextColor3 = COLORS.TextDim,
+        TextSize = 11,
+        Font = Enum.Font.GothamBold,
+        BorderSizePixel = 0,
+    }, TitleBar)
+    corner(5, b)
+    b.MouseEnter:Connect(function() tw(b, 0.12, {BackgroundColor3 = hover, TextColor3 = COLORS.Text}) end)
+    b.MouseLeave:Connect(function() tw(b, 0.12, {BackgroundColor3 = bg, TextColor3 = COLORS.TextDim}) end)
+    b.MouseButton1Click:Connect(clickCallback)
+    return b
+end
+
+-- Close and Min Buttons
+local CloseBtn = createHeaderBtn("X", -32, Color3.fromRGB(48, 25, 30), Color3.fromRGB(200, 55, 75), function()
+    if _G.AHScanner_CleanUp then _G.AHScanner_CleanUp() end
+end)
+
+local minned = false
+local MinBtn = createHeaderBtn("-", -62, Color3.fromRGB(25, 28, 42), COLORS.Border, function()
+    minned = not minned
+    tw(Win, 0.22, {Size = UDim2.new(0, 520, 0, minned and 38 or 360)})
+end)
+
+-- Sidebar Navigation Setup
+local Sidebar = make("Frame", {
+    Size = UDim2.new(0, 130, 1, -38),
+    Position = UDim2.new(0, 0, 0, 38),
+    BackgroundColor3 = COLORS.Sidebar,
+    BorderSizePixel = 0,
+}, Win)
+local SidebarLayout = list(Enum.HorizontalAlignment.Center, 4, Sidebar)
+pad(10, Sidebar)
+
+local Container = make("Frame", {
+    Size = UDim2.new(1, -140, 1, -48),
+    Position = UDim2.new(0, 135, 0, 43),
+    BackgroundTransparency = 1,
+}, Win)
+
+local tabs = {}
+local activeTab = nil
+
+local function createTab(name, icon)
+    local tabBtn = make("TextButton", {
+        Size = UDim2.new(0, 114, 0, 30),
+        BackgroundColor3 = Color3.fromRGB(0,0,0),
+        BackgroundTransparency = 1,
+        Text = name,
+        TextColor3 = COLORS.TextDim,
+        TextSize = 10,
+        Font = Enum.Font.GothamBold,
+        BorderSizePixel = 0,
+    }, Sidebar)
+    corner(6, tabBtn)
+
+    local tabFrame = make("ScrollingFrame", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = COLORS.Accent,
+        Visible = false,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(0,0,0,0),
+    }, Container)
+    list(nil, 6, tabFrame)
+    pad(4, tabFrame)
+
+    local tabData = { btn = tabBtn, frame = tabFrame, name = name }
+    tabs[name] = tabData
+
+    tabBtn.MouseButton1Click:Connect(function()
+        if activeTab then
+            activeTab.frame.Visible = false
+            tw(activeTab.btn, 0.15, { BackgroundColor3 = COLORS.Sidebar, TextColor3 = COLORS.TextDim })
+            activeTab.btn.BackgroundTransparency = 1
+        end
+        activeTab = tabData
+        tabFrame.Visible = true
+        tabBtn.BackgroundTransparency = 0
+        tw(tabBtn, 0.15, { BackgroundColor3 = COLORS.TabBtnActive, TextColor3 = COLORS.Accent })
+        if tabData.onOpen then
+            pcall(tabData.onOpen)
+        end
+    end)
+
+    return tabFrame
+end
+
+-- Create the sleek Rayfield-style Toggles & Buttons
+local function createToggle(tabFrame, label, initVal, onChange)
+    local card = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundColor3 = COLORS.Card,
+        BorderSizePixel = 0,
+    }, tabFrame)
+    corner(6, card)
+
+    local lbl = make("TextLabel", {
+        Size = UDim2.new(0.7, 0, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1,
+        Text = label,
+        TextColor3 = COLORS.Text,
+        TextSize = 11,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, card)
+
+    local switch = make("Frame", {
+        Size = UDim2.new(0, 42, 0, 22),
+        Position = UDim2.new(1, -54, 0.5, -11),
+        BackgroundColor3 = initVal and COLORS.Accent or Color3.fromRGB(45, 45, 50),
+        BorderSizePixel = 0,
+    }, card)
+    corner(11, switch)
+
+    local knob = make("Frame", {
+        Size = UDim2.new(0, 14, 0, 14),
+        Position = initVal and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+    }, switch)
+    corner(7, knob)
+
+    local btn = make("TextButton", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+    }, card)
+
+    local state = initVal
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        tw(switch, 0.15, { BackgroundColor3 = state and COLORS.Accent or Color3.fromRGB(45, 45, 50) })
+        tw(knob, 0.15, { Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
+        onChange(state)
+    end)
+    return card, function(newState)
+        state = newState
+        tw(switch, 0.15, { BackgroundColor3 = state and COLORS.Accent or Color3.fromRGB(45, 45, 50) })
+        tw(knob, 0.15, { Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
+    end
+end
+
+local function createButton(tabFrame, label, onClick)
+    local card = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 34),
+        BackgroundColor3 = COLORS.Card,
+        Text = label,
+        TextColor3 = COLORS.Text,
+        TextSize = 11,
+        Font = Enum.Font.GothamBold,
+        BorderSizePixel = 0,
+    }, tabFrame)
+    corner(6, card)
+
+    card.MouseButton1Click:Connect(onClick)
+    card.MouseEnter:Connect(function() tw(card, 0.15, { BackgroundColor3 = COLORS.CardHover }) end)
+    card.MouseLeave:Connect(function() tw(card, 0.15, { BackgroundColor3 = COLORS.Card }) end)
+    return card
+end
+
+-- ── 1. TABS INITIALIZATION ───────────────────────────
+local tabAuto      = createTab("Autofarm", "")
+local tabWorkshop  = createTab("Workshops", "")
+local tabBidding   = createTab("Auto-Bid", "")
+local tabUtilities = createTab("Utilities", "")
+
+-- ── TABS IMPLEMENTATION ──────────────────────────────
+
+-- 🚜 AUTOFARM TAB
+local abToggleCard, updateABToggle = createToggle(tabAuto, "Semi Autofarm (AutoTP to Block)", gConfig.autoBuyStorages, function(state)
+    gConfig.autoBuyStorages = state
+    if animateNextButton then animateNextButton(state) end
+end)
+
+local asToggleCard, updateASToggle = createToggle(tabAuto, "Start Auto Place Store Items", gConfig.autoSellStore, function(state)
+    gConfig.autoSellStore = state
+end)
+
+-- Target Area Dropdown Selector
+local areaCard = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+}, tabAuto)
+corner(6, areaCard)
+
+make("TextLabel", {
+    Size = UDim2.new(0.4, 0, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "Target Area:",
+    TextColor3 = COLORS.Text,
+    TextSize = 11,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, areaCard)
+
+local areaDropdownBtn = make("TextButton", {
+    Size = UDim2.new(0, 120, 0, 26),
+    Position = UDim2.new(1, -132, 0.5, -13),
+    BackgroundColor3 = COLORS.BG,
+    Text = (gConfig.autoBuyArea or "Any Area") .. " v",
+    TextColor3 = COLORS.Gold,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, areaCard)
+corner(5, areaDropdownBtn); stroke(1, COLORS.Border, areaDropdownBtn)
+
+local ddContainer = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1,
+    Visible = false,
+}, tabAuto)
+list(nil, 4, ddContainer)
+
+local ddOpen = false
+areaDropdownBtn.MouseButton1Click:Connect(function()
+    ddOpen = not ddOpen
+    ddContainer.Visible = ddOpen
+    areaDropdownBtn.Text = (gConfig.autoBuyArea or "Any Area") .. (ddOpen and " ^" or " v")
+end)
+
+local areas = {"Any Area", "Jurassic", "Back Alley", "Farmyard", "Shipyard", "Junk Yard"}
+for _, aName in ipairs(areas) do
+    local abtn = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundColor3 = COLORS.Card,
+        Text = aName,
+        TextColor3 = COLORS.TextDim,
+        TextSize = 10,
+        Font = Enum.Font.GothamMedium,
+        BorderSizePixel = 0,
+    }, ddContainer)
+    corner(4, abtn); stroke(1, COLORS.Border, abtn)
+    abtn.MouseButton1Click:Connect(function()
+        gConfig.autoBuyArea = aName
+        areaDropdownBtn.Text = aName .. " v"
+        ddOpen = false
+        ddContainer.Visible = false
+    end)
+end
+
+-- Garage Type Checklist Cards
+local pickerTitle = make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 20),
+    BackgroundTransparency = 1,
+    Text = "Garage Types Picker:",
+    TextColor3 = COLORS.TextDim,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, tabAuto)
+
+local areaOrder = {"Jurassic", "Junk Yard", "Back Alley", "Farmyard", "Shipyard"}
+local areaGarages = {}
+for _, a in ipairs(areaOrder) do areaGarages[a] = {} end
+for id, conf in pairs(GARAGE_CATALOG) do
+    local area = conf.area
+    if areaGarages[area] then
+        table.insert(areaGarages[area], { id = id, conf = conf })
+    end
+end
+for _, a in ipairs(areaOrder) do
+    table.sort(areaGarages[a], function(x, y) return x.conf.tier < y.conf.tier end)
+end
+
+for _, areaName in ipairs(areaOrder) do
+    local garageList = areaGarages[areaName]
+    if #garageList > 0 then
+        local isEventArea = false
+        for _, entry in ipairs(garageList) do
+            if entry.conf.event then isEventArea = true; break end
+        end
+        local headerText = "  " .. areaName .. (isEventArea and "  (Event)" or "")
+        local sectionHeader = make("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 16),
+            BackgroundTransparency = 1,
+            Text = headerText,
+            TextColor3 = isEventArea and COLORS.Gold or COLORS.Accent,
+            TextSize = 9,
+            Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, tabAuto)
+
+        local rowFrame = make("Frame", {
+            Size = UDim2.new(1, 0, 0, 24),
+            BackgroundTransparency = 1,
+        }, tabAuto)
+        local btnCount = #garageList
+        local btnW = 1 / btnCount
+
+        for i, entry in ipairs(garageList) do
+            local gId = entry.id
+            local gConf = entry.conf
+            local isOn = (gConfig.selectedGarages[gId] == true)
+
+            local gb = make("TextButton", {
+                Text = gConf.name, TextSize = 8, Font = Enum.Font.GothamBold,
+                TextColor3 = isOn and COLORS.Text or COLORS.TextDim,
+                BackgroundColor3 = isOn and gConf.col:Lerp(COLORS.Card, 0.55) or Color3.fromRGB(18, 20, 30),
+                Size = UDim2.new(btnW, -3, 1, 0), Position = UDim2.new(btnW * (i-1), 0, 0, 0),
+                AutoButtonColor = false, TextTruncate = Enum.TextTruncate.AtEnd
+            }, rowFrame)
+            corner(5, gb)
+            local gbStroke = stroke(1, isOn and gConf.col:Lerp(Color3.fromRGB(0,0,0),0.3) or Color3.fromRGB(30, 35, 50), gb)
+
+            gb.MouseButton1Click:Connect(function()
+                gConfig.selectedGarages[gId] = not gConfig.selectedGarages[gId]
+                local nowOn = gConfig.selectedGarages[gId] == true
+                tw(gb, 0.12, {
+                    BackgroundColor3 = nowOn and gConf.col:Lerp(COLORS.Card, 0.55) or Color3.fromRGB(18,20,30),
+                    TextColor3 = nowOn and COLORS.Text or COLORS.TextDim
+                })
+                gbStroke.Color = nowOn and gConf.col:Lerp(Color3.fromRGB(0,0,0),0.3) or Color3.fromRGB(30,35,50)
+            end)
+        end
+    end
+end
+
+
+-- 🛁 WORKSHOPS TAB
+local selectedItems = { Wash=nil, Repair=nil, Grading=nil, Locksmith=nil }
+local activeTimersList = {} 
+local EventsObj = ReplicatedStorage:WaitForChild("Events", 10)
+
+local SHOPS = {
+    Wash = {
+        title = "Wash Station", itemLabel = "Dirty Items", itemEmpty = "No dirty items to wash", maxSlots = 3,
+        getEligible = function() return EventsObj:WaitForChild("Wash"):WaitForChild("GetWashableItems"):InvokeServer() end,
+        getSlots    = function() return EventsObj:WaitForChild("Wash"):WaitForChild("GetSlotState"):InvokeServer() end,
+        startWork   = function(slot, guid, src, vguid) return EventsObj:WaitForChild("Wash"):WaitForChild("StartWash"):InvokeServer(slot, guid, src, vguid) end,
+        claimWork   = function(slot) return EventsObj:WaitForChild("Wash"):WaitForChild("ClaimWashedItem"):InvokeServer(slot) end,
+        unlockSlot  = function(slot) return EventsObj:WaitForChild("Wash"):WaitForChild("UnlockSlot"):InvokeServer(slot) end,
+        speedUp     = function(slot) return EventsObj:WaitForChild("Wash"):WaitForChild("SpeedUpWash"):InvokeServer(slot) end,
+    },
+    Repair = {
+        title = "Repair Shop", itemLabel = "Broken Items", itemEmpty = "No broken items to repair", maxSlots = 3,
+        getEligible = function() return EventsObj:WaitForChild("Repair"):WaitForChild("GetRepairableItems"):InvokeServer() end,
+        getSlots    = function() return EventsObj:WaitForChild("Repair"):WaitForChild("GetSlotState"):InvokeServer() end,
+        startWork   = function(slot, guid, src, vguid) return EventsObj:WaitForChild("Repair"):WaitForChild("StartRepair"):InvokeServer(slot, guid, src, vguid) end,
+        claimWork   = function(slot) return EventsObj:WaitForChild("Repair"):WaitForChild("ClaimRepairedItem"):InvokeServer(slot) end,
+        unlockSlot  = function(slot) return EventsObj:WaitForChild("Repair"):WaitForChild("UnlockSlot"):InvokeServer(slot) end,
+        speedUp     = function(slot) return EventsObj:WaitForChild("Repair"):WaitForChild("SpeedUpRepair"):InvokeServer(slot) end,
+    },
+    Grading = {
+        title = "Grading Office", itemLabel = "Ungraded Items", itemEmpty = "No items to grade", maxSlots = 3,
+        getEligible = function() return EventsObj:WaitForChild("Grading"):WaitForChild("GetGradableItems"):InvokeServer() end,
+        getSlots    = function() return EventsObj:WaitForChild("Grading"):WaitForChild("GetSlotState"):InvokeServer() end,
+        startWork   = function(slot, guid, src, vguid) return EventsObj:WaitForChild("Grading"):WaitForChild("StartGrading"):InvokeServer(slot, guid, src, vguid) end,
+        claimWork   = function(slot) return EventsObj:WaitForChild("Grading"):WaitForChild("ClaimGradedItem"):InvokeServer(slot) end,
+        unlockSlot  = function(slot) return EventsObj:WaitForChild("Grading"):WaitForChild("UnlockSlot"):InvokeServer(slot) end,
+        speedUp     = function(slot) return EventsObj:WaitForChild("Grading"):WaitForChild("SpeedUpGrading"):InvokeServer(slot) end,
+        collect     = function(slot) return EventsObj:WaitForChild("Grading"):WaitForChild("CollectGrade"):InvokeServer(slot) end,
+    },
+    Locksmith = {
+        title = "Locksmith Desk", itemLabel = "Locked Safes", itemEmpty = "No locked safes", maxSlots = 3,
+        getEligible = function()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local oldCF = root and root.CFrame
+            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
+            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("GetLockableItems"):InvokeServer() end)
+            if root and oldCF then root.CFrame = oldCF end
+            if ok then return res else error(res) end
+        end,
+        getSlots    = function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("GetSlotState"):InvokeServer() end,
+        startWork   = function(slot, guid, src, vguid)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local oldCF = root and root.CFrame
+            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
+            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("StartLocksmith"):InvokeServer(slot, guid, src, vguid) end)
+            if root and oldCF then root.CFrame = oldCF end
+            if ok then return res else error(res) end
+        end,
+        claimWork   = function(slot)
+            task.wait(0.5)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local oldCF = root and root.CFrame
+            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
+            local lastRes, lastOk
+            for attempt = 1, 3 do
+                lastOk, lastRes = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("ClaimItem"):InvokeServer(slot) end)
+                if lastOk and lastRes then break end
+                if attempt < 3 then task.wait(0.8) end
+            end
+            if root and oldCF then root.CFrame = oldCF end
+            if lastOk then return lastRes else error(lastRes) end
+        end,
+        unlockSlot  = function(slot) return EventsObj:WaitForChild("Locksmith"):WaitForChild("UnlockSlot"):InvokeServer(slot) end,
+        speedUp     = function(slot)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local oldCF = root and root.CFrame
+            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
+            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("SpeedUp"):InvokeServer(slot) end)
+            if root and oldCF then root.CFrame = oldCF end
+            if ok then return res else error(res) end
+        end,
+        openSafe    = function(slot)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local oldCF = root and root.CFrame
+            if root then root.CFrame = CFrame.new(395, 1726, -16.6) end
+            local ok, res = pcall(function() return EventsObj:WaitForChild("Locksmith"):WaitForChild("OpenSafe"):InvokeServer(slot) end)
+            if root and oldCF then root.CFrame = oldCF end
+            if ok then return res else error(res) end
+        end,
+    }
+}
+
+local activeShopKey = "Wash"
+
+local function showWorkshopPopup(text, color)
+    local popup = make("TextLabel", {
+        Text = text, TextSize = 12, Font = Enum.Font.GothamBold, TextColor3 = color or COLORS.Gold,
+        BackgroundColor3 = COLORS.Sidebar, BackgroundTransparency = 0.15, Size = UDim2.new(0, 300, 0, 40),
+        Position = UDim2.new(0.5, -150, 0.5, -20), ZIndex = 200, TextWrapped = true
+    }, Win)
+    corner(8, popup); stroke(1.5, color or COLORS.Gold, popup)
+    
+    tw(popup, 0.3, { Position = UDim2.new(0.5, -150, 0.5, -40) })
+    task.delay(3, function()
+        tw(popup, 0.5, { Position = UDim2.new(0.5, -150, 0.5, -80), TextTransparency = 1, BackgroundTransparency = 1 })
+        task.delay(0.5, function() popup:Destroy() end)
+    end)
+end
+
+-- Horizontal list of workshop type selector buttons
+local shopSelector = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 24),
+    BackgroundTransparency = 1,
+}, tabWorkshop)
+list(nil, 4, shopSelector).FillDirection = Enum.FillDirection.Horizontal
+
+local shopBtns = {}
+local function setShopType(key)
+    activeShopKey = key
+    for k, btn in pairs(shopBtns) do
+        local active = (k == key)
+        tw(btn, 0.15, { BackgroundColor3 = active and COLORS.TabBtnActive or COLORS.Card, TextColor3 = active and COLORS.Accent or COLORS.TextDim })
+    end
+    renderWorkshop(key)
+end
+
+for _, name in ipairs({"Wash", "Repair", "Grading", "Locksmith"}) do
+    local btn = make("TextButton", {
+        Size = UDim2.new(0.25, -3, 1, 0),
+        BackgroundColor3 = COLORS.Card,
+        Text = name,
+        TextColor3 = COLORS.TextDim,
+        TextSize = 9,
+        Font = Enum.Font.GothamBold,
+        BorderSizePixel = 0,
+    }, shopSelector)
+    corner(5, btn); stroke(1, COLORS.Border, btn)
+    btn.MouseButton1Click:Connect(function() setShopType(name) end)
+    shopBtns[name] = btn
+end
+
+-- Workspace split columns container
+local splitContainer = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 240),
+    BackgroundTransparency = 1,
+}, tabWorkshop)
+
+local leftCol = make("ScrollingFrame", {
+    Size = UDim2.new(0.46, -4, 1, 0),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 1,
+    ScrollBarImageColor3 = COLORS.Accent,
+    CanvasSize = UDim2.new(0,0,0,0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, splitContainer)
+corner(6, leftCol); pad(4, leftCol); list(nil, 4, leftCol)
+
+local rightCol = make("ScrollingFrame", {
+    Size = UDim2.new(0.54, -4, 1, 0),
+    Position = UDim2.new(0.46, 8, 0, 0),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 1,
+    ScrollBarImageColor3 = COLORS.Accent,
+    CanvasSize = UDim2.new(0,0,0,0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, splitContainer)
+corner(6, rightCol); pad(4, rightCol); list(nil, 6, rightCol)
+
+function renderWorkshop(shopKey)
+    for _, c in ipairs(leftCol:GetChildren()) do if not c:IsA("UIListLayout") then c:Destroy() end end
+    for _, c in ipairs(rightCol:GetChildren()) do if not c:IsA("UIListLayout") then c:Destroy() end end
+    activeTimersList = {}
+    
+    local cfg = SHOPS[shopKey]
+    if not cfg then return end
+
+    local function refreshWorkshopView()
+        if activeTab and activeTab.name == "Workshops" and activeShopKey == shopKey then
+            renderWorkshop(shopKey)
+        end
+    end
+
+    -- Eligible Inventory items loading
+    task.spawn(function()
+        local ok, res = pcall(cfg.getEligible)
+        if not ok or not res or not res.items then 
+            make("TextLabel", { Text = "Failed to load items.", TextSize = 9, TextColor3 = COLORS.Red, Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20) }, leftCol)
+            return 
+        end
+        local items = res.items
+        if #items == 0 then 
+            make("TextLabel", { Text = cfg.itemEmpty, TextSize = 8, TextColor3 = COLORS.TextDim, Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), TextWrapped = true }, leftCol)
+            return 
+        end
+        
+        local selectedStroke = nil
+        for idx, item in ipairs(items) do
+            local data = item.data
+            local rawName = data.ItemId or "Unknown"
+            local rar = data.Rarity or "Common"
+            local mut = data.Mutator or "None"
+            local grade = data.Grade or 0
+            local cond = data.Condition or 100
+            local realName, calcVal, finalRar = calcItemValue(rawName, rar, mut, grade, cond)
+            
+            local card = make("TextButton", { Size = UDim2.new(1, -2, 0, 28), BackgroundColor3 = COLORS.BG, Text = "", AutoButtonColor = false }, leftCol)
+            corner(5, card); local cStroke = stroke(1, COLORS.Border, card)
+            
+            make("TextLabel", { Text = realName, TextSize = 8, TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 6, 0, 2), Size = UDim2.new(1, -12, 0, 12), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, card)
+            make("TextLabel", { Text = finalRar .. (mut ~= "None" and (" • " .. mut) or ""), TextSize = 7, TextColor3 = RARITY_COL[finalRar] or COLORS.TextDim, Font = Enum.Font.GothamMedium, BackgroundTransparency = 1, Position = UDim2.new(0, 6, 0, 14), Size = UDim2.new(1, -12, 0, 12), TextXAlignment = Enum.TextXAlignment.Left }, card)
+            
+            if selectedItems[shopKey] and selectedItems[shopKey].guid == item.guid then 
+                cStroke.Color = COLORS.Accent
+                cStroke.Thickness = 1.4
+                selectedStroke = cStroke 
+            end
+            
+            card.MouseButton1Click:Connect(function()
+                if selectedStroke then selectedStroke.Color = COLORS.Border; selectedStroke.Thickness = 1 end
+                cStroke.Color = COLORS.Accent; cStroke.Thickness = 1.4; selectedStroke = cStroke
+                selectedItems[shopKey] = item
+            end)
+        end
+    end)
+
+    -- Shop Slots loading
+    task.spawn(function()
+        local ok, res = pcall(cfg.getSlots)
+        if not ok or not res then 
+            make("TextLabel", { Text = "Failed to load slots.", TextSize = 9, TextColor3 = COLORS.Red, Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20) }, rightCol)
+            return 
+        end
+        
+        local unlockedCount = res.unlockedCount or 1
+        local slots = res.slots or {}
+        
+        for slotIndex = 1, cfg.maxSlots do
+            local slotData = slots[tostring(slotIndex)]
+            local card = make("Frame", { Size = UDim2.new(1, -2, 0, 68), BackgroundColor3 = COLORS.BG }, rightCol)
+            corner(6, card); stroke(1, COLORS.Border, card)
+            make("TextLabel", { Text = "Slot #" .. slotIndex, TextSize = 8, TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(0.5, 0, 0, 12), TextXAlignment = Enum.TextXAlignment.Left }, card)
+            
+            if slotIndex > unlockedCount then
+                make("TextLabel", { Text = "LOCKED", TextSize = 9, TextColor3 = COLORS.Red, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 20), Size = UDim2.new(0.5, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left }, card)
+                local unlockBtn = make("TextButton", { Text = "Unlock", TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = COLORS.Gold, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
+                corner(5, unlockBtn); stroke(1.2, COLORS.Gold, unlockBtn)
+                unlockBtn.MouseButton1Click:Connect(function() 
+                    task.spawn(function() 
+                        pcall(function() 
+                            if cfg.unlockSlot(slotIndex) then 
+                                refreshWorkshopView() 
+                            end 
+                        end) 
+                    end) 
+                end)
+            elseif not slotData then
+                make("TextLabel", { Text = "EMPTY", TextSize = 9, TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 20), Size = UDim2.new(0.5, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left }, card)
+                local startBtn = make("TextButton", { Text = "Start", TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = COLORS.Green, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
+                corner(5, startBtn); stroke(1.2, COLORS.Green, startBtn)
+                startBtn.MouseButton1Click:Connect(function()
+                    local chosen = selectedItems[shopKey]
+                    if not chosen then return end
+                    startBtn.Text = "Starting..."
+                    task.spawn(function() 
+                        pcall(function() 
+                            local res = cfg.startWork(slotIndex, chosen.guid, chosen.source, chosen.vehicleGUID)
+                            if res and res.success then 
+                                selectedItems[shopKey] = nil
+                                refreshWorkshopView() 
+                            else 
+                                startBtn.Text = "Start" 
+                            end 
+                        end) 
+                    end)
+                end)
+            else
+                local itemEntry = slotData.Item or slotData.ItemData or slotData.Entry or {}
+                local rawItemName = itemEntry.ItemName or itemEntry.Name or "Processing Item"
+                local realItemName, _ = calcItemValue(rawItemName, "Common", "None", 0, 100)
+                
+                make("TextLabel", { Text = realItemName, TextSize = 9, TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 18), Size = UDim2.new(0.6, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, card)
+                
+                local elapsed = workspace:GetServerTimeNow() - (slotData.StartTime or workspace:GetServerTimeNow())
+                local remaining = (slotData.Duration or 0) - elapsed
+                
+                if remaining > 0 and not slotData.Repaired and not slotData.Washed and not slotData.Grade and not slotData.Opened then
+                    local tBarBg = make("Frame", { Size = UDim2.new(0.55, 0, 0, 4), Position = UDim2.new(0, 8, 0, 36), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0 }, card); corner(2, tBarBg)
+                    local tBarFill = make("Frame", { Size = UDim2.fromScale(math.clamp(elapsed / (slotData.Duration or 1), 0, 1), 1), BackgroundColor3 = COLORS.Accent, BorderSizePixel = 0 }, tBarBg); corner(2, tBarFill)
+                    local timeLbl = make("TextLabel", { Text = "0:00", TextSize = 9, TextColor3 = COLORS.Gold, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(0.55, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left }, card)
+                    
+                    table.insert(activeTimersList, { bar = tBarFill, lbl = timeLbl, startTime = slotData.StartTime or workspace:GetServerTimeNow(), duration = slotData.Duration or 30, card = card, onComplete = refreshWorkshopView })
+                    
+                    local skipBtn = make("TextButton", { Text = "Skip", TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = COLORS.Purple, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
+                    corner(5, skipBtn); stroke(1.2, COLORS.Purple, skipBtn)
+                    skipBtn.MouseButton1Click:Connect(function() 
+                        task.spawn(function() 
+                            pcall(function() cfg.speedUp(slotIndex) end)
+                            refreshWorkshopView() 
+                        end) 
+                    end)
+                else
+                    local btnText, btnColor, action = "Claim", COLORS.Green, "claim"
+                    if shopKey == "Wash" and not slotData.Washed then btnText, btnColor, action = "Collect", COLORS.Purple, "collectWash"
+                    elseif shopKey == "Repair" and not slotData.Repaired then btnText, btnColor, action = "Collect", COLORS.Purple, "collectRepair"
+                    elseif shopKey == "Grading" and not slotData.Grade then btnText, btnColor, action = "Roll", COLORS.Purple, "rollGrade"
+                    elseif shopKey == "Locksmith" and not slotData.Opened then btnText, btnColor, action = "Open", COLORS.Orange, "openSafe" end
+                    
+                    if slotData.Grade then realItemName = realItemName .. " (" .. tostring(slotData.Grade) .. " ⭐)" elseif slotData.CleanMutation then realItemName = realItemName .. " (" .. tostring(slotData.CleanMutation) .. ")" end
+                    
+                    local actionBtn = make("TextButton", { Text = btnText, TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = btnColor, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
+                    corner(5, actionBtn); stroke(1.2, btnColor, actionBtn)
+                    actionBtn.MouseButton1Click:Connect(function()
+                        actionBtn.Text = "Claiming..."
+                        task.spawn(function()
+                            local success, err = pcall(function()
+                                if action == "claim" then
+                                    local res = cfg.claimWork(slotIndex)
+                                    local function deepFind(t, keys)
+                                        if type(t) ~= "table" then return nil end
+                                        for k, v in pairs(t) do
+                                            for _, key in ipairs(keys) do
+                                                if string.lower(tostring(k)) == string.lower(key) then return v end
+                                            end
+                                            if type(v) == "table" then
+                                                local found = deepFind(v, keys)
+                                                if found then return found end
+                                            end
+                                        end
+                                        return nil
+                                    end
+                                    local grade = deepFind(res, {"grade", "stars"}) or deepFind(slotData, {"grade", "stars"})
+                                    local mut = deepFind(res, {"cleanmutation", "mutator", "mutation"}) or deepFind(slotData, {"cleanmutation", "mutator", "mutation"})
+                                    local cond = deepFind(res, {"condition", "health", "durability"}) or deepFind(slotData, {"condition", "health", "durability"})
+                                    
+                                    local resultStr = ""
+                                    if shopKey == "Grading" then
+                                        if grade then resultStr = "\\nStars: " .. tostring(grade) .. " ⭐" end
+                                    elseif shopKey == "Wash" then
+                                        if mut then resultStr = "\\nMutation: " .. tostring(mut) end
+                                    elseif shopKey == "Repair" then
+                                        if cond then resultStr = "\\nCondition: " .. tostring(cond) .. "%" end
+                                    end
+                                    showWorkshopPopup("Claimed!" .. resultStr, COLORS.Green)
+                                elseif action == "collectWash" then
+                                    local res = EventsObj:WaitForChild("Wash"):WaitForChild("CollectWash"):InvokeServer(slotIndex)
+                                    local mut = type(res) == "table" and (res.CleanMutation or res.Mutator or res.Mutation or res.Result)
+                                    showWorkshopPopup(mut and "Washed! Mutation: " .. tostring(mut) or "Washed successfully!", COLORS.Green)
+                                elseif action == "collectRepair" then
+                                    local res = EventsObj:WaitForChild("Repair"):WaitForChild("CollectRepair"):InvokeServer(slotIndex)
+                                    local cond = type(res) == "table" and (res.Condition or res.Health or res.Durability)
+                                    showWorkshopPopup(cond and "Repaired! Condition: " .. tostring(cond) .. "%" or "Repair collected!", COLORS.Green)
+                                elseif action == "rollGrade" then
+                                    local res = cfg.collect(slotIndex)
+                                    local grade = type(res) == "table" and (res.Grade or res.Stars or res.Score)
+                                    showWorkshopPopup(grade and "Graded! Stars: " .. tostring(grade) .. " ⭐" or "Grade completed!", COLORS.Gold)
+                                elseif action == "openSafe" then
+                                    local openRes = cfg.openSafe(slotIndex)
+                                    task.wait(0.3)
+                                    local claimRes = cfg.claimWork(slotIndex)
+                                    local lootStr = "Unknown"
+                                    local targetRes = (type(claimRes) == "table" and next(claimRes)) and claimRes or openRes
+                                    if type(targetRes) == "table" then
+                                        local list = targetRes.Items or targetRes.Loot or targetRes.Rewards or targetRes
+                                        local items = {}
+                                        for k, v in pairs(list) do
+                                            local itName = type(v) == "table" and (v.ItemName or v.Name or v.ItemId) or tostring(v)
+                                            if type(k) == "string" and type(v) == "table" then
+                                                itName = v.ItemName or v.Name or v.ItemId or k
+                                            elseif type(k) == "string" and type(v) == "string" then
+                                                itName = v
+                                            end
+                                            local displayName = getItemData(itName)
+                                            table.insert(items, displayName)
+                                        end
+                                        if #items > 0 then lootStr = table.concat(items, ", ") end
+                                    elseif type(targetRes) == "string" then 
+                                        lootStr = targetRes 
+                                    end
+                                    showWorkshopPopup("Safe Opened! Loot: " .. lootStr, COLORS.Orange)
+                                end
+                            end)
+                            if not success then
+                                actionBtn.Text = btnText
+                            end
+                            refreshWorkshopView()
+                        end)
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+-- Active Heartbeat for Timers inside right column
+table.insert(cleanUpSignals, RunService.Heartbeat:Connect(function()
+    pcall(function()
+        local now = workspace:GetServerTimeNow()
+        for i = #activeTimersList, 1, -1 do
+            local session = activeTimersList[i]
+            local rem = (session.duration or 30) - (now - (session.startTime or now))
+            if rem <= 0 then
+                session.lbl.Text = "COMPLETED"; session.lbl.TextColor3 = COLORS.Green; session.bar.Size = UDim2.fromScale(1, 1)
+                table.remove(activeTimersList, i); task.delay(0.5, session.onComplete)
+            else
+                session.bar.Size = UDim2.fromScale(math.clamp((now - session.startTime) / session.duration, 0, 1), 1)
+                session.lbl.Text = string.format("Processing... %d:%02d", math.floor(rem / 60), math.floor(rem) % 60)
+            end
+        end
+    end)
+end))
+
+
+-- 🤖 AUTO-BID & PAWN TAB
+local abToggleBtn, updateBidLoopBtn = createToggle(tabBidding, "Enable Auto-Bid Loop", AB.enabled, function(state)
+    AB.enabled = state
+    if state then
+        if AB.auctionOpen then startBidLoop() end
+    else
+        stopBidLoop()
+    end
+end)
+
+-- Bid Speed Slider UI
+local bidSpeedCard = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 48),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+}, tabBidding)
+corner(6, bidSpeedCard)
+
+make("TextLabel", {
+    Size = UDim2.new(0.4, 0, 0, 20),
+    Position = UDim2.new(0, 12, 0, 4),
+    BackgroundTransparency = 1,
+    Text = "Bidding Speed (Delay):",
+    TextColor3 = COLORS.Text,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, bidSpeedCard)
+
+local bidSpeedValLbl = make("TextLabel", {
+    Size = UDim2.new(0.3, 0, 0, 20),
+    Position = UDim2.new(0.7, -12, 0, 4),
+    BackgroundTransparency = 1,
+    Text = string.format("%.2fs", AB.speed),
+    TextColor3 = COLORS.Accent,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Right,
+}, bidSpeedCard)
+
+local sliderTrack = make("Frame", {
+    Size = UDim2.new(1, -24, 0, 6),
+    Position = UDim2.new(0, 12, 0.5, 8),
+    BackgroundColor3 = COLORS.BG,
+    BorderSizePixel = 0,
+}, bidSpeedCard)
+corner(3, sliderTrack)
+
+local sliderFill = make("Frame", {
+    Size = UDim2.fromScale(0.3, 1),
+    BackgroundColor3 = COLORS.Accent,
+    BorderSizePixel = 0,
+}, sliderTrack)
+corner(3, sliderFill)
+
+local sliderKnob = make("Frame", {
+    Size = UDim2.new(0, 14, 0, 14),
+    Position = UDim2.new(0.3, 0, 0.5, 0),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundColor3 = COLORS.Text,
+    BorderSizePixel = 0,
+}, sliderTrack)
+corner(99, sliderKnob); stroke(1, COLORS.Border, sliderKnob)
+
+local sliderDragging = false
+local MIN_SPD, MAX_SPD = 0.02, 2.0
+local function applySliderAt(ratio)
+    ratio = math.clamp(ratio, 0, 1)
+    AB.speed = math.floor((MIN_SPD * (MAX_SPD / MIN_SPD) ^ ratio) * 100) / 100
+    sliderFill.Size = UDim2.new(ratio, 0, 1, 0); sliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+    bidSpeedValLbl.Text = string.format("%.2fs", AB.speed)
+end
+sliderTrack.InputBegan:Connect(function(inp) if isTouchOrClick(inp) then sliderDragging = true; applySliderAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)) end end)
+UserInputService.InputChanged:Connect(function(inp) if sliderDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then applySliderAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)) end end)
+UserInputService.InputEnded:Connect(function(inp) if isTouchOrClick(inp) then sliderDragging = false end end)
+
+-- Min Starting Bid Card
+local minBidCard = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+}, tabBidding)
+corner(6, minBidCard)
+
+make("TextLabel", {
+    Size = UDim2.new(0.5, 0, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "Min Starting Bid limit:",
+    TextColor3 = COLORS.Text,
+    TextSize = 11,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, minBidCard)
+
+local minBidBox = make("TextBox", {
+    Size = UDim2.new(0, 80, 0, 24),
+    Position = UDim2.new(1, -142, 0.5, -12),
+    BackgroundColor3 = COLORS.BG,
+    Text = tostring(AB.minStartBid),
+    TextColor3 = COLORS.Gold,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    ClearTextOnFocus = false,
+}, minBidCard)
+corner(5, minBidBox); stroke(1, COLORS.Border, minBidBox)
+
+local minBidLbl = make("TextLabel", {
+    Size = UDim2.new(0, 50, 1, 0),
+    Position = UDim2.new(1, -56, 0, 0),
+    BackgroundTransparency = 1,
+    Text = (AB.minStartBid == 0 and "Off" or "$" .. AB.minStartBid),
+    TextColor3 = COLORS.Gold,
+    TextSize = 9,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, minBidCard)
+
+minBidBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local v = tonumber(minBidBox.Text)
+    if v then
+        AB.minStartBid = math.max(0, math.floor(v))
+        minBidLbl.Text = AB.minStartBid == 0 and "Off" or "$" .. AB.minStartBid
+        minBidLbl.TextColor3 = AB.minStartBid == 0 and COLORS.TextDim or COLORS.Gold
+    end
+end)
+
+-- Bidding Log window
+local logOuter = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 96),
+    BackgroundColor3 = COLORS.BG,
+    BorderSizePixel = 0,
+}, tabBidding)
+corner(6, logOuter); pad(6, logOuter)
+
+local logLabels = {}
+for i = 1, 6 do 
+    logLabels[i] = make("TextLabel", {
+        Text = "", TextSize = 8, TextColor3 = COLORS.TextDim, Font = Enum.Font.Gotham,
+        BackgroundTransparency = 1, Position = UDim2.new(0, 0, 0, (i - 1) * 13), Size = UDim2.new(1, 0, 0, 12),
+        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd
+    }, logOuter) 
+end
+
+local clearLogBtn = make("TextButton", {
+    Text = "Clear", TextSize = 8, TextColor3 = COLORS.TextDim, BackgroundColor3 = COLORS.Card,
+    Position = UDim2.new(1, -36, 1, -14), Size = UDim2.new(0, 32, 0, 14), Font = Enum.Font.Gotham, AutoButtonColor = false,
+}, logOuter)
+corner(3, clearLogBtn)
+clearLogBtn.MouseButton1Click:Connect(function()
+    AB.logLines = {}
+    if AB.onLog then AB.onLog() end
+end)
+
+AB.onLog = function() 
+    for i, lbl in ipairs(logLabels) do 
+        local entry = AB.logLines[i]
+        if entry then 
+            lbl.Text = entry.text
+            lbl.TextColor3 = entry.col 
+        else 
+            lbl.Text = "" 
+        end 
+    end 
+end
+
+-- Sell All and Check Rates Action Buttons
+local pawnActionsRow = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 30),
+    BackgroundTransparency = 1,
+}, tabBidding)
+list(nil, 6, pawnActionsRow).FillDirection = Enum.FillDirection.Horizontal
+
+local sellAllBtn = make("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, 0),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Sell All (Pawn)",
+    TextColor3 = COLORS.Gold,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, pawnActionsRow)
+corner(6, sellAllBtn); stroke(1, COLORS.Border, sellAllBtn)
+sellAllBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        pcall(function()
+            local getRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("GetSellableItems")
+            local sellRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("SellItems")
+            if not getRemote or not sellRemote then showWorkshopPopup("Pawn remotes not found!", COLORS.Red); return end
+            
+            local items = getRemote:InvokeServer()
+            if not items or not next(items) then showWorkshopPopup("Nothing to sell!", COLORS.Orange); return end
+            
+            local ItemsModule = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Items")
+            local ItemsData = ItemsModule and require(ItemsModule) or {}
+            
+            local guids = {}
+            for guid, data in pairs(items) do
+                local itemId = data.ItemId
+                local itemConf = ItemsData[tostring(itemId)] or ItemsData[tonumber(itemId)]
+                local name = itemConf and (itemConf.Name or ""):lower() or ""
+                local category = itemConf and (itemConf.Category or ""):lower() or ""
+                
+                if category:find("accessory") or category:find("accessories") then continue end
+                if name:find("trophy") or category == "trophy" or name:find("gavel") then continue end
+                
+                table.insert(guids, guid)
+            end
+            
+            if #guids == 0 then showWorkshopPopup("Nothing to sell (excluding trophies/accessories)!", COLORS.Orange); return end
+            local res = sellRemote:InvokeServer(guids)
+            if res and res.success then 
+                showWorkshopPopup(string.format("Sold %d items for $%d!", res.sold or #guids, res.totalEarned or 0), COLORS.Green)
+            else 
+                showWorkshopPopup("Pawn sale failed!", COLORS.Red) 
+            end
+        end)
+    end)
+end)
+
+local checkRatesBtn = make("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, 0),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Check Rates",
+    TextColor3 = COLORS.Accent,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, pawnActionsRow)
+corner(6, checkRatesBtn); stroke(1, COLORS.Border, checkRatesBtn)
+
+local ratesPopup = nil
+checkRatesBtn.MouseButton1Click:Connect(function()
+    local function closeRatesPopup()
+        if ratesPopup then
+            local p = ratesPopup
+            ratesPopup = nil
+            tw(p, 0.3, {Size = UDim2.new(0, 0, 0, 0)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+            task.delay(0.3, function() p:Destroy() end)
+        end
+    end
+    if ratesPopup then closeRatesPopup(); return end
+    task.spawn(function()
+        pcall(function()
+            local ItemsData = require(ReplicatedStorage.Modules.Items)
+            local MutatorModule = require(ReplicatedStorage.Modules.MutatorModule)
+            local getRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("GetSellableItems")
+            if not getRemote then return end
+            local items = getRemote:InvokeServer()
+            local getPawnState = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("GetPawnState")
+            
+            local popup = make("Frame", {
+                Name = "RatesPopup", Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, -100, 0.5, -130),
+                BackgroundColor3 = COLORS.BG, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 9999
+            }, ScreenGui)
+            ratesPopup = popup
+            tw(popup, 0.4, {Size = UDim2.new(0, 200, 0, 260)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            corner(10, popup); stroke(1.5, COLORS.Accent, popup)
+            
+            local titleBar = make("Frame", { Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = COLORS.Sidebar, BorderSizePixel = 0, ZIndex = 21, Active = true }, popup)
+            corner(10, titleBar)
+            
+            local dragging, dragStart, startPos = false, nil, nil
+            titleBar.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true; dragStart = input.Position; startPos = popup.Position
+                end
+            end)
+            titleBar.InputChanged:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local delta = input.Position - dragStart
+                    popup.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                end
+            end)
+            titleBar.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+            end)
+            
+            make("TextLabel", { Size = UDim2.new(1, -36, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = "Pawn Rates", TextColor3 = COLORS.Accent, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22 }, titleBar)
+            
+            local closeBtn = make("TextButton", { Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -24, 0.5, -10), BackgroundColor3 = COLORS.Red, Text = "X", TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 22 }, titleBar)
+            corner(6, closeBtn); closeBtn.MouseButton1Click:Connect(closeRatesPopup)
+            
+            local infoBar = make("Frame", { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 32), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0, ZIndex = 21 }, popup)
+            corner(4, infoBar)
+            
+            local rateLbl = make("TextLabel", { Size = UDim2.new(0.5, -6, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = "Rate: --", TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22 }, infoBar)
+            local timerLbl = make("TextLabel", { Size = UDim2.new(0.5, -6, 1, 0), Position = UDim2.new(0.5, 0, 0, 0), BackgroundTransparency = 1, Text = "Refresh: --:--", TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 22 }, infoBar)
+            
+            local scroll = make("ScrollingFrame", { Size = UDim2.new(1, -12, 1, -92), Position = UDim2.new(0, 6, 0, 56), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = COLORS.Accent, ZIndex = 21 }, popup)
+            list(nil, 3, scroll)
+            
+            local totalBar = make("Frame", { Size = UDim2.new(1, -12, 0, 26), Position = UDim2.new(0, 6, 1, -30), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0, ZIndex = 21 }, popup)
+            corner(6, totalBar); stroke(1, COLORS.Green, totalBar)
+            
+            local totalLbl = make("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = "Total Value: $0", TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 22 }, totalBar)
+            
+            local updateLoopActive = true
+            popup.AncestryChanged:Connect(function() if not popup:IsDescendantOf(game) then updateLoopActive = false end end)
+            
+            task.spawn(function()
+                local rateMultiplier = 0.5
+                local secondsLeft = 0
+                local lastStateFetch = 0
+                while updateLoopActive do
+                    local now = os.time()
+                    if now - lastStateFetch > 10 or secondsLeft <= 0 then
+                        if getPawnState then
+                            local state = getPawnState:InvokeServer()
+                            if state then
+                                rateMultiplier = state.rate or 0.75
+                                secondsLeft = math.max(0, math.floor(state.secondsUntilNext or 0))
+                                lastStateFetch = now
+                            end
+                        end
+                    else
+                        secondsLeft = math.max(0, secondsLeft - 1)
+                    end
+                    
+                    local pct = math.round((rateMultiplier - 1) * 100)
+                    rateLbl.Text = string.format("Rate: %s%d%%", pct >= 0 and "+" or "", pct)
+                    rateLbl.TextColor3 = pct < 0 and COLORS.Red or COLORS.Green
+                    
+                    local mins = math.floor(secondsLeft / 60)
+                    local secs = secondsLeft % 60
+                    timerLbl.Text = string.format("Refresh: %02d:%02d", mins, secs)
+                    
+                    for _, child in ipairs(scroll:GetChildren()) do if not child:IsA("UIListLayout") then child:Destroy() end end
+                    
+                    local curItems = getRemote:InvokeServer()
+                    if not curItems or not next(curItems) then
+                        make("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Text = "Empty", TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamMedium, TextSize = 9, ZIndex = 22 }, scroll)
+                        totalLbl.Text = "Total Value: $0"
+                    else
+                        local entries = {}
+                        local total = 0
+                        for guid, data in pairs(curItems) do
+                            local conf = ItemsData[tostring(data.ItemId)] or ItemsData[tonumber(data.ItemId)]
+                            local name = conf and conf.Name or ("Item #"..tostring(data.ItemId))
+                            local rawPrice = MutatorModule:CalculatePriceForEntry(conf and conf.BasePrice or 0, data)
+                            local finalPawnPrice = rawPrice * rateMultiplier
+                            total = total + finalPawnPrice
+                            table.insert(entries, { name = name, price = finalPawnPrice })
+                        end
+                        table.sort(entries, function(a,b) return a.price > b.price end)
+                        for idx, entry in ipairs(entries) do
+                            local row = make("Frame", { Size = UDim2.new(1, -4, 0, 24), BackgroundColor3 = COLORS.BG, BorderSizePixel = 0, ZIndex = 22 }, scroll)
+                            corner(4, row)
+                            make("TextLabel", { Size = UDim2.new(0.65, -4, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = entry.name, TextColor3 = COLORS.Text, Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 23 }, row)
+                            make("TextLabel", { Size = UDim2.new(0.35, -6, 1, 0), Position = UDim2.new(0.65, 0, 0, 0), BackgroundTransparency = 1, Text = string.format("$%.1f", entry.price), TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 23 }, row)
+                        end
+                        totalLbl.Text = string.format("Total Value: $%.1f", total)
+                    end
+                    task.wait(1)
+                end
+            end)
+        end)
+    end)
+end)
+
+
+-- 🏃 UTILITIES TAB
+
+-- TP to NPC Selector
+local npcCard = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = COLORS.Card,
+    BorderSizePixel = 0,
+}, tabUtilities)
+corner(6, npcCard)
+
+make("TextLabel", {
+    Size = UDim2.new(0.4, 0, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "Teleport to NPC:",
+    TextColor3 = COLORS.Text,
+    TextSize = 11,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, npcCard)
+
+local merchantIndex = 1
+local MERCHANTS = {}
+pcall(function()
+    local ordered = {"Billy", "Sal", "Ted", "Steve"}
+    local tempMap = {}
+    local validFolders = {}
+    if workspace:FindFirstChild("Areas") then table.insert(validFolders, workspace.Areas) end
+    if workspace:FindFirstChild("Quest NPC") then table.insert(validFolders, workspace["Quest NPC"]) end
+    
+    for _, folder in ipairs(validFolders) do
+        for _, v in ipairs(folder:GetDescendants()) do
+            if v:IsA("Humanoid") and v.Parent and v.Parent.Name ~= game.Players.LocalPlayer.Name and not game.Players:GetPlayerFromCharacter(v.Parent) then
+                local npc = v.Parent
+                local hrp = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+                if hrp and not tempMap[npc.Name] then
+                    tempMap[npc.Name] = { name = npc.Name, model = npc }
+                end
+            end
+        end
+    end
+    for _, n in ipairs(ordered) do if tempMap[n] then table.insert(MERCHANTS, tempMap[n]); tempMap[n] = nil end end
+    for _, data in pairs(tempMap) do table.insert(MERCHANTS, data) end
+    if #MERCHANTS == 0 then table.insert(MERCHANTS, {name="None", model=nil}) end
+end)
+
+local npcTpBtn = make("TextButton", {
+    Size = UDim2.new(0, 120, 0, 26),
+    Position = UDim2.new(1, -132, 0.5, -13),
+    BackgroundColor3 = COLORS.BG,
+    Text = (MERCHANTS[1] and MERCHANTS[1].name or "None"),
+    TextColor3 = COLORS.Purple,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, npcCard)
+corner(5, npcTpBtn); stroke(1, COLORS.Border, npcTpBtn)
+
+npcTpBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        local data = MERCHANTS[merchantIndex]
+        local npc = data and data.model
+        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root and npc and npc.Parent then 
+            local bp = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+            if bp then 
+                root.CFrame = bp.CFrame + Vector3.new(0, 3, 0)
+                showWorkshopPopup("Teleported to " .. data.name, COLORS.Green)
+            end 
+        end
+        merchantIndex = merchantIndex % #MERCHANTS + 1
+        npcTpBtn.Text = (MERCHANTS[merchantIndex] and MERCHANTS[merchantIndex].name or "None")
+    end)
+end)
+
+-- Walkspeed Toggle
+local speedActive = false
+local defaultSpeed = 16
+local hackSpeed = 32
+local speedToggleCard = createToggle(tabUtilities, "Increase WalkSpeed (x2)", false, function(state)
+    speedActive = state
+    pcall(function() LocalPlayer.Character.Humanoid.WalkSpeed = state and hackSpeed or defaultSpeed end)
+end)
+
+-- Infinite Jump Toggle
+local infJumpActive = false
+table.insert(cleanUpSignals, UserInputService.JumpRequest:Connect(function() 
+    if infJumpActive then 
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end 
+    end 
+end))
+
+local jumpToggleCard = createToggle(tabUtilities, "Enable Infinite Jump", false, function(state)
+    infJumpActive = state
+end)
+
+-- Safe & Fast TPs buttons
+local tpActionsRow = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 30),
+    BackgroundTransparency = 1,
+}, tabUtilities)
+list(nil, 6, tpActionsRow).FillDirection = Enum.FillDirection.Horizontal
+
+local fastTpBtn = make("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, 0),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Fast TP (Driveway)",
+    TextColor3 = COLORS.Accent,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, tpActionsRow)
+corner(6, fastTpBtn)
+
+local safeTpBtn = make("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, 0),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Safe TP (Driveway)",
+    TextColor3 = COLORS.Green,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, tpActionsRow)
+corner(6, safeTpBtn)
+
+-- Driveway targeting
+local PLOT_FLOOR_CFRAMES = {
+    ["Plot1"] = CFrame.new(-439.39, 1720.16, 335.32, -0.9962, 0, -0.0872, 0, 1, 0, 0.0872, 0, -0.9962),
+    ["Plot2"] = CFrame.new(-126.51, 1720.16, -492.42, -0.9962, 0, -0.0872, 0, 1, 0, 0.0872, 0, -0.9962),
+    ["Plot3"] = CFrame.new(464.56, 1720.16, 416.06, -0.7661, 0, 0.6428, 0, 1, 0, -0.6428, 0, -0.7661),
+    ["Plot4"] = CFrame.new(29.60, 1720.16, 491.87, -0.6428, 0, 0.7661, 0, 1, 0, -0.7661, 0, -0.6428),
+    ["Plot5"] = CFrame.new(-587.28, 1720.16, -735.27, 0.0872, 0, 0.9962, 0, 1, 0, -0.9962, 0, 0.0872),
+    ["Plot6"] = CFrame.new(-378.82, 1720.16, 79.03, -0.7661, 0, -0.6428, 0, 1, 0, 0.6428, 0, -0.7661),
+    ["Plot7"] = CFrame.new(288.9, 1720.16, -1073.8, 0.9962, 0, 0.0872, 0, 1, 0, -0.0872, 0, 0.9962),
+    ["Plot8"] = CFrame.new(321.21, 1720.16, -708.13, 0.6428, 0, -0.7661, 0, 1, 0, 0.7661, 0, 0.6428),
+    ["Plot9"] = CFrame.new(-358.5, 1720.16, -1104.8, 0.0872, 0, -0.9962, 0, 1, 0, 0.9962, 0, 0.0872),
+}
+local DRIVEWAY_FORWARD_OFFSET = 90
+local DRIVEWAY_HEIGHT_OFFSET = 5
+local _G_calibratedUnpackCF = _G.AHScanner_UnpackCF or nil
+
+local function getTpTarget()
+    local plots = workspace:FindFirstChild("_Plots")
+    local myPlot = nil
+    if plots then
+        for _, p in ipairs(plots:GetChildren()) do
+            if p:GetAttribute("OwnerUserId") == LocalPlayer.UserId then
+                myPlot = p
+                break
+            end
+        end
+    end
+    local unpackZone = workspace:FindFirstChild("UnpackZone", true)
+    if unpackZone then
+        local uzCF = unpackZone:IsA("Model") and unpackZone:GetPivot() or unpackZone.CFrame
+        _G.AHScanner_UnpackCF = uzCF
+        _G_calibratedUnpackCF = uzCF
+        return uzCF + Vector3.new(0, DRIVEWAY_HEIGHT_OFFSET, 0)
+    end
+    if _G_calibratedUnpackCF then
+        return _G_calibratedUnpackCF + Vector3.new(0, DRIVEWAY_HEIGHT_OFFSET, 0)
+    end
+    if myPlot then
+        local base = myPlot:FindFirstChild("Base")
+        local floor = base and (base:FindFirstChild("Floor") or base:FindFirstChildWhichIsA("BasePart"))
+        if floor then
+            return floor.CFrame * CFrame.new(0, DRIVEWAY_HEIGHT_OFFSET, -DRIVEWAY_FORWARD_OFFSET)
+        end
+    end
+    if myPlot then
+        local plotCF = PLOT_FLOOR_CFRAMES[myPlot.Name]
+        if plotCF then
+            return plotCF * CFrame.new(0, DRIVEWAY_HEIGHT_OFFSET, -DRIVEWAY_FORWARD_OFFSET)
+        end
+    end
+    return nil
+end
+
+local function flatCF(cf, heightOffset, yawOffset)
+    heightOffset = heightOffset or 0
+    yawOffset = yawOffset or 0
+    local pos = cf.Position + Vector3.new(0, heightOffset, 0)
+    local look = cf.LookVector
+    local yaw = math.atan2(-look.X, -look.Z) + yawOffset
+    return CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+end
+
+fastTpBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        local targetCFrame = getTpTarget()
+        if not targetCFrame then
+            showWorkshopPopup("Unpack Zone not found!", COLORS.Red)
+            return
+        end
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        local isSitting = hum and hum.Sit or false
+        local safeCF = flatCF(targetCFrame, isSitting and 4.5 or 2, math.rad(90))
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = safeCF
+            showWorkshopPopup("Fast TP Completed!", COLORS.Green)
+        end
+    end)
+end)
+
+local tweenSpeeds = {60, 120, 200, 300}
+local currentTwSpdIdx = 2
+
+safeTpBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        local targetCFrame = getTpTarget()
+        if not targetCFrame then
+            showWorkshopPopup("Unpack Zone not found!", COLORS.Red)
+            return
+        end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        local isSitting = hum and hum.Sit or false
+        local safeCF = flatCF(targetCFrame, isSitting and 4.5 or 2, math.rad(90))
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        local startCF = hrp.CFrame
+        local dist = (startCF.Position - safeCF.Position).Magnitude
+        local speed = tweenSpeeds[currentTwSpdIdx] or 120
+        local duration = dist / speed
+        
+        showWorkshopPopup(string.format("Safe TP started! ETA: %.1fs", duration), COLORS.Green)
+        
+        local val = Instance.new("CFrameValue")
+        val.Value = startCF
+        local wasAnchored = hrp.Anchored
+        hrp.Anchored = true
+        
+        local restored = false
+        local function restoreAnchor()
+            if restored then return end
+            restored = true
+            pcall(function() hrp.Anchored = wasAnchored end)
+        end
+        task.delay(duration + 2, restoreAnchor)
+        
+        local conn = val.Changed:Connect(function(cf) 
+            hrp.CFrame = cf
+        end)
+        
+        local tw2 = TweenService:Create(val, TweenInfo.new(duration, Enum.EasingStyle.Linear), {Value = safeCF})
+        tw2.Completed:Connect(function()
+            conn:Disconnect()
+            val:Destroy()
+            restoreAnchor()
+            showWorkshopPopup("Safe TP completed!", COLORS.Green)
+        end)
+        tw2:Play()
+    end)
+end)
+
+local twSpdSelectBtn = make("TextButton", {
+    Size = UDim2.new(1, 0, 0, 30),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Safe TP Speed: " .. tweenSpeeds[currentTwSpdIdx] .. " studs/s",
+    TextColor3 = COLORS.Gold,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, tabUtilities)
+corner(6, twSpdSelectBtn)
+twSpdSelectBtn.MouseButton1Click:Connect(function()
+    currentTwSpdIdx = currentTwSpdIdx % #tweenSpeeds + 1
+    twSpdSelectBtn.Text = "Safe TP Speed: " .. tweenSpeeds[currentTwSpdIdx] .. " studs/s"
+end)
+
+local unstickCarBtn = make("TextButton", {
+    Size = UDim2.new(1, 0, 0, 30),
+    BackgroundColor3 = COLORS.Card,
+    Text = "Unstick Car",
+    TextColor3 = COLORS.Orange,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, tabUtilities)
+corner(6, unstickCarBtn)
+unstickCarBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        local vehicle = hum and hum.SeatPart and hum.SeatPart:FindFirstAncestorWhichIsA("Model")
+        if vehicle then
+            for _, part in ipairs(vehicle:GetDescendants()) do
+                if part:IsA("BasePart") then part.Anchored = false end
+            end
+            showWorkshopPopup("Car unstuck successfully!", COLORS.Green)
+        else
+            showWorkshopPopup("Not sitting inside a vehicle", COLORS.Orange)
+        end
+    end)
+end)
+
+
+-- ── 2. BACKGROUND UPDATES & HANDLERS ─────────────────
+
+local function doScan()
+    if scanning then return end; scanning = true
+    task.spawn(function()
+        local ok, result = pcall(scanAllAreas); scanning = false
+        if ok and result then 
+            scanData = result
+        end
+    end)
+end
+
+local currentKeybind = Enum.KeyCode.RightShift
+table.insert(cleanUpSignals, UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == currentKeybind then
+        toggleUI(Win)
+    end
+end))
+
+local draggingMain, dragStartMain, dragPosMain = false, nil, nil
+TitleBar.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+        draggingMain = true
+        dragStartMain = inp.Position
+        dragPosMain = Win.Position
+    end
+end)
+TitleBar.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+        draggingMain = false
+    end
+end)
+table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
+    if draggingMain and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+        local delta = inp.Position - dragStartMain
+        Win.Position = UDim2.new(dragPosMain.X.Scale, dragPosMain.X.Offset + delta.X, dragPosMain.Y.Scale, dragPosMain.Y.Offset + delta.Y)
+    end
+end))
+
+local StartAuctionEvent = AuctionEvents and AuctionEvents:FindFirstChild("StartAuction")
+if StartAuctionEvent then
+    table.insert(cleanUpSignals, StartAuctionEvent.OnClientEvent:Connect(function(isOpen, data)
+        AB.auctionOpen = isOpen
+        if isOpen then
+            AB.bidsThisRound = 0
+            AB.currentBid = 0
+            AB.minBidBlocked = false
+            local lotName = data and data.LotName or "Unknown"
+            local lotConf = gConfig.garages and gConfig.garages[lotName]
+            AB.activeLot = lotName
+            AB.activeLotData = lotConf
+            abLog("Started: " .. tostring(lotName), COLORS.Accent)
+            
+            local startingBid = 0
+            if data then
+                startingBid = tonumber(
+                    data.StartingBid or data.MinBid or data.OpeningBid
+                    or data.StartBid  or data.InitialBid or data.startingBid
+                    or data.minBid    or data.openingBid  or 0
+                ) or 0
+            end
+            if startingBid == 0 then
+                local catalogEntry = GARAGE_CATALOG[lotName]
+                if catalogEntry then
+                    startingBid = catalogEntry.minBid or 0
+                    if AB.minStartBid > 0 then
+                        abLog(string.format("Using catalog bid: $%d for %s", startingBid, lotName), COLORS.TextDim)
+                    end
+                end
+            end
+            if AB.minStartBid > 0 and startingBid < AB.minStartBid then
+                AB.minBidBlocked = true
+                AB.auctionOpen = false
+                abLog(string.format("SKIPPED: $%d < min $%d", startingBid, AB.minStartBid), COLORS.Orange)
+                return
+            end
+            
+            local garageSelected = (gConfig.selectedGarages == nil) or (gConfig.selectedGarages[lotName] == true)
+            local areaOk = (not lotConf) or (gConfig.autoBuyArea == "Any Area" or lotConf.area == gConfig.autoBuyArea)
+            if gConfig.autoBuyStorages then
+                if garageSelected and areaOk then
+                    abLog("Auto Buy triggered -> Teleporting...", COLORS.Green)
+                    local targetPos
+                    if workspace:FindFirstChild("Areas") then
+                        for _, c in ipairs(workspace.Areas:GetDescendants()) do
+                            if c:IsA("Model") and string.find(c.Name, lotName) then
+                                local pt = c:FindFirstChild("Door") or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart")
+                                if pt then targetPos = pt.CFrame; break end
+                            end
+                        end
+                    end
+                    if targetPos then
+                        fastTP(targetPos)
+                        task.delay(1.5, function()
+                            AB.enabled = true
+                            if updateBidLoopBtn then updateBidLoopBtn(true) end
+                            if AB.auctionOpen then startBidLoop() end
+                        end)
+                    else
+                        abLog("Auto Buy: Lot not found in workspace", COLORS.Red)
+                    end
+                elseif not garageSelected then
+                    abLog("Skipped: " .. tostring(lotConf and lotConf.name or lotName) .. " not selected", COLORS.TextDim)
+                else
+                    abLog("Auto Buy: Ignoring (wrong area)", COLORS.TextDim)
+                end
+            end
+            
+            if AB.enabled then
+                if garageSelected then
+                    startBidLoop()
+                else
+                    abLog("Auto-Bid skipped: Garage not selected", COLORS.TextDim)
+                end
+            end
+        else
+            abLog("Auction closed", COLORS.TextDim)
+            stopBidLoop()
+            AB.minBidBlocked = false
+            AB.activeLot = nil
+            AB.activeLotData = nil
+        end
+    end))
+end
+
+local ToggleBiddingUI = AuctionEvents and AuctionEvents:FindFirstChild("ToggleBiddingUI")
+if ToggleBiddingUI then
+    table.insert(cleanUpSignals, ToggleBiddingUI.OnClientEvent:Connect(function(isOpen)
+        if isOpen and AB.minBidBlocked then
+            abLog("ToggleBidUI blocked: below min $" .. AB.minStartBid, COLORS.Orange)
+            return
+        end
+        AB.auctionOpen = isOpen
+        if isOpen then
+            AB.currentBid = 0
+            AB.auctionJustOpened = true
+            if AB.enabled then
+                local garageOk = (AB.activeLot == nil)
+                    or (gConfig.selectedGarages == nil)
+                    or (gConfig.selectedGarages[AB.activeLot] == true)
+                if garageOk then
+                    startBidLoop()
+                else
+                    abLog("Skipped: Garage not selected", COLORS.TextDim)
+                end
+            end
+        else
+            stopBidLoop()
+            AB.minBidBlocked = false
+            abLog("Auction closed", COLORS.TextDim)
+        end
+    end))
+end
+
+if UpdateWinningBidEvent then
+    table.insert(cleanUpSignals, UpdateWinningBidEvent.OnClientEvent:Connect(function(amount, winnerId)
+        AB.currentBid = tonumber(amount) or AB.currentBid
+        AB.auctionJustOpened = false
+        
+        if AB.auctionOpen and AB.minStartBid > 0 and AB.currentBid < AB.minStartBid then
+            AB.minBidBlocked = true
+            AB.auctionOpen   = false
+            stopBidLoop()
+            abLog(string.format("KILLED: opening $%d < min $%d", AB.currentBid, AB.minStartBid), COLORS.Red)
+            return
+        end
+        
+        local isUs = (winnerId == LocalPlayer.UserId)
+        if isUs then
+            abLog("WE'RE WINNING: $"..AB.currentBid, COLORS.Gold)
+        end
+    end))
+end
+
+-- Cleanup Handler
+_G.AHScanner_CleanUp = function()
+    if AB then
+        AB.enabled = false
+        AB.auctionOpen = false
+        stopBidLoop()
+    end
+    for _, conn in ipairs(cleanUpSignals) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(cleanUpSignals)
+    pcall(function() ScreenGui:Destroy() end)
+    print("Nex Hub Cleaned up successfully.")
+end
+
+-- Open animations & defaults
+Win.BackgroundTransparency = 1
+task.wait(0.05)
+tw(Win, 0.4, {BackgroundTransparency=0})
+
+tabs["Autofarm"].btn.BackgroundTransparency = 0
+tabs["Autofarm"].btn.BackgroundColor3 = COLORS.TabBtnActive
+tabs["Autofarm"].btn.TextColor3 = COLORS.Accent
+tabs["Autofarm"].frame.Visible = true
+activeTab = tabs["Autofarm"]
+
+setShopType("Wash")
+doScan()
+print("Nex HUB v6 | Rayfield GUI Loaded successfully!")
+
+task.spawn(function()
+    local events = ReplicatedStorage:WaitForChild("Events")
+    local PlotEvents = events:WaitForChild("Plot")
+    local PlaceStockItem = PlotEvents:WaitForChild("PlaceStockItem")
+    local GetPlayerInventory = events:WaitForChild("Inventory"):WaitForChild("GetPlayerInventory")
+    local ItemsData = require(ReplicatedStorage.Modules.Items)
+    local MutatorModule = require(ReplicatedStorage.Modules.MutatorModule)
+    local attemptedPlacements = {}
+    
+    while task.wait(4) do
+        if _G.AHScanner_RunID ~= myRunID then break end
+        if gConfig.autoSellStore and PlaceStockItem then
+            pcall(function()
+                -- Get player inventory first
+                local inv = GetPlayerInventory:InvokeServer()
+                if not inv or not next(inv) then return end
+                
+                -- Find player's plot
+                local plots = workspace:FindFirstChild("_Plots")
+                if not plots then return end
+                local myPlot = nil
+                for _, p in ipairs(plots:GetChildren()) do
+                    if p:GetAttribute("OwnerUserId") == game:GetService("Players").LocalPlayer.UserId then
+                        myPlot = p
+                        break
+                    end
+                end
+                if not myPlot then return end
+                
+                -- Get empty slots
+                local emptySlots = {}
+                local Stock = myPlot:FindFirstChild("Stock")
+                local occupied = {}
+                if Stock then
+                    for _, item in ipairs(Stock:GetChildren()) do
+                        local shelfGuid = item:GetAttribute("ShelfGUID")
+                        local snapName = item:GetAttribute("SnapPointName")
+                        if shelfGuid and snapName then
+                            occupied[shelfGuid .. "_" .. snapName] = true
+                        end
+                    end
+                end
+                
+                -- Update permanent Furniture Cache if we are close to our plot and it is loaded
+                local Furniture = myPlot:FindFirstChild("Furniture")
+                if Furniture and #Furniture:GetChildren() > 0 then
+                    local tempCache = {}
+                    for _, shelf in ipairs(Furniture:GetDescendants()) do
+                        if shelf:IsA("Model") and shelf:GetAttribute("GUID") then
+                            local shelfGuid = shelf:GetAttribute("GUID")
+                            for _, att in ipairs(shelf:GetDescendants()) do
+                                if att:IsA("Attachment") and att.Name:match("^SnapPoint") then
+                                    table.insert(tempCache, {
+                                        shelfName = shelf.Name,
+                                        shelfGuid = shelfGuid,
+                                        snapName = att.Name,
+                                        worldCFrame = att.WorldCFrame
+                                    })
+                                end
+                            end
+                        end
+                    end
+                    if #tempCache > 0 then
+                        _G.PlotFurnitureCache = tempCache
+                    end
+                end
+                
+                _G.PlotFurnitureCache = _G.PlotFurnitureCache or {}
+                if #_G.PlotFurnitureCache == 0 then
+                    abLog("ℹ️ Auto-Place: Please stand near your shop once to cache shelf slots!", C.orange)
+                    return
+                end
+                
+                -- Get empty slots using the cache
+                for _, cachedSlot in ipairs(_G.PlotFurnitureCache) do
+                    if not occupied[cachedSlot.shelfGuid .. "_" .. cachedSlot.snapName] then
+                        table.insert(emptySlots, {
+                            shelfName = cachedSlot.shelfName,
+                            shelfGuid = cachedSlot.shelfGuid,
+                            snapName = cachedSlot.snapName,
+                            targetCFrame = cachedSlot.worldCFrame
+                        })
+                    end
+                end
+                
+                -- If no empty slots, just wait for next cycle (items may sell and free slots)
+                if #emptySlots == 0 then
+                    abLog("🕐 All shelves full, waiting for slots...", C.textMuted)
+                    return
+                end
+                
+                -- Helper function to check if item config indicates a Large/Giant item
+                local function isLargeItem(conf)
+                    if not conf then return false end
+                    local size = conf.Size or conf.ShelfSize or conf.ItemSize or conf.ItemType or ""
+                    if typeof(size) == "string" then
+                        size = size:lower()
+                        if size:find("large") or size:find("huge") or size:find("giant") or size:find("big") then
+                            return true
+                        end
+                    end
+                    local category = (conf.Category or conf.Type or ""):lower()
+                    if typeof(category) == "string" then
+                        -- Structure items (fences, large props) always go on podiums
+                        if category:find("large") or category:find("giant") or category:find("podium") or category:find("structure") then
+                            return true
+                        end
+                    end
+                    return false
+                end
+                
+                for guid, data in pairs(inv) do
+                    if not gConfig.autoSellStore then break end
+                    if #emptySlots == 0 then break end -- All slots used this cycle
+                    
+                    -- Skip items processing in workshops
+                    if data.StartTime or data.Grade == "WorkInProgress" or data.CleanMutation == "WorkInProgress" or data.Condition == "WorkInProgress" or data.Opened then
+                        continue
+                    end
+                    
+                    local itemConf = ItemsData[tostring(data.ItemId)] or ItemsData[tonumber(data.ItemId)]
+                    if itemConf then
+                        local name = itemConf.Name or ""
+                        local category = (itemConf.Category or ""):lower()
+                        
+                        -- Skip trophies and gavel items (by name or category)
+                        if string.lower(name):find("trophy") or category == "trophy" or string.lower(name):find("gavel") then
+                            abLog("⏭️ Auto‑Place: Skip trophy/gavel " .. name, C.textMuted)
+                            continue
+                        end
+                        
+                        -- Skip accessories (by category)
+                        if category:find("accessory") or category:find("accessories") then
+                            abLog("⏭️ Auto‑Place: Skip accessory " .. name, C.textMuted)
+                            continue
+                        end
+                        
+                        local large = isLargeItem(itemConf)
+                        
+                        -- Find first matching slot
+                        local foundIdx = nil
+                        for i, slot in ipairs(emptySlots) do
+                            local isPodium = slot.shelfName:lower():find("podium")
+                            if (large and isPodium) or (not large) then
+                                foundIdx = i
+                                break
+                            end
+                        end
+                        
+                        if foundIdx then
+                            local slot = table.remove(emptySlots, foundIdx) -- Consume slot
+                            local rotY = itemConf.ShelfRotationY or 0
+                            local targetCFrame = slot.targetCFrame * CFrame.Angles(0, math.rad(rotY), 0)
+                            local price = MutatorModule:CalculatePriceForEntry(itemConf.BasePrice or 0, data)
+                            
+                            -- Register placement attempt
+                            attemptedPlacements[guid] = { Name = name }
+                            
+                            -- Place it!
+                            abLog("⚡ Auto‑Place: Placing " .. name .. " for $" .. math.floor(price), C.green)
+                            PlaceStockItem:FireServer(guid, tostring(data.ItemId), targetCFrame, price, slot.shelfGuid, slot.snapName)
+                            task.wait(0.5)
+                        else
+                            abLog("⏭️ Auto‑Place: No matching shelf slot for " .. name, C.textMuted)
+                        end
+                    else
+                        abLog("⏭️ Auto‑Place: Unknown item ID " .. tostring(data.ItemId), C.textMuted)
+                    end
+                end
+            end)
+        end
+    end
+end)
+    
