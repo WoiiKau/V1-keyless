@@ -103,15 +103,9 @@ local updateToggleBtn = nil
 -- ═════════════════════════════════════════════════════
 -- LOAD LIVE MODULES & SCREEN CONTROLLERS
 -- ═════════════════════════════════════════════════════
-local Modules = ReplicatedStorage:FindFirstChild("Modules")
 local ItemsData   = {}
 local GaragesData = {}
 local RarityData  = {}
-if Modules then
-    pcall(function() ItemsData   = require(Modules:WaitForChild("Items",    3)) end)
-    pcall(function() GaragesData = require(Modules:WaitForChild("Garages",  3)) end)
-    pcall(function() RarityData  = require(Modules:WaitForChild("Rarities", 3)) end)
-end
 -- ═════════════════════════════════════════════════════
 -- RARITY / MUTATOR MULTIPLIERS
 -- ═════════════════════════════════════════════════════
@@ -357,9 +351,7 @@ _G.AHCollectorThread = task.spawn(function()
                     end
                 else
                     pcall(function()
-                        if not ItemsData then
-                            pcall(function() ItemsData = require(ReplicatedStorage.Modules.Items) end)
-                        end
+-- ItemsData is empty table
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
                         if root then
@@ -1068,8 +1060,14 @@ local abToggleCard, updateABToggle = createToggle(tabAuto, "Semi Autofarm (AutoT
     if animateNextButton then animateNextButton(state) end
 end)
 
-local asToggleCard, updateASToggle = createToggle(tabAuto, "Start Auto Place Store Items", gConfig.autoSellStore, function(state)
-    gConfig.autoSellStore = state
+local asToggleCard, updateASToggle = createToggle(tabAuto, "[Madium Only] Auto Place Store Items", false, function(state)
+    if state then
+        showWorkshopPopup("Auto-Place is not supported on Xeno!", COLORS.Orange)
+        task.spawn(function()
+            task.wait(0.1)
+            if updateASToggle then updateASToggle(false) end
+        end)
+    end
 end)
 
 -- Target Area Dropdown Selector
@@ -1483,105 +1481,6 @@ function renderWorkshop(shopKey)
                     startBtn.Text = "Starting..."
                     task.spawn(function() 
                         pcall(function() 
-                            local res = cfg.startWork(slotIndex, chosen.guid, chosen.source, chosen.vehicleGUID)
-                            if res and res.success then 
-                                selectedItems[shopKey] = nil
-                                refreshWorkshopView() 
-                            else 
-                                startBtn.Text = "Start" 
-                            end 
-                        end) 
-                    end)
-                end)
-            else
-                local itemEntry = slotData.Item or slotData.ItemData or slotData.Entry or {}
-                local rawItemName = itemEntry.ItemName or itemEntry.Name or "Processing Item"
-                local realItemName, _ = calcItemValue(rawItemName, "Common", "None", 0, 100)
-                
-                make("TextLabel", { Text = realItemName, TextSize = 9, TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 18), Size = UDim2.new(0.6, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, card)
-                
-                local elapsed = workspace:GetServerTimeNow() - (slotData.StartTime or workspace:GetServerTimeNow())
-                local remaining = (slotData.Duration or 0) - elapsed
-                
-                if remaining > 0 and not slotData.Repaired and not slotData.Washed and not slotData.Grade and not slotData.Opened then
-                    local tBarBg = make("Frame", { Size = UDim2.new(0.55, 0, 0, 4), Position = UDim2.new(0, 8, 0, 36), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0 }, card); corner(2, tBarBg)
-                    local tBarFill = make("Frame", { Size = UDim2.fromScale(math.clamp(elapsed / (slotData.Duration or 1), 0, 1), 1), BackgroundColor3 = COLORS.Accent, BorderSizePixel = 0 }, tBarBg); corner(2, tBarFill)
-                    local timeLbl = make("TextLabel", { Text = "0:00", TextSize = 9, TextColor3 = COLORS.Gold, Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 44), Size = UDim2.new(0.55, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left }, card)
-                    
-                    table.insert(activeTimersList, { bar = tBarFill, lbl = timeLbl, startTime = slotData.StartTime or workspace:GetServerTimeNow(), duration = slotData.Duration or 30, card = card, onComplete = refreshWorkshopView })
-                    
-                    local skipBtn = make("TextButton", { Text = "Skip", TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = COLORS.Purple, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
-                    corner(5, skipBtn); stroke(1.2, COLORS.Purple, skipBtn)
-                    skipBtn.MouseButton1Click:Connect(function() 
-                        task.spawn(function() 
-                            pcall(function() cfg.speedUp(slotIndex) end)
-                            refreshWorkshopView() 
-                        end) 
-                    end)
-                else
-                    local btnText, btnColor, action = "Claim", COLORS.Green, "claim"
-                    if shopKey == "Wash" and not slotData.Washed then btnText, btnColor, action = "Collect", COLORS.Purple, "collectWash"
-                    elseif shopKey == "Repair" and not slotData.Repaired then btnText, btnColor, action = "Collect", COLORS.Purple, "collectRepair"
-                    elseif shopKey == "Grading" and not slotData.Grade then btnText, btnColor, action = "Roll", COLORS.Purple, "rollGrade"
-                    elseif shopKey == "Locksmith" and not slotData.Opened then btnText, btnColor, action = "Open", COLORS.Orange, "openSafe" end
-                    
-                    if slotData.Grade then realItemName = realItemName .. " (" .. tostring(slotData.Grade) .. " ⭐)" elseif slotData.CleanMutation then realItemName = realItemName .. " (" .. tostring(slotData.CleanMutation) .. ")" end
-                    
-                    local actionBtn = make("TextButton", { Text = btnText, TextSize = 8, Font = Enum.Font.GothamBold, TextColor3 = btnColor, BackgroundColor3 = COLORS.Card, Position = UDim2.new(0.6, 0, 0.5, -10), Size = UDim2.new(0.4, -6, 0, 20), AutoButtonColor = false }, card)
-                    corner(5, actionBtn); stroke(1.2, btnColor, actionBtn)
-                    actionBtn.MouseButton1Click:Connect(function()
-                        actionBtn.Text = "Claiming..."
-                        task.spawn(function()
-                            local success, err = pcall(function()
-                                if action == "claim" then
-                                    local res = cfg.claimWork(slotIndex)
-                                    local function deepFind(t, keys)
-                                        if type(t) ~= "table" then return nil end
-                                        for k, v in pairs(t) do
-                                            for _, key in ipairs(keys) do
-                                                if string.lower(tostring(k)) == string.lower(key) then return v end
-                                            end
-                                            if type(v) == "table" then
-                                                local found = deepFind(v, keys)
-                                                if found then return found end
-                                            end
-                                        end
-                                        return nil
-                                    end
-                                    local grade = deepFind(res, {"grade", "stars"}) or deepFind(slotData, {"grade", "stars"})
-                                    local mut = deepFind(res, {"cleanmutation", "mutator", "mutation"}) or deepFind(slotData, {"cleanmutation", "mutator", "mutation"})
-                                    local cond = deepFind(res, {"condition", "health", "durability"}) or deepFind(slotData, {"condition", "health", "durability"})
-                                    
-                                    local resultStr = ""
-                                    if shopKey == "Grading" then
-                                        if grade then resultStr = "\\nStars: " .. tostring(grade) .. " ⭐" end
-                                    elseif shopKey == "Wash" then
-                                        if mut then resultStr = "\\nMutation: " .. tostring(mut) end
-                                    elseif shopKey == "Repair" then
-                                        if cond then resultStr = "\\nCondition: " .. tostring(cond) .. "%" end
-                                    end
-                                    showWorkshopPopup("Claimed!" .. resultStr, COLORS.Green)
-                                elseif action == "collectWash" then
-                                    local res = EventsObj:WaitForChild("Wash"):WaitForChild("CollectWash"):InvokeServer(slotIndex)
-                                    local mut = type(res) == "table" and (res.CleanMutation or res.Mutator or res.Mutation or res.Result)
-                                    showWorkshopPopup(mut and "Washed! Mutation: " .. tostring(mut) or "Washed successfully!", COLORS.Green)
-                                elseif action == "collectRepair" then
-                                    local res = EventsObj:WaitForChild("Repair"):WaitForChild("CollectRepair"):InvokeServer(slotIndex)
-                                    local cond = type(res) == "table" and (res.Condition or res.Health or res.Durability)
-                                    showWorkshopPopup(cond and "Repaired! Condition: " .. tostring(cond) .. "%" or "Repair collected!", COLORS.Green)
-                                elseif action == "rollGrade" then
-                                    local res = cfg.collect(slotIndex)
-                                    local grade = type(res) == "table" and (res.Grade or res.Stars or res.Score)
-                                    showWorkshopPopup(grade and "Graded! Stars: " .. tostring(grade) .. " ⭐" or "Grade completed!", COLORS.Gold)
-                                elseif action == "openSafe" then
-                                    local openRes = cfg.openSafe(slotIndex)
-                                    task.wait(0.3)
-                                    local claimRes = cfg.claimWork(slotIndex)
-                                    local lootStr = "Unknown"
-                                    local targetRes = (type(claimRes) == "table" and next(claimRes)) and claimRes or openRes
-                                    if type(targetRes) == "table" then
-                                        local list = targetRes.Items or targetRes.Loot or targetRes.Rewards or targetRes
-                                        local items = {}
                                         for k, v in pairs(list) do
                                             local itName = type(v) == "table" and (v.ItemName or v.Name or v.ItemId) or tostring(v)
                                             if type(k) == "string" and type(v) == "table" then
@@ -1611,23 +1510,7 @@ function renderWorkshop(shopKey)
     end)
 end
 
--- Active Heartbeat for Timers inside right column
-table.insert(cleanUpSignals, RunService.Heartbeat:Connect(function()
-    pcall(function()
-        local now = workspace:GetServerTimeNow()
-        for i = #activeTimersList, 1, -1 do
-            local session = activeTimersList[i]
-            local rem = (session.duration or 30) - (now - (session.startTime or now))
-            if rem <= 0 then
-                session.lbl.Text = "COMPLETED"; session.lbl.TextColor3 = COLORS.Green; session.bar.Size = UDim2.fromScale(1, 1)
-                table.remove(activeTimersList, i); task.delay(0.5, session.onComplete)
-            else
-                session.bar.Size = UDim2.fromScale(math.clamp((now - session.startTime) / session.duration, 0, 1), 1)
-                session.lbl.Text = string.format("Processing... %d:%02d", math.floor(rem / 60), math.floor(rem) % 60)
-            end
-        end
-    end)
-end))
+
 
 
 -- 🤖 AUTO-BID & PAWN TAB
@@ -1823,8 +1706,7 @@ sellAllBtn.MouseButton1Click:Connect(function()
             local items = getRemote:InvokeServer()
             if not items or not next(items) then showWorkshopPopup("Nothing to sell!", COLORS.Orange); return end
             
-            local ItemsModule = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Items")
-            local ItemsData = ItemsModule and require(ItemsModule) or {}
+            local ItemsData = {}
             
             local guids = {}
             for guid, data in pairs(items) do
@@ -1861,133 +1743,8 @@ local checkRatesBtn = make("TextButton", {
 }, pawnActionsRow)
 corner(6, checkRatesBtn); stroke(1, COLORS.Border, checkRatesBtn)
 
-local ratesPopup = nil
 checkRatesBtn.MouseButton1Click:Connect(function()
-    local function closeRatesPopup()
-        if ratesPopup then
-            local p = ratesPopup
-            ratesPopup = nil
-            tw(p, 0.3, {Size = UDim2.new(0, 0, 0, 0)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
-            task.delay(0.3, function() p:Destroy() end)
-        end
-    end
-    if ratesPopup then closeRatesPopup(); return end
-    task.spawn(function()
-        pcall(function()
-            local ItemsData = require(ReplicatedStorage.Modules.Items)
-            local MutatorModule = require(ReplicatedStorage.Modules.MutatorModule)
-            local getRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("GetSellableItems")
-            if not getRemote then return end
-            local items = getRemote:InvokeServer()
-            local getPawnState = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Pawn"):WaitForChild("GetPawnState")
-            
-            local popup = make("Frame", {
-                Name = "RatesPopup", Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, -100, 0.5, -130),
-                BackgroundColor3 = COLORS.BG, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 9999
-            }, ScreenGui)
-            ratesPopup = popup
-            tw(popup, 0.4, {Size = UDim2.new(0, 200, 0, 260)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-            corner(10, popup); stroke(1.5, COLORS.Accent, popup)
-            
-            local titleBar = make("Frame", { Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = COLORS.Sidebar, BorderSizePixel = 0, ZIndex = 21, Active = true }, popup)
-            corner(10, titleBar)
-            
-            local dragging, dragStart, startPos = false, nil, nil
-            titleBar.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    dragging = true; dragStart = input.Position; startPos = popup.Position
-                end
-            end)
-            titleBar.InputChanged:Connect(function(input)
-                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local delta = input.Position - dragStart
-                    popup.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-                end
-            end)
-            titleBar.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-            end)
-            
-            make("TextLabel", { Size = UDim2.new(1, -36, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = "Pawn Rates", TextColor3 = COLORS.Accent, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22 }, titleBar)
-            
-            local closeBtn = make("TextButton", { Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -24, 0.5, -10), BackgroundColor3 = COLORS.Red, Text = "X", TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 22 }, titleBar)
-            corner(6, closeBtn); closeBtn.MouseButton1Click:Connect(closeRatesPopup)
-            
-            local infoBar = make("Frame", { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 32), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0, ZIndex = 21 }, popup)
-            corner(4, infoBar)
-            
-            local rateLbl = make("TextLabel", { Size = UDim2.new(0.5, -6, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = "Rate: --", TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22 }, infoBar)
-            local timerLbl = make("TextLabel", { Size = UDim2.new(0.5, -6, 1, 0), Position = UDim2.new(0.5, 0, 0, 0), BackgroundTransparency = 1, Text = "Refresh: --:--", TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 22 }, infoBar)
-            
-            local scroll = make("ScrollingFrame", { Size = UDim2.new(1, -12, 1, -92), Position = UDim2.new(0, 6, 0, 56), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = COLORS.Accent, ZIndex = 21 }, popup)
-            list(nil, 3, scroll)
-            
-            local totalBar = make("Frame", { Size = UDim2.new(1, -12, 0, 26), Position = UDim2.new(0, 6, 1, -30), BackgroundColor3 = COLORS.Card, BorderSizePixel = 0, ZIndex = 21 }, popup)
-            corner(6, totalBar); stroke(1, COLORS.Green, totalBar)
-            
-            local totalLbl = make("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = "Total Value: $0", TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 22 }, totalBar)
-            
-            local updateLoopActive = true
-            popup.AncestryChanged:Connect(function() if not popup:IsDescendantOf(game) then updateLoopActive = false end end)
-            
-            task.spawn(function()
-                local rateMultiplier = 0.5
-                local secondsLeft = 0
-                local lastStateFetch = 0
-                while updateLoopActive do
-                    local now = os.time()
-                    if now - lastStateFetch > 10 or secondsLeft <= 0 then
-                        if getPawnState then
-                            local state = getPawnState:InvokeServer()
-                            if state then
-                                rateMultiplier = state.rate or 0.75
-                                secondsLeft = math.max(0, math.floor(state.secondsUntilNext or 0))
-                                lastStateFetch = now
-                            end
-                        end
-                    else
-                        secondsLeft = math.max(0, secondsLeft - 1)
-                    end
-                    
-                    local pct = math.round((rateMultiplier - 1) * 100)
-                    rateLbl.Text = string.format("Rate: %s%d%%", pct >= 0 and "+" or "", pct)
-                    rateLbl.TextColor3 = pct < 0 and COLORS.Red or COLORS.Green
-                    
-                    local mins = math.floor(secondsLeft / 60)
-                    local secs = secondsLeft % 60
-                    timerLbl.Text = string.format("Refresh: %02d:%02d", mins, secs)
-                    
-                    for _, child in ipairs(scroll:GetChildren()) do if not child:IsA("UIListLayout") then child:Destroy() end end
-                    
-                    local curItems = getRemote:InvokeServer()
-                    if not curItems or not next(curItems) then
-                        make("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Text = "Empty", TextColor3 = COLORS.TextDim, Font = Enum.Font.GothamMedium, TextSize = 9, ZIndex = 22 }, scroll)
-                        totalLbl.Text = "Total Value: $0"
-                    else
-                        local entries = {}
-                        local total = 0
-                        for guid, data in pairs(curItems) do
-                            local conf = ItemsData[tostring(data.ItemId)] or ItemsData[tonumber(data.ItemId)]
-                            local name = conf and conf.Name or ("Item #"..tostring(data.ItemId))
-                            local rawPrice = MutatorModule:CalculatePriceForEntry(conf and conf.BasePrice or 0, data)
-                            local finalPawnPrice = rawPrice * rateMultiplier
-                            total = total + finalPawnPrice
-                            table.insert(entries, { name = name, price = finalPawnPrice })
-                        end
-                        table.sort(entries, function(a,b) return a.price > b.price end)
-                        for idx, entry in ipairs(entries) do
-                            local row = make("Frame", { Size = UDim2.new(1, -4, 0, 24), BackgroundColor3 = COLORS.BG, BorderSizePixel = 0, ZIndex = 22 }, scroll)
-                            corner(4, row)
-                            make("TextLabel", { Size = UDim2.new(0.65, -4, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = entry.name, TextColor3 = COLORS.Text, Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 23 }, row)
-                            make("TextLabel", { Size = UDim2.new(0.35, -6, 1, 0), Position = UDim2.new(0.65, 0, 0, 0), BackgroundTransparency = 1, Text = string.format("$%.1f", entry.price), TextColor3 = COLORS.Green, Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 23 }, row)
-                        end
-                        totalLbl.Text = string.format("Total Value: $%.1f", total)
-                    end
-                    task.wait(1)
-                end
-            end)
-        end)
-    end)
+    showWorkshopPopup("Pawn rates check is disabled on Xeno!", COLORS.Orange)
 end)
 
 
@@ -2503,8 +2260,8 @@ task.spawn(function()
     local PlotEvents = events:WaitForChild("Plot")
     local PlaceStockItem = PlotEvents:WaitForChild("PlaceStockItem")
     local GetPlayerInventory = events:WaitForChild("Inventory"):WaitForChild("GetPlayerInventory")
-    local ItemsData = require(ReplicatedStorage.Modules.Items)
-    local MutatorModule = require(ReplicatedStorage.Modules.MutatorModule)
+    local ItemsData = {}
+    local MutatorModule = {}
     local attemptedPlacements = {}
     
     while task.wait(4) do
@@ -2671,4 +2428,3 @@ task.spawn(function()
         end
     end
 end)
-    
