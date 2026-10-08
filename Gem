@@ -1,0 +1,928 @@
+-- ==============================================================================
+-- 💎 STORAGE HUNTERS: OPEN WORLD - PRIVATE GEM BRUTEFORCE FARM
+-- ==============================================================================
+-- Description : Bypasses full-inventory drop rejections by infinitely re-firing
+--               the rock node proximity prompt until a stackable gem is rolled.
+-- Compatibility: Works for ANY gem held in inventory (Ruby, Sapphire, Emerald, etc.)
+-- ==============================================================================
+
+-- Cleanup any previous instance
+if _G.SH_GemBruteforce_Cleanup then
+    pcall(_G.SH_GemBruteforce_Cleanup)
+end
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = nil
+pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
+local RS = ReplicatedStorage
+
+-- Global State
+local State = {
+    Active = false,
+    TargetNode = "Auto",
+    SelectedNodeIdx = 1,
+    RerollCount = 0,
+    SuccessCount = 0,
+    CurrentStatus = "Idle",
+    EquippedPickaxe = "None",
+    GuiVisible = true,
+}
+
+-- Rock Node Coordinates & Requirements
+local NODE_POS = {
+    [1] = Vector3.new(-2661, 1577, -2292),
+    [2] = Vector3.new(-2683, 1578, -2301),
+    [3] = Vector3.new(-2675, 1579, -2324),
+    [4] = Vector3.new(-2686, 1580, -2345),
+    [5] = Vector3.new(-2695, 1581, -2367),
+    [6] = Vector3.new(-2675, 1583, -2387),
+    [7] = Vector3.new(-2556, 1584, -2296),
+    [8] = Vector3.new(-2553, 1587, -2328),
+    [9] = Vector3.new(-2543, 1589, -2366),
+    [10] = Vector3.new(-2571, 1591, -2398)
+}
+
+local NODE_REQ = {
+    [1] = { name = "Node 1", nw = 30000, label = "$30K" },
+    [2] = { name = "Node 2", nw = 60000, label = "$60K" },
+    [3] = { name = "Node 3", nw = 200000, label = "$200K" },
+    [4] = { name = "Node 4", nw = 600000, label = "$600K" },
+    [5] = { name = "Node 5", nw = 2000000, label = "$2M" },
+    [6] = { name = "Node 6", nw = 6000000, label = "$6M" },
+    [7] = { name = "Node 7", nw = 17500000, label = "$17.5M" },
+    [8] = { name = "Node 8", nw = 50000000, label = "$50M" },
+    [9] = { name = "Node 9", nw = 150000000, label = "$150M" },
+    [10] = { name = "Node 10", nw = 500000000, label = "$500M" }
+}
+
+local PICKAXES = {"1221", "1220", "1219", "1218", "1217", "1216"}
+local PICKAXE_NAMES = {
+    ["1221"] = "Node Crusher",
+    ["1220"] = "Drill Spike",
+    ["1219"] = "Diamond Pickaxe",
+    ["1218"] = "Industrial Pickaxe",
+    ["1217"] = "Iron Pickaxe",
+    ["1216"] = "Wooden Pickaxe"
+}
+
+local JEWEL_IDS = {"1231", "1230", "1229", "1228", "1227", "1226", "1225", "1224", "1223", "1222"}
+local JEWEL_NAMES = {
+    ["1231"] = "Ruby",
+    ["1230"] = "Sapphire",
+    ["1229"] = "Emerald",
+    ["1228"] = "Amethyst",
+    ["1227"] = "Aquamarine",
+    ["1226"] = "Carnelian",
+    ["1225"] = "Lapis",
+    ["1224"] = "Citrine",
+    ["1223"] = "Morganite",
+    ["1222"] = "Titanium"
+}
+
+-- Anti-AFK
+local afkConn = nil
+pcall(function()
+    afkConn = LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new())
+            end
+        end)
+    end)
+end)
+
+-- Inventory Helper
+local function getInventory()
+    local ok, inv = pcall(function()
+        return RS.Events.Inventory.GetPlayerInventory:InvokeServer()
+    end)
+    return (ok and type(inv) == "table") and inv or nil
+end
+
+local function countGem(gemId)
+    local inv = getInventory()
+    local count = 0
+    if inv then
+        for _, item in pairs(inv) do
+            if tostring(item.ItemId or "") == tostring(gemId) then
+                count = count + (tonumber(item.Amount) or tonumber(item.Count) or 1)
+            end
+        end
+    end
+    return count
+end
+
+-- Net Worth Calculation
+local function getPlayerNW()
+    local nwVal = 0
+    pcall(function()
+        local raw = LocalPlayer.leaderstats["Net Worth"].Value
+        raw = tostring(raw or ""):gsub("%$", ""):gsub(",", ""):upper()
+        local num = tonumber(raw:match("[%d%.]+")) or 0
+        if raw:find("B") then
+            nwVal = num * 1000000000
+        elseif raw:find("M") then
+            nwVal = num * 1000000
+        elseif raw:find("K") then
+            nwVal = num * 1000
+        else
+            nwVal = num
+        end
+    end)
+    return nwVal
+end
+
+local function getBestEligibleNode()
+    local nw = getPlayerNW()
+    local best = 1
+    for i = 1, 10 do
+        if nw >= NODE_REQ[i].nw then
+            best = i
+        end
+    end
+    return best
+end
+
+local function resolveTargetNode()
+    if State.TargetNode == "Auto" then
+        return getBestEligibleNode()
+    end
+    local num = tonumber(tostring(State.TargetNode):match("%d+"))
+    return num or 1
+end
+
+-- Tool & Pickaxe Equipping
+local function getHeldTool()
+    local ch = LocalPlayer.Character
+    if ch then
+        for _, t in ipairs(ch:GetChildren()) do
+            if t:IsA("Tool") and (t.Name:lower():find("pickaxe") or t.Name:lower():find("crusher") or t.Name:lower():find("drill")) then
+                return t
+            end
+        end
+    end
+    return nil
+end
+
+local function equipBestPickaxe()
+    local lp = LocalPlayer
+    local ch = lp.Character
+    local bp = lp:FindFirstChild("Backpack")
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+
+    local inv = getInventory()
+    local bestGuid, bestId = nil, nil
+    if inv then
+        for _, targetId in ipairs(PICKAXES) do
+            for guid, d in pairs(inv) do
+                if tostring(d.ItemId or "") == targetId then
+                    bestGuid = guid
+                    bestId = targetId
+                    break
+                end
+            end
+            if bestGuid then break end
+        end
+    end
+
+    local held = getHeldTool()
+    if held then
+        if not bestId or held.Name:lower():find(tostring(PICKAXE_NAMES[bestId] or ""):lower()) then
+            State.EquippedPickaxe = held.Name
+            return held.Name
+        end
+    end
+
+    if bp then
+        for _, targetId in ipairs(PICKAXES) do
+            local pName = PICKAXE_NAMES[targetId]
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") and (t.Name == pName or t.Name:lower():find("pickaxe") or t.Name:lower():find("crusher") or t.Name:lower():find("drill")) then
+                    if hum then
+                        hum:EquipTool(t)
+                        task.wait(0.3)
+                        State.EquippedPickaxe = t.Name
+                        return t.Name
+                    end
+                end
+            end
+        end
+    end
+
+    if bestGuid then
+        local eq = RS.Events.Inventory:FindFirstChild("EquipItem")
+        if eq then
+            eq:FireServer(bestGuid)
+            task.wait(0.4)
+            if bp and hum then
+                for _, t in ipairs(bp:GetChildren()) do
+                    if t:IsA("Tool") and (t.Name:lower():find("pickaxe") or t.Name:lower():find("crusher") or t.Name:lower():find("drill")) then
+                        hum:EquipTool(t)
+                        task.wait(0.2)
+                        break
+                    end
+                end
+            end
+            local foundName = PICKAXE_NAMES[bestId] or bestId
+            State.EquippedPickaxe = foundName
+            return foundName
+        end
+    end
+
+    local finalHeld = held and held.Name or "None"
+    State.EquippedPickaxe = finalHeld
+    return finalHeld
+end
+
+-- Safe Teleport with Anti-Fall Platform
+local function safeTP(cf)
+    local ok = pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        local targetPos = typeof(cf) == "Vector3" and cf or cf.Position
+        local targetCF = typeof(cf) == "Vector3" and CFrame.new(cf) or cf
+
+        local platform = Instance.new("Part")
+        platform.Size = Vector3.new(20, 2, 20)
+        platform.Anchored = true
+        platform.CanCollide = true
+        platform.Transparency = 1
+        platform.Position = targetPos - Vector3.new(0, 4.5, 0)
+        platform.Parent = workspace
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = targetCF
+        root.AssemblyLinearVelocity = Vector3.zero
+
+        task.delay(3, function()
+            pcall(function() platform:Destroy() end)
+        end)
+    end)
+    return ok
+end
+
+local function safeFirePrompt(prompt)
+    if not prompt then return false end
+    local ok = pcall(function()
+        if fireproximityprompt then
+            fireproximityprompt(prompt, 0)
+        elseif prompt.InputHoldBegin then
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration or 0)
+            prompt:InputHoldEnd()
+        end
+    end)
+    return ok
+end
+
+-- Rock Node Prompt Helper
+local function getRockNodePrompt(nodeIdx)
+    local mines = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("The Mines")
+    local rn = mines and mines:FindFirstChild("RockNodes")
+    if not rn then return nil end
+    local nodeModel = rn:FindFirstChild(tostring(nodeIdx))
+    if not nodeModel then return nil end
+    return nodeModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+end
+
+-- UI Construction (Delta Mobile / PC Safe Container)
+local parentGui = nil
+pcall(function() parentGui = gethui and gethui() end)
+if not parentGui then
+    local coreGui
+    local success = pcall(function() coreGui = game:GetService("CoreGui") end)
+    if success and coreGui then
+        local testFrame = Instance.new("Frame")
+        local parentSuccess = pcall(function() testFrame.Parent = coreGui end)
+        pcall(function() testFrame:Destroy() end)
+        if parentSuccess then
+            parentGui = coreGui
+        end
+    end
+end
+if not parentGui then
+    parentGui = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SH_GemBruteforce_UI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = parentGui
+
+-- Mobile Floating Toggle Button
+local floatToggle = Instance.new("TextButton")
+floatToggle.Name = "FloatToggle"
+floatToggle.Size = UDim2.new(0, 36, 0, 36)
+floatToggle.Position = UDim2.new(0, 14, 0.45, 0)
+floatToggle.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+floatToggle.Font = Enum.Font.GothamBold
+floatToggle.Text = "⛏"
+floatToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+floatToggle.TextSize = 16
+floatToggle.Active = true
+floatToggle.Draggable = true
+floatToggle.Parent = screenGui
+Instance.new("UICorner", floatToggle).CornerRadius = UDim.new(0, 10)
+local ftStroke = Instance.new("UIStroke")
+ftStroke.Color = Color3.fromRGB(16, 185, 129)
+ftStroke.Thickness = 1.2
+ftStroke.Parent = floatToggle
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 380, 0, 350)
+mainFrame.Position = UDim2.new(0.5, -190, 0.5, -175)
+mainFrame.BackgroundColor3 = Color3.fromRGB(17, 18, 24)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+floatToggle.MouseButton1Click:Connect(function()
+    State.GuiVisible = not State.GuiVisible
+    mainFrame.Visible = State.GuiVisible
+end)
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(50, 54, 72)
+mainStroke.Thickness = 1.2
+mainStroke.Parent = mainFrame
+
+-- Title Bar
+local topBar = Instance.new("Frame")
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.BackgroundColor3 = Color3.fromRGB(24, 25, 34)
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 10)
+topCorner.Parent = topBar
+
+local topFix = Instance.new("Frame")
+topFix.Size = UDim2.new(1, 0, 0, 10)
+topFix.Position = UDim2.new(0, 0, 1, -10)
+topFix.BackgroundColor3 = Color3.fromRGB(24, 25, 34)
+topFix.BorderSizePixel = 0
+topFix.Parent = topBar
+
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -50, 1, 0)
+titleLbl.Position = UDim2.new(0, 14, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.Text = "Gem Miner"
+titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLbl.TextSize = 14
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.Parent = topBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 26, 0, 26)
+closeBtn.Position = UDim2.new(1, -34, 0, 8)
+closeBtn.BackgroundColor3 = Color3.fromRGB(36, 38, 50)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(200, 205, 220)
+closeBtn.TextSize = 12
+closeBtn.AutoButtonColor = false
+closeBtn.Parent = topBar
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+closeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    State.GuiVisible = false
+end)
+
+-- Content Container
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Size = UDim2.new(1, -28, 1, -52)
+content.Position = UDim2.new(0, 14, 0, 46)
+content.BackgroundTransparency = 1
+content.Parent = mainFrame
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 8)
+layout.Parent = content
+
+-- 1. Target Rock Node
+local nodeSelectCard = Instance.new("Frame")
+nodeSelectCard.Size = UDim2.new(1, 0, 0, 56)
+nodeSelectCard.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+nodeSelectCard.BorderSizePixel = 0
+nodeSelectCard.LayoutOrder = 1
+nodeSelectCard.Parent = content
+Instance.new("UICorner", nodeSelectCard).CornerRadius = UDim.new(0, 8)
+
+local nscStroke = Instance.new("UIStroke")
+nscStroke.Color = Color3.fromRGB(40, 44, 60)
+nscStroke.Parent = nodeSelectCard
+
+local nscTitle = Instance.new("TextLabel")
+nscTitle.Size = UDim2.new(1, -16, 0, 16)
+nscTitle.Position = UDim2.new(0, 10, 0, 4)
+nscTitle.BackgroundTransparency = 1
+nscTitle.Font = Enum.Font.GothamBold
+nscTitle.Text = "TARGET NODE"
+nscTitle.TextColor3 = Color3.fromRGB(120, 130, 155)
+nscTitle.TextSize = 9
+nscTitle.TextXAlignment = Enum.TextXAlignment.Left
+nscTitle.Parent = nodeSelectCard
+
+local prevNodeBtn = Instance.new("TextButton")
+prevNodeBtn.Size = UDim2.new(0, 30, 0, 26)
+prevNodeBtn.Position = UDim2.new(0, 10, 0, 22)
+prevNodeBtn.BackgroundColor3 = Color3.fromRGB(36, 40, 56)
+prevNodeBtn.Font = Enum.Font.GothamBold
+prevNodeBtn.Text = "<"
+prevNodeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+prevNodeBtn.TextSize = 12
+prevNodeBtn.Parent = nodeSelectCard
+Instance.new("UICorner", prevNodeBtn).CornerRadius = UDim.new(0, 6)
+
+local nodeDisplayLbl = Instance.new("TextLabel")
+nodeDisplayLbl.Size = UDim2.new(1, -86, 0, 26)
+nodeDisplayLbl.Position = UDim2.new(0, 44, 0, 22)
+nodeDisplayLbl.BackgroundColor3 = Color3.fromRGB(18, 19, 27)
+nodeDisplayLbl.Font = Enum.Font.GothamSemibold
+nodeDisplayLbl.Text = "Auto (Best Eligible)"
+nodeDisplayLbl.TextColor3 = Color3.fromRGB(230, 240, 255)
+nodeDisplayLbl.TextSize = 11
+nodeDisplayLbl.Parent = nodeSelectCard
+Instance.new("UICorner", nodeDisplayLbl).CornerRadius = UDim.new(0, 6)
+
+local nextNodeBtn = Instance.new("TextButton")
+nextNodeBtn.Size = UDim2.new(0, 30, 0, 26)
+nextNodeBtn.Position = UDim2.new(1, -38, 0, 22)
+nextNodeBtn.BackgroundColor3 = Color3.fromRGB(36, 40, 56)
+nextNodeBtn.Font = Enum.Font.GothamBold
+nextNodeBtn.Text = ">"
+nextNodeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+nextNodeBtn.TextSize = 12
+nextNodeBtn.Parent = nodeSelectCard
+Instance.new("UICorner", nextNodeBtn).CornerRadius = UDim.new(0, 6)
+
+local nodeOptions = {"Auto"}
+for i = 1, 10 do
+    table.insert(nodeOptions, "Node " .. i .. " (" .. NODE_REQ[i].label .. ")")
+end
+local currentNodeOptIdx = 1
+
+local function updateNodeDisplay()
+    local opt = nodeOptions[currentNodeOptIdx]
+    nodeDisplayLbl.Text = opt
+    if opt == "Auto" then
+        State.TargetNode = "Auto"
+    else
+        local num = tonumber(opt:match("Node (%d+)"))
+        State.TargetNode = "Node " .. tostring(num or 1)
+    end
+end
+
+prevNodeBtn.MouseButton1Click:Connect(function()
+    currentNodeOptIdx = currentNodeOptIdx - 1
+    if currentNodeOptIdx < 1 then
+        currentNodeOptIdx = #nodeOptions
+    end
+    updateNodeDisplay()
+end)
+
+nextNodeBtn.MouseButton1Click:Connect(function()
+    currentNodeOptIdx = currentNodeOptIdx + 1
+    if currentNodeOptIdx > #nodeOptions then
+        currentNodeOptIdx = 1
+    end
+    updateNodeDisplay()
+end)
+
+-- 2. Inventory & Targets Card
+local gemScanCard = Instance.new("Frame")
+gemScanCard.Size = UDim2.new(1, 0, 0, 64)
+gemScanCard.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+gemScanCard.BorderSizePixel = 0
+gemScanCard.LayoutOrder = 2
+gemScanCard.Parent = content
+Instance.new("UICorner", gemScanCard).CornerRadius = UDim.new(0, 8)
+
+local gscStroke = Instance.new("UIStroke")
+gscStroke.Color = Color3.fromRGB(40, 44, 60)
+gscStroke.Parent = gemScanCard
+
+local gscTitle = Instance.new("TextLabel")
+gscTitle.Size = UDim2.new(1, -16, 0, 14)
+gscTitle.Position = UDim2.new(0, 10, 0, 4)
+gscTitle.BackgroundTransparency = 1
+gscTitle.Font = Enum.Font.GothamBold
+gscTitle.Text = "INVENTORY"
+gscTitle.TextColor3 = Color3.fromRGB(120, 130, 155)
+gscTitle.TextSize = 9
+gscTitle.TextXAlignment = Enum.TextXAlignment.Left
+gscTitle.Parent = gemScanCard
+
+local bagCapLbl = Instance.new("TextLabel")
+bagCapLbl.Size = UDim2.new(1, -16, 0, 18)
+bagCapLbl.Position = UDim2.new(0, 10, 0, 19)
+bagCapLbl.BackgroundTransparency = 1
+bagCapLbl.Font = Enum.Font.GothamSemibold
+bagCapLbl.Text = "Bag: Checking..."
+bagCapLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
+bagCapLbl.TextSize = 11
+bagCapLbl.TextXAlignment = Enum.TextXAlignment.Left
+bagCapLbl.Parent = gemScanCard
+
+local gemListLbl = Instance.new("TextLabel")
+gemListLbl.Size = UDim2.new(1, -16, 0, 18)
+gemListLbl.Position = UDim2.new(0, 10, 0, 39)
+gemListLbl.BackgroundTransparency = 1
+gemListLbl.Font = Enum.Font.Gotham
+gemListLbl.Text = "Scanning gems..."
+gemListLbl.TextColor3 = Color3.fromRGB(180, 195, 220)
+gemListLbl.TextSize = 11
+gemListLbl.TextWrapped = true
+gemListLbl.TextXAlignment = Enum.TextXAlignment.Left
+gemListLbl.Parent = gemScanCard
+
+local function refreshGemDisplay()
+    local invCount = LocalPlayer:GetAttribute("InventoryCount")
+    local invCap = LocalPlayer:GetAttribute("InventoryCap")
+    local inv = getInventory()
+    
+    if not invCount and inv then
+        local count = 0
+        for _ in pairs(inv) do count = count + 1 end
+        invCount = count
+    end
+    invCount = invCount or 0
+    invCap = invCap or 20
+
+    if invCount >= invCap then
+        bagCapLbl.Text = string.format("Bag: %d/%d (Full)", invCount, invCap)
+        bagCapLbl.TextColor3 = Color3.fromRGB(0, 255, 170)
+    else
+        bagCapLbl.Text = string.format("Bag: %d/%d (Fill %d more slot%s to bruteforce)", invCount, invCap, invCap - invCount, (invCap - invCount) == 1 and "" or "s")
+        bagCapLbl.TextColor3 = Color3.fromRGB(255, 180, 60)
+    end
+
+    local detected = {}
+    for _, id in ipairs(JEWEL_IDS) do
+        local n = countGem(id)
+        if n > 0 then
+            table.insert(detected, string.format("%s (%d)", JEWEL_NAMES[id] or id, n))
+        end
+    end
+    if #detected > 0 then
+        gemListLbl.Text = "Targets: " .. table.concat(detected, ", ")
+        gemListLbl.TextColor3 = Color3.fromRGB(100, 255, 180)
+    else
+        gemListLbl.Text = "No gems in bag (put target gem in bag)"
+        gemListLbl.TextColor3 = Color3.fromRGB(255, 150, 100)
+    end
+end
+task.spawn(refreshGemDisplay)
+
+-- 3. Status Card
+local statusCard = Instance.new("Frame")
+statusCard.Size = UDim2.new(1, 0, 0, 48)
+statusCard.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+statusCard.BorderSizePixel = 0
+statusCard.LayoutOrder = 3
+statusCard.Parent = content
+Instance.new("UICorner", statusCard).CornerRadius = UDim.new(0, 8)
+
+local scStroke = Instance.new("UIStroke")
+scStroke.Color = Color3.fromRGB(40, 44, 60)
+scStroke.Parent = statusCard
+
+local statusTitle = Instance.new("TextLabel")
+statusTitle.Size = UDim2.new(1, -16, 0, 14)
+statusTitle.Position = UDim2.new(0, 10, 0, 4)
+statusTitle.BackgroundTransparency = 1
+statusTitle.Font = Enum.Font.GothamBold
+statusTitle.Text = "STATUS"
+statusTitle.TextColor3 = Color3.fromRGB(120, 130, 155)
+statusTitle.TextSize = 9
+statusTitle.TextXAlignment = Enum.TextXAlignment.Left
+statusTitle.Parent = statusCard
+
+local statusVal = Instance.new("TextLabel")
+statusVal.Size = UDim2.new(1, -16, 0, 20)
+statusVal.Position = UDim2.new(0, 10, 0, 20)
+statusVal.BackgroundTransparency = 1
+statusVal.Font = Enum.Font.GothamSemibold
+statusVal.Text = "Idle"
+statusVal.TextColor3 = Color3.fromRGB(240, 245, 255)
+statusVal.TextSize = 12
+statusVal.TextXAlignment = Enum.TextXAlignment.Left
+statusVal.Parent = statusCard
+
+-- 4. Toggle Button
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "ToggleBtn"
+toggleBtn.Size = UDim2.new(1, 0, 0, 42)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(16, 185, 129)
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.Text = "Start Mining"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextSize = 13
+toggleBtn.LayoutOrder = 4
+toggleBtn.AutoButtonColor = false
+toggleBtn.Parent = content
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
+
+local tbStroke = Instance.new("UIStroke")
+tbStroke.Color = Color3.fromRGB(5, 150, 105)
+tbStroke.Thickness = 1.2
+tbStroke.Parent = toggleBtn
+
+-- 5. Footer
+local footerLbl = Instance.new("TextLabel")
+footerLbl.Size = UDim2.new(1, 0, 0, 16)
+footerLbl.BackgroundTransparency = 1
+footerLbl.Font = Enum.Font.Gotham
+footerLbl.Text = "[Right Shift] to toggle menu"
+footerLbl.TextColor3 = Color3.fromRGB(100, 110, 135)
+footerLbl.TextSize = 10
+footerLbl.LayoutOrder = 5
+footerLbl.Parent = content
+
+-- Update UI Labels
+local function updateUI()
+    statusVal.Text = State.CurrentStatus
+    if State.Active then
+        toggleBtn.Text = "Stop Mining"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+        tbStroke.Color = Color3.fromRGB(185, 28, 28)
+    else
+        toggleBtn.Text = "Start Mining"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(16, 185, 129)
+        tbStroke.Color = Color3.fromRGB(5, 150, 105)
+    end
+end
+
+-- Keybind to Toggle GUI
+local inputConn = UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.Insert then
+        State.GuiVisible = not State.GuiVisible
+        mainFrame.Visible = State.GuiVisible
+    end
+end)
+
+-- ==============================================================================
+-- CORE BRUTEFORCE MINING ENGINE
+-- ==============================================================================
+local farmThread = nil
+
+local function stopFarming()
+    State.Active = false
+    State.CurrentStatus = "Idle"
+    pcall(function()
+        local mines = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("The Mines")
+        local rn = mines and mines:FindFirstChild("RockNodes")
+        if rn then
+            for _, m in ipairs(rn:GetChildren()) do
+                local p = m:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if p and p.ActionText == "Stop Mining" then
+                    safeFirePrompt(p)
+                    task.wait(0.2)
+                    break
+                end
+            end
+        end
+    end)
+    updateUI()
+end
+
+local function runMiningSession()
+    while State.Active do
+        -- 1. Unsit
+        local ch = LocalPlayer.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Sit then
+            hum.Sit = false
+            task.wait(0.25)
+        end
+
+        -- 2. Equip Best Pickaxe
+        local pickaxe = equipBestPickaxe()
+        if not pickaxe or pickaxe == "None" then
+            State.CurrentStatus = "⚠️ No Pickaxe Found in Bag!"
+            updateUI()
+            task.wait(2)
+            break
+        end
+
+        -- 3. Resolve Node
+        local nodeIdx = resolveTargetNode()
+        local req = NODE_REQ[nodeIdx]
+        local playerNW = getPlayerNW()
+        if req and playerNW < req.nw then
+            nodeIdx = getBestEligibleNode()
+        end
+
+        local targetPos = NODE_POS[nodeIdx]
+        if not targetPos then
+            State.CurrentStatus = "❌ Invalid Node Target: " .. tostring(nodeIdx)
+            updateUI()
+            task.wait(2)
+            break
+        end
+
+        -- 4. Travel / Safe TP
+        State.CurrentStatus = "⛏️ Traveling to Node " .. nodeIdx .. "..."
+        updateUI()
+
+        local standCF = CFrame.new(targetPos + Vector3.new(0, 1.2, 3.5), targetPos)
+        safeTP(standCF)
+
+        -- 5. Wait for Prompt Stream
+        local prompt = nil
+        local startWait = os.clock()
+        while os.clock() - startWait < 4 and State.Active do
+            prompt = getRockNodePrompt(nodeIdx)
+            if prompt then break end
+            task.wait(0.25)
+        end
+
+        if not prompt or not State.Active then
+            if not prompt then
+                State.CurrentStatus = "⚠️ Node " .. nodeIdx .. " prompt stream timeout"
+                updateUI()
+                task.wait(1)
+            end
+            break
+        end
+
+        safeTP(standCF)
+        task.wait(0.25)
+
+        -- 6. Start Initial Mining Action
+        if prompt.ActionText == "Mine" then
+            safeFirePrompt(prompt)
+            task.wait(0.5)
+        end
+
+        State.CurrentStatus = "Mining Node " .. nodeIdx .. " (0%)"
+        updateUI()
+
+        -- 7. Main Mining / Bruteforce Loop
+        local lastPct = 0
+        local lastRewardTime = os.clock()
+        local lastRerollTime = 0
+
+        while State.Active do
+            local liveCh = LocalPlayer.Character
+            local liveHum = liveCh and liveCh:FindFirstChildOfClass("Humanoid")
+            local liveHrp = liveCh and liveCh:FindFirstChild("HumanoidRootPart")
+            if not liveHum or liveHum.Health <= 0 or not liveHrp then
+                task.wait(1)
+                break
+            end
+
+            -- Tether check
+            if (liveHrp.Position - targetPos).Magnitude > 7 then
+                safeTP(standCF)
+                task.wait(0.2)
+            end
+
+            prompt = getRockNodePrompt(nodeIdx)
+            local action = prompt and prompt.ActionText
+
+            -- Inspect MiningHud
+            local hud = LocalPlayer.PlayerGui:FindFirstChild("MiningHud")
+            local panel = hud and hud:FindFirstChild("MiningPanel")
+            local fill = panel and panel:FindFirstChild("Bar") and panel.Bar:FindFirstChild("Fill")
+            local hint = panel and panel:FindFirstChild("Hint") and panel.Hint.Text or ""
+            local progress = fill and fill.Size.X.Scale or 0
+            local pct = math.floor(math.clamp(progress, 0, 1) * 100)
+
+            -- ==========================================================
+            -- 💥 THE BRUTEFORCE BYPASS (Pat's exact method):
+            -- "you need to cancel mine then continue mine till you get ruby"
+            -- When game rejects non-matching roll (inventory full):
+            -- 1. Cancel mine ("Stop Mining")
+            -- 2. Immediately re-fire ("Mine")
+            -- 3. Repeat until roll hits a stackable gem in your bag!
+            -- ==========================================================
+            local lowerHint = hint:lower()
+            local isFullHint = lowerHint:find("full") or lowerHint:find("free slot") or lowerHint:find("space") or lowerHint:find("capacity")
+
+            if isFullHint and (os.clock() - lastRerollTime > 0.8) then
+                lastRerollTime = os.clock()
+                State.RerollCount = State.RerollCount + 1
+                State.CurrentStatus = string.format("Re-rolling (%d)...", State.RerollCount)
+                updateUI()
+
+                -- Step 1: If currently mining ("Stop Mining"), cancel the mine!
+                prompt = getRockNodePrompt(nodeIdx)
+                if prompt and prompt.ActionText == "Stop Mining" then
+                    safeFirePrompt(prompt)
+                    task.wait(0.25)
+                end
+
+                -- Step 2: Brief yield for prompt to switch back to "Mine"
+                task.wait(0.15)
+
+                -- Step 3: Continue mine (fire "Mine" prompt)
+                prompt = getRockNodePrompt(nodeIdx)
+                if prompt and prompt.ActionText == "Mine" then
+                    safeFirePrompt(prompt)
+                    task.wait(0.35)
+                end
+
+                lastPct = 0
+            end
+
+            -- Update Mining Progress (only when actively mining normally)
+            if not isFullHint and pct > 0 then
+                State.CurrentStatus = string.format("Mining Node %d (%d%%)", nodeIdx, pct)
+                updateUI()
+            end
+
+            -- Reward Detection: Bar successfully reset from high % to low % with NO full inventory rejection
+            if lastPct >= 80 and pct < 20 and (os.clock() - lastRewardTime > 2) and not isFullHint then
+                lastRewardTime = os.clock()
+                State.SuccessCount = State.SuccessCount + 1
+                State.CurrentStatus = "Gem stored!"
+                updateUI()
+                refreshGemDisplay()
+
+                -- Brief pause and begin next mining cycle
+                task.wait(0.4)
+                prompt = getRockNodePrompt(nodeIdx)
+                if prompt and prompt.ActionText == "Mine" then
+                    safeFirePrompt(prompt)
+                    task.wait(0.4)
+                end
+            end
+            lastPct = pct
+
+            -- Idle prompt trigger (if standing at node and not mining)
+            if action == "Mine" and (os.clock() - lastRewardTime > 2.5) and (os.clock() - lastRerollTime > 1.2) and pct == 0 then
+                safeFirePrompt(prompt)
+                task.wait(0.4)
+            end
+
+            task.wait(0.25)
+        end
+
+        task.wait(0.5)
+    end
+
+    stopFarming()
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    if State.Active then
+        stopFarming()
+    else
+        State.Active = true
+        updateUI()
+        if farmThread then
+            task.cancel(farmThread)
+        end
+        farmThread = task.spawn(runMiningSession)
+    end
+end)
+
+-- Global Cleanup Routine
+_G.SH_GemBruteforce_Cleanup = function()
+    State.Active = false
+    if farmThread then
+        pcall(task.cancel, farmThread)
+    end
+    if afkConn then
+        pcall(function() afkConn:Disconnect() end)
+    end
+    if inputConn then
+        pcall(function() inputConn:Disconnect() end)
+    end
+    if screenGui and screenGui.Parent then
+        pcall(function() screenGui:Destroy() end)
+    end
+end
+
+print("Gem Miner loaded! Press [Right Shift] to toggle.")
