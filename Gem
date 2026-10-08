@@ -600,7 +600,20 @@ local function refreshGemDisplay()
         gemListLbl.TextColor3 = Color3.fromRGB(255, 150, 100)
     end
 end
-task.spawn(refreshGemDisplay)
+
+local invConn = nil
+pcall(function()
+    invConn = LocalPlayer:GetAttributeChangedSignal("InventoryCount"):Connect(function()
+        pcall(refreshGemDisplay)
+    end)
+end)
+
+task.spawn(function()
+    while screenGui and screenGui.Parent do
+        pcall(refreshGemDisplay)
+        task.wait(1.5)
+    end
+end)
 
 -- 3. Status Card
 local statusCard = Instance.new("Frame")
@@ -919,6 +932,9 @@ _G.SH_GemBruteforce_Cleanup = function()
     end
     if inputConn then
         pcall(function() inputConn:Disconnect() end)
+    end
+    if invConn then
+        pcall(function() invConn:Disconnect() end)
     end
     if screenGui and screenGui.Parent then
         pcall(function() screenGui:Destroy() end)
