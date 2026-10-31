@@ -37,7 +37,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 30)
 title.Position = UDim2.new(0, 0, 0, 15)
 title.BackgroundTransparency = 1
-title.Text = "NEX HUB"
+title.Text = "NexWorks"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
@@ -104,7 +104,7 @@ task.spawn(function()
         task.wait(duration or 0.5)
     end
     
-    setProgress(0.1, "Initializing Nex HUB v13.0...", 0.4)
+    setProgress(0.1, "Initializing NexWorks...", 0.4)
     setProgress(0.3, "Analyzing executor environment...", 0.6)
     
     local identify = identifyexecutor or (syn and syn.identifyexecutor)
@@ -153,6 +153,6 @@ task.spawn(function()
     end)
     
     if not success then
-        warn("[Nex HUB] Failed to load main script: " .. tostring(err))
+        warn("[NexWorks] Failed to load main script: " .. tostring(err))
     end
 end)
