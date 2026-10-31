@@ -1,0 +1,52 @@
+name: Infected Lands Tracker
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Check Version
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          PLACE_ID=122789100578830
+          RESPONSE=$(curl -s "https://games.roblox.com/v1/games/multiget-place-details?placeIds=${PLACE_ID}")
+          CURRENT_VERSION=$(echo "$RESPONSE" | grep -o '"version":[0-9]*' | head -1 | cut -d':' -f2)
+          
+          VERSION_FILE="last_known_version.txt"
+          if [ -f "$VERSION_FILE" ]; then
+            STORED_VERSION=$(cat "$VERSION_FILE")
+          else
+            STORED_VERSION="5937"
+          fi
+          
+          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" -gt "$STORED_VERSION" ]; then
+            PAYLOAD=$(cat <<EOF
+            {
+              "username": "NEX HUB Sentinel",
+              "embeds": [{
+                "title": "🚨 Infected Lands Updated!",
+                "description": "The developers just published a new game update!\n\n**Previous Version:** \`v${STORED_VERSION}\`\n**New Version:** \`v${CURRENT_VERSION}\`\n\n⚠️ *Check for new anti-cheat patches before heavy testing.*",
+                "color": 16753920
+              }]
+            }
+          EOF
+            )
+            curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK"
+            
+            echo "$CURRENT_VERSION" > "$VERSION_FILE"
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$VERSION_FILE"
+            git commit -m "chore: updated place version to v$CURRENT_VERSION"
+            git push
+          fi
