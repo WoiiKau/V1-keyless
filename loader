@@ -7,11 +7,21 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
+-- Safe TargetGui resolution and cleanup of any previous loader instances
+local parent = (gethui and gethui())
+    or (syn and syn.protect_gui and CoreGui)
+    or CoreGui:FindFirstChild("RobloxGui")
+    or PlayerGui
+
+pcall(function()
+    local old = parent:FindFirstChild("NexBootstrapper")
+    if old then old:Destroy() end
+end)
+
 -- Create sleek ScreenGui
 local sg = Instance.new("ScreenGui")
 sg.Name = "NexBootstrapper"
 sg.ResetOnSpawn = false
-local parent = CoreGui:FindFirstChild("RobloxGui") or PlayerGui
 sg.Parent = parent
 
 -- Glassmorphic Main Card
@@ -135,12 +145,14 @@ task.spawn(function()
     setProgress(1.0, "Ready!", 0.5)
     
     -- Smooth card shrink exit
-    TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        Size = UDim2.new(0, 0, 0, 0),
-        Position = UDim2.new(0.5, 0, 0.5, 0)
-    }):Play()
+    pcall(function()
+        TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0)
+        }):Play()
+    end)
     task.wait(0.4)
-    sg:Destroy()
+    pcall(function() sg:Destroy() end)
     
     -- Load target script directly from GitHub (Cache-busted)
     local success, err = pcall(function()
