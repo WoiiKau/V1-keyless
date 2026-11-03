@@ -1,52 +1,103 @@
-name: Infected Lands Tracker
+name: Infected Lands Version Sentinel
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
+    # Runs every 15 minutes (24/7 background sentinel)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+
+permissions:
+  contents: write
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Check Version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Game Update & Notify Discord
+        id: check
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          PLACE_ID=122789100578830
-          RESPONSE=$(curl -s "https://games.roblox.com/v1/games/multiget-place-details?placeIds=${PLACE_ID}")
-          CURRENT_VERSION=$(echo "$RESPONSE" | grep -o '"version":[0-9]*' | head -1 | cut -d':' -f2)
-          
-          VERSION_FILE="last_known_version.txt"
-          if [ -f "$VERSION_FILE" ]; then
-            STORED_VERSION=$(cat "$VERSION_FILE")
-          else
-            STORED_VERSION="5937"
-          fi
-          
-          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" -gt "$STORED_VERSION" ]; then
-            PAYLOAD=$(cat <<EOF
-            {
-              "username": "NEX HUB Sentinel",
-              "embeds": [{
-                "title": "🚨 Infected Lands Updated!",
-                "description": "The developers just published a new game update!\n\n**Previous Version:** \`v${STORED_VERSION}\`\n**New Version:** \`v${CURRENT_VERSION}\`\n\n⚠️ *Check for new anti-cheat patches before heavy testing.*",
-                "color": 16753920
-              }]
-            }
-          EOF
-            )
-            curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK"
-            
-            echo "$CURRENT_VERSION" > "$VERSION_FILE"
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git add "$VERSION_FILE"
-            git commit -m "chore: updated place version to v$CURRENT_VERSION"
-            git push
-          fi
+          python -c "
+          import urllib.request, json, os
+
+          UNIVERSE_ID = '8468366390'
+          PLACE_ID = '122789100578830'
+          URL = f'https://games.roblox.com/v1/games?universeIds={UNIVERSE_ID}'
+          STATE_FILE = 'last_updated.txt'
+          WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK')
+
+          req = urllib.request.Request(URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+          with urllib.request.urlopen(req) as resp:
+              game_data = json.loads(resp.read().decode('utf-8'))['data'][0]
+
+          current_updated = game_data['updated']
+          game_name = game_data['name']
+          playing = game_data.get('playing', 0)
+          visits = game_data.get('visits', 0)
+
+          prev_updated = ''
+          if os.path.exists(STATE_FILE):
+              with open(STATE_FILE, 'r') as f:
+                  prev_updated = f.read().strip()
+
+          print(f'Current Published: {current_updated}')
+          print(f'Previous Stored:    {prev_updated}')
+
+          if current_updated != prev_updated:
+              print('🚨 NEW UPDATE DETECTED!')
+              with open(STATE_FILE, 'w') as f:
+                  f.write(current_updated)
+
+              if WEBHOOK_URL:
+                  embed = {
+                      'title': '🚨 Infected Lands — Game Update Published!',
+                      'description': f'**{game_name}** has published a new game update to Roblox servers!',
+                      'url': f'https://www.roblox.com/games/{PLACE_ID}/',
+                      'color': 16734296,
+                      'fields': [
+                          {'name': '⏰ Published At (UTC)', 'value': f'\`{current_updated}\`', 'inline': True},
+                          {'name': '👥 Active Players', 'value': f'{playing:,}', 'inline': True},
+                          {'name': '📊 Total Visits', 'value': f'{visits:,}', 'inline': True},
+                          {'name': '🎮 Place ID', 'value': f'\`{PLACE_ID}\`', 'inline': True},
+                          {'name': '🌌 Universe ID', 'value': f'\`{UNIVERSE_ID}\`', 'inline': True},
+                          {'name': '🛡️ Action Required', 'value': 'Audit \`ReplicatedStorage._RMH\` for AWP bytecode changes.', 'inline': False}
+                      ],
+                      'footer': {'text': 'NexWorks Automated CI/CD Sentinel'}
+                  }
+                  payload = {
+                      'username': 'NexWorks Sentinel',
+                      'embeds': [embed]
+                  }
+                  req_hook = urllib.request.Request(
+                      WEBHOOK_URL,
+                      data=json.dumps(payload).encode('utf-8'),
+                      headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+                  )
+                  urllib.request.urlopen(req_hook)
+                  print('Discord Webhook sent successfully!')
+
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('updated=true\n')
+          else:
+              print('No update detected.')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('updated=false\n')
+          "
+
+      - name: Commit & Push New Timestamp
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add last_updated.txt
+          git commit -m "chore(sentinel): update Infected Lands timestamp [skip ci]"
+          git push
