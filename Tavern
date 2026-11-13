@@ -4229,9 +4229,8 @@ pcall(function()
     VirtualInputManager = game:GetService("VirtualInputManager")
 end)
 
-local LocalPlayer = Players.LocalPlayer
-local isTouchDevice = UserInputService.TouchEnabled
-local isMobile = isTouchDevice
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local isMobile = UserInputService.TouchEnabled
 
 -- ============================================================================
 -- RUNTIME & CLEANUP REGISTRATION
@@ -4255,6 +4254,7 @@ end
 local cleanupVisualsAndMove = nil
 local restoreCookingHook = nil
 local restorePropCollision = nil
+local Window = nil
 
 getgenv()._NexTavernCleanup = function()
     Running = false
@@ -4518,7 +4518,6 @@ local OutdoorsState = {
     mineToolWarnAt = 0,
 }
 
-local SeenTroublemakers = {}
 local EventState = {
     asteroidKey = nil,
     pumpkinActive = false,
@@ -4671,6 +4670,8 @@ local function getFloorYForPlot(plot, xzPos, approxY)
     return fallbackY
 end
 
+local isWallBlockedBetween, computeClearStandPos
+do
 local PlotWallCache = setmetatable({}, { __mode = "k" })
 
 local function getPlotWallInstances(plot)
@@ -4693,7 +4694,7 @@ local function getPlotWallInstances(plot)
     return walls
 end
 
-local function isWallBlockedBetween(plot, posA, posB)
+isWallBlockedBetween = function(plot, posA, posB)
     if not plot or not posA or not posB then return false end
     local delta = Vector3.new(posB.X - posA.X, 0, posB.Z - posA.Z)
     local mag = delta.Magnitude
@@ -4733,7 +4734,7 @@ local function computeStandPos(plot, pivotCF, offsetStuds)
 end
 
 -- Probe 8 directions and reach radii so packed tables, chairs, shelves, or back walls never trap Auto Walk/TP
-local function computeClearStandPos(plot, targetPos, pivotCF, offsetStuds, excludeModel, fromPos, maxReach)
+computeClearStandPos = function(plot, targetPos, pivotCF, offsetStuds, excludeModel, fromPos, maxReach)
     if not plot then
         return pivotCF and computeStandPos(plot, pivotCF, offsetStuds) or targetPos
     end
@@ -4860,6 +4861,7 @@ local function computeClearStandPos(plot, targetPos, pivotCF, offsetStuds, exclu
     if bestNonWall then return bestNonWall end
     return pivotCF and computeStandPos(plot, pivotCF, pref) or Vector3.new(targetPos.X, targetFloorY + 3.0, targetPos.Z)
 end
+end
 
 local function scoreTargetForPlayer(plot, hrpPos, pos, standPos, moveKey, now, extraPenalty)
     if not pos then return math.huge end
@@ -4899,6 +4901,8 @@ local function makePropTarget(plot, model, offsetStuds, spotName, fromPos, custo
     }
 end
 
+local findBarTarget, findBasinTarget
+do
 local function isBarProp(model, def, info)
     return def == "Bar" or def == "BarSet" or (info and info.station == "Bar")
 end
@@ -4939,7 +4943,7 @@ local function findBestPlotProp(ownerId, matcherFn, offsetStuds, spotName, moveP
     return bestTarget
 end
 
-local function findBarTarget(ownerId, barUid, fromPos)
+findBarTarget = function(ownerId, barUid, fromPos)
     local plot, props = getPlotProps(ownerId)
     if not props then return nil end
     if not fromPos then
@@ -4960,10 +4964,13 @@ local function findBarTarget(ownerId, barUid, fromPos)
     return findBestPlotProp(ownerId, isBarProp, 3.4, "BarSpot", "bar:", fromPos)
 end
 
-local function findBasinTarget(ownerId, fromPos)
+findBasinTarget = function(ownerId, fromPos)
     return findBestPlotProp(ownerId, isBasinProp, 3.2, "BasinSpot", "basin:", fromPos)
 end
+end
 
+local getPlotKitchenInfo
+do
 local COOK_STATIONS = {
     Crate = true,
     Plates = true,
@@ -4973,7 +4980,7 @@ local COOK_STATIONS = {
     Cauldron = true,
 }
 
-local function getPlotKitchenInfo(ownerId, fromPos)
+getPlotKitchenInfo = function(ownerId, fromPos)
     local plot, props = getPlotProps(ownerId)
     if not plot or not props then return nil end
     if not fromPos then
@@ -5041,6 +5048,7 @@ local function getPlotKitchenInfo(ownerId, fromPos)
         counterSlots = plot:GetAttribute("CounterSlots") or 0,
     }
 end
+end
 
 local function parseKitchenHeld(plot)
     local held = {}
@@ -5079,13 +5087,14 @@ local function getCounterState(ownerId)
     return res
 end
 
+-- Route transitions cleanly along the Mine entrance ramp when entering or exiting underground (-60 Y)
+local resolveMineRouteTarget
+do
 local MINE_SURFACE_PORTAL = Vector3.new(420, 2.5, -93)
 local MINE_RAMP_MID = Vector3.new(420, -29.5, -205)
 local MINE_CAVERN_ENTRY = Vector3.new(420, -58.5, -315)
-local MINE_CAVERN_CENTER = Vector3.new(420, -58.5, -355)
 
--- Route transitions cleanly along the Mine entrance ramp when entering or exiting underground (-60 Y)
-local function resolveMineRouteTarget(curPos, destPos)
+resolveMineRouteTarget = function(curPos, destPos)
     if not curPos or not destPos then return destPos end
     local curInTunnel = curPos.Y < -1.5 and math.abs(curPos.X - 420) < 95 and curPos.Z < -98
     local destInMine = destPos.Y < -20
@@ -5109,6 +5118,7 @@ local function resolveMineRouteTarget(curPos, destPos)
     end
 
     return destPos, true
+end
 end
 
 local function createComputedWaypoints(fromPos, destPos, agentRadius, canJump)
@@ -5547,6 +5557,8 @@ local function getDirtySeats(ownerId)
     return seats
 end
 
+local getTroublemakers
+do
 local function parsePromptAttribute(promptStr)
     if type(promptStr) ~= "string" or promptStr == "" then return nil end
     local parts = string.split(promptStr, "|")
@@ -5582,7 +5594,7 @@ local function isTroublemakerPrompt(entry, parsed)
         or kindLower:find("trouble", 1, true) ~= nil
 end
 
-local function getTroublemakers(ownerId)
+getTroublemakers = function(ownerId)
     local found = {}
     if not ActorController or not ActorController.list then return found end
 
@@ -5634,8 +5646,13 @@ local function getTroublemakers(ownerId)
 
     return found
 end
+end
 
-local function syncTroublemakerAlerts(troublemakers)
+local syncTroublemakerAlerts
+do
+local SeenTroublemakers = {}
+
+syncTroublemakerAlerts = function(troublemakers)
     local active = {}
     for _, t in ipairs(troublemakers) do
         active[t.id] = true
@@ -5650,34 +5667,11 @@ local function syncTroublemakerAlerts(troublemakers)
         end
     end
 end
+end
 
 -- ============================================================================
 -- WORLD, TRAVEL, EVENTS, ESP & MOVEMENT HELPERS (#3)
 -- ============================================================================
-local WORLD_ZONES_ORDER = {
-    "Own Tavern (Bar)",
-    "Own Tavern (Front Sign)",
-    "Town Square (Plaza)",
-    "Town Fountain",
-    "Guild Hall",
-    "Forge Shop (Smithy)",
-    "Gem Mine (Crystal Floor)",
-    "Gem Mine (Entrance)",
-    "Town Pond (Fishing)",
-    "River Bridge",
-    "Campfire (Forest)",
-}
-
-local STATIC_ZONES = {
-    ["Town Square (Plaza)"] = { x = 0, z = 125, hintY = 30, look = Vector3.new(0, 3, 20) },
-    ["Town Fountain"] = { x = 0, z = 42, hintY = 30, look = Vector3.new(0, 3, 20) },
-    ["Guild Hall"] = { x = 0, z = -14, hintY = 30, look = Vector3.new(0, 5, -59), includeHub = true },
-    ["Forge Shop (Smithy)"] = { x = 76, z = 12, hintY = 30, look = Vector3.new(76, 3, -12) },
-    ["Gem Mine (Entrance)"] = { x = 420, z = -108, hintY = 40, look = Vector3.new(420, 15, -97), includeMine = true },
-    ["Town Pond (Fishing)"] = { x = -280, z = -72, hintY = 30, look = Vector3.new(-315, 0, -95) },
-    ["Campfire (Forest)"] = { x = -300, z = -245, hintY = 30, look = Vector3.new(-302, 3, -258) },
-}
-
 local function getLiveWorldPartAndPos(inst, preferPivot)
     if not inst or not inst.Parent then return nil, nil end
     if inst:IsA("BasePart") then
@@ -5794,6 +5788,8 @@ local function computeTravelPath(fromPos, destPos)
     end)
 end
 
+local stepTravel
+do
 local function stepTravelWalk(now, hrp, hum, curPos, destPos, dist3D)
     if not hum then
         cancelTravel(true)
@@ -5899,7 +5895,7 @@ local function stepTravelGlide(now, hrp, hum, curPos, destPos, dist3D)
     hrp.CFrame = cf
 end
 
-local function stepTravel(now)
+stepTravel = function(now)
     if not TravelState.active or not TravelState.destPos then return end
     local hrp, hum = getPlayerRoot()
     if not hrp then
@@ -5931,6 +5927,7 @@ local function stepTravel(now)
     else
         stepTravelGlide(now, hrp, hum, curPos, destPos, dist3D)
     end
+end
 end
 
 local function teleportCharacter(destPos, lookAtPos, travelLabel, includeMine, includeHub, refreshBarTarget)
@@ -6006,7 +6003,19 @@ local function getPlotVisitTarget(plot)
     return Vector3.new(plotCenter.X, groundY + 3.2, plotCenter.Z), plotCenter
 end
 
-local function teleportToZone(zoneName)
+local teleportToZone
+do
+local STATIC_ZONES = {
+    ["Town Square (Plaza)"] = { x = 0, z = 125, hintY = 30, look = Vector3.new(0, 3, 20) },
+    ["Town Fountain"] = { x = 0, z = 42, hintY = 30, look = Vector3.new(0, 3, 20) },
+    ["Guild Hall"] = { x = 0, z = -14, hintY = 30, look = Vector3.new(0, 5, -59), includeHub = true },
+    ["Forge Shop (Smithy)"] = { x = 76, z = 12, hintY = 30, look = Vector3.new(76, 3, -12) },
+    ["Gem Mine (Entrance)"] = { x = 420, z = -108, hintY = 40, look = Vector3.new(420, 15, -97), includeMine = true },
+    ["Town Pond (Fishing)"] = { x = -280, z = -72, hintY = 30, look = Vector3.new(-315, 0, -95) },
+    ["Campfire (Forest)"] = { x = -300, z = -245, hintY = 30, look = Vector3.new(-302, 3, -258) },
+}
+
+teleportToZone = function(zoneName)
     if zoneName == "Own Tavern (Bar)" then
         local barTarget = findBarTarget(LocalPlayer.UserId, nil)
         if barTarget then
@@ -6060,6 +6069,7 @@ local function teleportToZone(zoneName)
     if not zInfo then return false, "Unknown zone: " .. tostring(zoneName) end
     local groundY = resolveWorldGroundY(zInfo.x, zInfo.z, zInfo.hintY, zInfo.includeMine, zInfo.includeHub)
     return teleportCharacter(Vector3.new(zInfo.x, groundY + 3.2, zInfo.z), zInfo.look, zoneName, zInfo.includeMine, zInfo.includeHub)
+end
 end
 
 local function visitPlotByIndex(plotNum)
@@ -6131,27 +6141,15 @@ local function syncWorldEventAlerts()
     end
 end
 
-local WILDLIFE_COLORS = {
-    Bear = Color3.fromRGB(255, 175, 45),
-    Wolf = Color3.fromRGB(190, 95, 255),
-    Stag = Color3.fromRGB(95, 235, 145),
-    Doe = Color3.fromRGB(95, 235, 145),
-    Boar = Color3.fromRGB(130, 215, 110),
-}
-
-local GEM_NODE_COLORS = {
-    Large = Color3.fromRGB(255, 95, 225),
-    Medium = Color3.fromRGB(85, 210, 255),
-    Small = Color3.fromRGB(130, 240, 195),
-}
-
+local getMineGemNodes
+do
 local MINE_SIZE_RANK = {
     Large = 3,
     Medium = 2,
     Small = 1,
 }
 
-local function getMineGemNodes()
+getMineGemNodes = function()
     local nodes = {}
     local seen = {}
     local function inspectNode(inst)
@@ -6190,6 +6188,7 @@ local function getMineGemNodes()
         end
     end
     return nodes
+end
 end
 
 local function destroyEspEntry(key)
@@ -6282,7 +6281,23 @@ local function upsertEspEntry(key, highlightTarget, billboardAdornee, worldPos, 
     end
 end
 
-local function updateEspVisuals()
+local updateEspVisuals
+do
+local WILDLIFE_COLORS = {
+    Bear = Color3.fromRGB(255, 175, 45),
+    Wolf = Color3.fromRGB(190, 95, 255),
+    Stag = Color3.fromRGB(95, 235, 145),
+    Doe = Color3.fromRGB(95, 235, 145),
+    Boar = Color3.fromRGB(130, 215, 110),
+}
+
+local GEM_NODE_COLORS = {
+    Large = Color3.fromRGB(255, 95, 225),
+    Medium = Color3.fromRGB(85, 210, 255),
+    Small = Color3.fromRGB(130, 240, 195),
+}
+
+updateEspVisuals = function()
     local seen = {}
     local hrp = getPlayerRoot()
     local hrpPos = hrp and hrp.Position
@@ -6350,6 +6365,7 @@ local function updateEspVisuals()
             destroyEspEntry(k)
         end
     end
+end
 end
 
 restoreWalkSpeed = function()
@@ -6642,9 +6658,11 @@ local function triggerPrompt(prompt)
     return true
 end
 
+local resolveWildlifeAimPos
+do
 local WildlifeCenterBoneCache = setmetatable({}, { __mode = "k" })
 
-local function resolveWildlifeAimPos(visModel, fallbackPos, scale)
+resolveWildlifeAimPos = function(visModel, fallbackPos, scale)
     if visModel and visModel.Parent then
         local cached = WildlifeCenterBoneCache[visModel]
         if cached == nil then
@@ -6670,6 +6688,7 @@ local function resolveWildlifeAimPos(visModel, fallbackPos, scale)
         return fallbackPos + Vector3.new(0, 1.5 * (scale or 1), 0)
     end
     return nil
+end
 end
 
 local function buildWildlifeInfo(cfg, hrpPos, nowServer)
@@ -6723,12 +6742,6 @@ local function buildWildlifeInfo(cfg, hrpPos, nowServer)
         visPart = visPart,
         dist = hrpPos and (pos - hrpPos).Magnitude or 0,
     }
-end
-
-local function getWildlifeLiveData(cfg)
-    local info = buildWildlifeInfo(cfg, nil, Workspace:GetServerTimeNow())
-    if not info or info.down or info.gone then return nil end
-    return info
 end
 
 local function findNearestBoneAndRel(model, worldPos)
@@ -7227,6 +7240,8 @@ local function findWaterCastPoint(hrp)
     return bestPos
 end
 
+local maybeSellFishBag
+do
 local function getFishBagCapacity()
     local cur = getCurrentState()
     local skills = cur and cur.skills
@@ -7238,7 +7253,7 @@ local function getFishBagCapacity()
     return 30 + extra
 end
 
-local function maybeSellFishBag(now)
+maybeSellFishBag = function(now)
     local mode = State.AutoSellFishMode or "Off"
     if mode == "Off" or now - OutdoorsState.fishLastSellAt < 1.5 then return end
 
@@ -7259,6 +7274,7 @@ local function maybeSellFishBag(now)
             fishBagRemote:FireServer("SellAll", nil)
         end
     end
+end
 end
 
 local function stepFishingMinigame(now)
@@ -7476,6 +7492,8 @@ local function stepHuntKiting(now, hrpPos, hum, hrp, threats)
     return true
 end
 
+local bindCharacterDeath, runOutdoorsStep
+do
 local function getHuntShotParams(dist, isPumpkin)
     local drawTime = (Hunting and Hunting.DRAW_TIME) or 0.8
     local nockTime = (Hunting and Hunting.NOCK_TIME) or 1.05
@@ -7699,7 +7717,8 @@ local function stepMining(now, hrp, hum)
     local node = pickBestGemNode(hrp.Position, now)
     if not node then
         if State.MineWalkToNodes and hrp.Position.Y > -45 then
-            ensureWithinRange("mine_cavern", MINE_CAVERN_CENTER, MINE_CAVERN_CENTER, now, 18.0, true)
+            local cavernCenter = Vector3.new(420, -58.5, -355)
+            ensureWithinRange("mine_cavern", cavernCenter, cavernCenter, now, 18.0, true)
         end
         return
     end
@@ -7739,7 +7758,7 @@ local function recordHuntDeathTarget(now)
     end
 end
 
-local function bindCharacterDeath(char)
+bindCharacterDeath = function(char)
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
     if hum then
@@ -7752,7 +7771,7 @@ local function bindCharacterDeath(char)
     end
 end
 
-local function runOutdoorsStep(now)
+runOutdoorsStep = function(now)
     local hrp, hum = getPlayerRoot()
     if not hrp or not hum or hum.Health <= 0 then
         recordHuntDeathTarget(now)
@@ -7787,6 +7806,7 @@ local function runOutdoorsStep(now)
     else
         stopHuntKiting(hum, hrp.Position)
     end
+end
 end
 
 local function fireHuntHitPayload(shotId, shot)
@@ -8290,20 +8310,6 @@ local function getWantedGuestOrders(guests, hrpPos, staffCounts)
         end
     end
     return wantedDrinks, wantedFoods
-end
-
-local function findFirstDeliverableGuest(guests, trayCounts, hrpPos, now)
-    local tNow = now or os.clock()
-    for _, guest in ipairs(guests) do
-        local gid = tostring(guest.guestId)
-        if (trayCounts[guest.order] or 0) > 0
-            and isActionableTarget(hrpPos, guest.pos)
-            and not isActionSkipped("deliver:" .. gid, tNow)
-            and not isMoveBlocked("guest:" .. gid, tNow) then
-            return guest
-        end
-    end
-    return nil
 end
 
 local function getCounterDishPickups(ownerId, plot, hrpPos, wantedFoods, trayCounts, now)
@@ -8938,22 +8944,20 @@ end))
 -- ============================================================================
 -- NEXWORKS v3 UI SETUP
 -- ============================================================================
-local winW = isMobile and 540 or 640
-local winH = isMobile and 380 or 440
-
-local Window = NexUI:CreateWindow({
+Window = NexUI:CreateWindow({
     Title = "NexWorks v3",
     GameName = "Tavern Town",
     Subtitle = "",
     BadgeText = "High UNC Build",
-    Width = winW,
-    Height = winH,
+    Width = isMobile and 540 or 640,
+    Height = isMobile and 380 or 440,
     Backdrop = false,
     DefaultTab = "Main",
     FloatingPill = true,
 })
 
 -- TAB 1: TAVERN (Feature #1: Bar & Serve | Kitchen & Cook | Feature #2: Security)
+do
 local TavernTab = Window:CreateTab("Tavern", "rbxassetid://11419713314", true)
 local tavernSubs = TavernTab:CreateSubTabs({ "Bar & Serve", "Kitchen & Cook", "Security" }, "Bar & Serve")
 
@@ -9136,8 +9140,23 @@ secPage:CreateButton("Kick Troublemakers Now", function()
         Window:Notify("Tavern Security", "Sent kick request for " .. kicked .. " troublemaker(s).")
     end)
 end)
+end
 
 -- TAB 2: WORLD (Feature #3: Travel & Events | Visuals & Move)
+do
+local WORLD_ZONES_ORDER = {
+    "Own Tavern (Bar)",
+    "Own Tavern (Front Sign)",
+    "Town Square (Plaza)",
+    "Town Fountain",
+    "Guild Hall",
+    "Forge Shop (Smithy)",
+    "Gem Mine (Crystal Floor)",
+    "Gem Mine (Entrance)",
+    "Town Pond (Fishing)",
+    "River Bridge",
+    "Campfire (Forest)",
+}
 local WorldTab = Window:CreateTab("World", "rbxassetid://11419713314", true)
 local worldSubs = WorldTab:CreateSubTabs({ "Travel & Events", "Visuals & Move" }, "Travel & Events")
 
@@ -9262,8 +9281,10 @@ visualsPage:CreateToggle("Noclip (Walk Through Walls)", "noclip", false, functio
         restoreCollision()
     end
 end)
+end
 
 -- TAB 3: OUTDOORS (Feature #4: Hunting, Fishing, Mining)
+do
 local OutdoorsTab = Window:CreateTab("Outdoors", "rbxassetid://11422142913", true)
 local outdoorsSubs = OutdoorsTab:CreateSubTabs({ "Hunting", "Fishing", "Mining" }, "Hunting")
 
@@ -9363,8 +9384,10 @@ end)
 minePage:CreateToggle("Prioritize Landed Gem Asteroid", "outdoors_mine_asteroid", true, function(v)
     State.MineAsteroid = v
 end)
+end
 
 -- TAB 4: SETTINGS
+do
 local SettingsTab = Window:CreateTab("Settings", "rbxassetid://11419714600")
 SettingsTab:CreateSection("INTERFACE")
 SettingsTab:CreateButton("Toggle Floating Pill", function()
@@ -9385,6 +9408,7 @@ SettingsTab:CreateButton("Server Hop", function()
         TeleportService:Teleport(game.PlaceId, LocalPlayer)
     end)
 end)
+end
 
 -- Sync initial State from loaded NexUI.Config flags
 State.AutoBarServe = NexUI.Config["auto_bar_serve"] == true
