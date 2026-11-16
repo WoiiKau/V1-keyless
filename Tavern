@@ -1,380 +1,186 @@
--- ============================================================================
--- NEXWORKS v1 STANDALONE BUNDLE: TAVERN TOWN (HIGH UNC BUILD)
--- ============================================================================
+-- Tavern Town (NexWorks)
 (function()
---[[
-
-    ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚Â
-
-    NEX HUB ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â UNIVERSAL UI LIBRARY v1.0 (AUTHENTIC STORAGE HUNTERS DESIGN)
-
-    1:1 Exact Visual Match to NEX HUB Storage Hunters Edition
-
-    ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢Ãƒâ€šÃ‚Â
-
-]]
-
-
+-- NexUI Library
 
 local Players = game:GetService("Players")
-
 local TweenService = game:GetService("TweenService")
-
 local UserInputService = game:GetService("UserInputService")
-
 local RunService = game:GetService("RunService")
-
 local HttpService = game:GetService("HttpService")
-
 local CoreGui = game:GetService("CoreGui")
-
-
 
 local LocalPlayer = Players.LocalPlayer
 
-
-
--- Safe TargetGui fallback for any executor
-
+-- Gui mount target
 local TargetGui = (gethui and gethui())
-
     or (syn and syn.protect_gui and CoreGui)
-
     or CoreGui:FindFirstChild("RobloxGui")
-
     or CoreGui
-
     or (LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
 
-
-
 local NexUI = {
-
     Version = "1.0.0",
-
     ActiveWindows = {},
-
     Config = {},
-
     Flags = {},
-
     FlagCallbacks = {},
-
     FlagUpdaters = {},
-
 }
 
-
-
--- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ AUTHENTIC STORAGE HUNTERS COLOR PALETTE ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+-- Colors
 local C = {
-
     bg        = Color3.fromRGB(20, 22, 26),
-
     panel     = Color3.fromRGB(26, 28, 34),
-
     card      = Color3.fromRGB(30, 33, 40),
-
     cardHov   = Color3.fromRGB(38, 42, 52),
-
     cardHover = Color3.fromRGB(38, 42, 52),
-
     border    = Color3.fromRGB(48, 53, 64),
-
     accent    = Color3.fromRGB(0, 185, 255),
-
     green     = Color3.fromRGB(60, 210, 120),
-
     gold      = Color3.fromRGB(255, 198, 55),
-
     red       = Color3.fromRGB(255, 80,  80),
-
     orange    = Color3.fromRGB(255, 155, 60),
-
     purple    = Color3.fromRGB(160, 90, 255),
-
     text      = Color3.fromRGB(240, 244, 255),
-
     text2     = Color3.fromRGB(150, 160, 180),
-
     textMuted = Color3.fromRGB(90, 100, 120),
-
 }
-
 NexUI.C = C
 
-
-
 local COLORS = {
-
     BG           = Color3.fromRGB(20, 22, 26),
-
     Sidebar      = Color3.fromRGB(26, 28, 34),
-
     TabBtnActive = Color3.fromRGB(36, 40, 48),
-
     Card         = Color3.fromRGB(30, 33, 40),
-
     CardHover    = Color3.fromRGB(38, 42, 52),
-
     Border       = Color3.fromRGB(48, 53, 64),
-
     Accent       = Color3.fromRGB(0, 185, 255),
-
     Text         = Color3.fromRGB(240, 244, 255),
-
     TextDim      = Color3.fromRGB(150, 160, 180),
-
     Green        = Color3.fromRGB(60, 210, 120),
-
     Red          = Color3.fromRGB(255, 80, 80),
-
     Gold         = Color3.fromRGB(255, 198, 55),
-
     Purple       = Color3.fromRGB(160, 90, 255),
-
     Orange       = Color3.fromRGB(255, 155, 60),
-
 }
-
 NexUI.Colors = COLORS
 
-
-
--- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ UI HELPERS ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+-- UI helpers
 local function make(class, props, parent)
-
     local inst = Instance.new(class)
-
     for k, v in pairs(props) do inst[k] = v end
-
     if parent then inst.Parent = parent end
-
     return inst
-
 end
-
-
 
 local function pad(px, p) 
-
     return make("UIPadding", {
-
         PaddingTop = UDim.new(0, px), 
-
         PaddingBottom = UDim.new(0, px), 
-
         PaddingLeft = UDim.new(0, px), 
-
         PaddingRight = UDim.new(0, px)
-
     }, p) 
-
 end
-
-
 
 local function corner(r, p) 
-
     return make("UICorner", {CornerRadius = UDim.new(0, r)}, p) 
-
 end
-
-
 
 local function stroke(th, col, p) 
-
     return make("UIStroke", {Thickness = th, Color = col, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, p) 
-
 end
-
-
 
 local function list(align, spacing, p) 
-
     return make("UIListLayout", {
-
         HorizontalAlignment = align or Enum.HorizontalAlignment.Left, 
-
         VerticalAlignment = Enum.VerticalAlignment.Top, 
-
         Padding = UDim.new(0, spacing or 6), 
-
         SortOrder = Enum.SortOrder.LayoutOrder
-
     }, p) 
-
 end
-
-
 
 local function tw(inst, sec, props, style, dir) 
-
     local info = TweenInfo.new(sec, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out) 
-
     pcall(function() 
-
         local t = TweenService:Create(inst, info, props)
-
         t:Play() 
-
     end)
-
 end
-
-
 
 local function isTouchOrClick(inp)
-
     return inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch
-
 end
-
-
 
 local function makeHoverable(card, defaultBg, hoverBg, defaultStrokeCol, hoverStrokeCol)
-
     defaultBg = defaultBg or C.card
-
     hoverBg = hoverBg or Color3.fromRGB(28, 42, 68)
-
     defaultStrokeCol = defaultStrokeCol or C.border
-
     hoverStrokeCol = hoverStrokeCol or Color3.fromRGB(90, 200, 255)
 
-
-
     card.Active = true
-
     local cardStroke = card:FindFirstChildOfClass("UIStroke") or stroke(1, defaultStrokeCol, card)
 
-
-
     local hoverCount = 0
-
     local function onEnter()
-
         hoverCount = hoverCount + 1
-
         if hoverCount == 1 then
-
             tw(cardStroke, 0.16, { Color = hoverStrokeCol, Thickness = 1.8 })
-
             tw(card, 0.16, { BackgroundColor3 = hoverBg })
-
         end
-
     end
-
-
 
     local function onLeave()
-
         hoverCount = math.max(0, hoverCount - 1)
-
         if hoverCount == 0 then
-
             tw(cardStroke, 0.16, { Color = defaultStrokeCol, Thickness = 1 })
-
             tw(card, 0.16, { BackgroundColor3 = defaultBg })
-
         end
-
     end
-
-
 
     card.MouseEnter:Connect(onEnter)
-
     card.MouseLeave:Connect(onLeave)
 
-
-
     local function attachChild(child)
-
         if child:IsA("GuiButton") or child:IsA("TextBox") then
-
             child.MouseEnter:Connect(onEnter)
-
             child.MouseLeave:Connect(onLeave)
-
         end
-
     end
-
-
 
     for _, child in ipairs(card:GetDescendants()) do
-
         attachChild(child)
-
     end
-
     card.DescendantAdded:Connect(attachChild)
 
-
-
     return cardStroke
-
 end
 
-
-
-
-
--- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ WINDOW CONSTRUCTOR ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+-- Window
 function NexUI:CreateWindow(opt)
-
     opt = opt or {}
-
     local Title = opt.Title or "NexWorks"
-
     local GameName = opt.GameName
-
     if not GameName or GameName == "" or GameName == "auto" then
-
         pcall(function()
-
             local MarketplaceService = game:GetService("MarketplaceService")
-
             local info = MarketplaceService:GetProductInfo(game.PlaceId)
-
             if info and info.Name then
-
                 GameName = info.Name
-
             end
-
         end)
-
     end
-
     GameName = GameName or "Universal"
-
     local Subtitle = (opt.Subtitle ~= nil) and opt.Subtitle or ((opt.SubTitle ~= nil) and opt.SubTitle or "")
-
     local DiscordUrl = opt.Discord or "https://discord.gg/xAvT9euuFu"
-
     local DefaultSize = opt.Size or UDim2.new(0, 520, 0, 360)
-
     local safeFolderName = GameName:gsub("[%p%c%s]+", "")
-
     if safeFolderName == "" then safeFolderName = "Universal" end
-
     local ConfigRoot = opt.ConfigFolder or ("NexHub/" .. safeFolderName)
-
     local CurrentKeybind = opt.DefaultKeybind or Enum.KeyCode.RightShift
-
     local Backdrop = (opt.Backdrop ~= nil) and opt.Backdrop or false
-
     local BackdropTransparency = opt.BackdropTransparency or 0.82
 
-
-
-    -- Clean old instances & orphaned signal connections safely
+    -- Clean up previous window
     pcall(function()
         if getgenv()._NexUICleanup then
             pcall(getgenv()._NexUICleanup)
@@ -383,14 +189,12 @@ function NexUI:CreateWindow(opt)
             if v.Name == "NexWorksUI" or v.Name == "NexHubUI" then v:Destroy() end
         end
     end)
-
     local ScreenGui = make("ScreenGui", {
         Name = "NexWorksUI",
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         IgnoreGuiInset = true,
     }, TargetGui)
-
     local cleanUpSignals = {}
     local function disconnectAllUISignals()
         for _, sig in ipairs(cleanUpSignals) do
@@ -401,1498 +205,751 @@ function NexUI:CreateWindow(opt)
     getgenv()._NexUICleanup = disconnectAllUISignals
     ScreenGui.Destroying:Connect(disconnectAllUISignals)
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 1. FLOATING MOBILE MENU BUTTON ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
-    -- 1. FLOATING PILL TOGGLE BAR (NexWorks Authentic Style - Concept 1 Crystal N)
+    -- Toggle pill
 
     local FloatingPill = make("TextButton", {
-
         Name = "FloatingPill",
-
         AnchorPoint = Vector2.new(0.5, 0),
-
         Size = UDim2.new(0, 138, 0, 34),
-
         Position = UDim2.new(0.5, 0, 0, 15),
-
         BackgroundColor3 = Color3.fromRGB(10, 14, 22),
-
         BackgroundTransparency = 0.15,
-
         Text = "",
-
         AutoButtonColor = false,
-
         ZIndex = 999999,
-
         Active = true,
-
     }, ScreenGui)
-
     corner(17, FloatingPill)
-
     local pillStroke = stroke(1.5, Color3.fromRGB(0, 200, 255), FloatingPill)
-
     local pillGrad = make("UIGradient", {
-
         Color = ColorSequence.new({
-
             ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 215, 255)),
-
             ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 135, 255))
-
         }),
-
         Rotation = 45,
-
     }, pillStroke)
 
-
-
-    -- Drag Handle Container (Left side)
-
+    -- Drag handle
     local DragGrip = make("Frame", {
-
         Name = "DragGrip",
-
         Size = UDim2.new(0, 34, 1, 0),
-
         Position = UDim2.new(0, 0, 0, 0),
-
         BackgroundTransparency = 1,
-
         ZIndex = 1000000,
-
     }, FloatingPill)
 
-
-
-    -- 4-Way Move Icon (Electric Blue Arrow, perfectly centered)
-
+    -- Move icon
     local MoveIcon = make("ImageLabel", {
-
         Name = "MoveIcon",
-
         Size = UDim2.new(0, 16, 0, 16),
-
         AnchorPoint = Vector2.new(0.5, 0.5),
-
         Position = UDim2.new(0.5, 0, 0.5, 0),
-
         BackgroundTransparency = 1,
-
         Image = "rbxassetid://116138709011735",
-
         ImageColor3 = Color3.fromRGB(0, 185, 255),
-
         ZIndex = 1000001,
-
     }, DragGrip)
 
-
-
-    -- Vertical Divider Line (centered)
-
+    -- Divider
     local Divider = make("Frame", {
-
         Name = "Divider",
-
         Size = UDim2.new(0, 1, 0, 16),
-
         AnchorPoint = Vector2.new(0, 0.5),
-
         Position = UDim2.new(0, 34, 0.5, 0),
-
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-
         BackgroundTransparency = 0.8,
-
         BorderSizePixel = 0,
-
         ZIndex = 1000000,
-
     }, FloatingPill)
 
-
-
-    -- Brand Container (Right side, auto-aligned with UIListLayout)
-
+    -- Brand container
     local BrandContainer = make("Frame", {
-
         Name = "BrandContainer",
-
         Size = UDim2.new(1, -42, 1, 0),
-
         Position = UDim2.new(0, 42, 0, 0),
-
         BackgroundTransparency = 1,
-
         ZIndex = 1000000,
-
     }, FloatingPill)
-
-
 
     local brandLayout = make("UIListLayout", {
-
         FillDirection = Enum.FillDirection.Horizontal,
-
         VerticalAlignment = Enum.VerticalAlignment.Center,
-
         HorizontalAlignment = Enum.HorizontalAlignment.Left,
-
         SortOrder = Enum.SortOrder.LayoutOrder,
-
         Padding = UDim.new(0, 7),
-
     }, BrandContainer)
 
-
-
-    -- NexWorks Official Concept 1 Crystal 'N' Logo (Prominent 20x20px tightly cropped)
-
+    -- Crystal logo
     local BrandIcon = make("ImageLabel", {
-
         Name = "BrandIcon",
-
         LayoutOrder = 1,
-
         Size = UDim2.new(0, 20, 0, 20),
-
         BackgroundTransparency = 1,
-
         Image = "rbxassetid://10723374276", -- Sleek tech fallback
-
         ImageColor3 = Color3.fromRGB(0, 185, 255),
-
         ZIndex = 1000001,
-
     }, BrandContainer)
-
-
-
-    -- Auto-load custom NexWorks Crystal N asset if present in executor workspace
 
     if getcustomasset and isfile and isfile("NexHub/nexworks_crystal_tight_v2.png") then
-
         pcall(function()
-
             BrandIcon.Image = getcustomasset("NexHub/nexworks_crystal_tight_v2.png")
-
             BrandIcon.ImageColor3 = Color3.fromRGB(255, 255, 255) -- Full natural crystal glow
-
         end)
-
     elseif getcustomasset and isfile and isfile("NexHub/nexworks_crystal_tight.png") then
-
         pcall(function()
-
             BrandIcon.Image = getcustomasset("NexHub/nexworks_crystal_tight.png")
-
             BrandIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-
         end)
-
     elseif getcustomasset and isfile and isfile("NexHub/nexworks_crystal_n.png") then
-
         pcall(function()
-
             BrandIcon.Image = getcustomasset("NexHub/nexworks_crystal_n.png")
-
             BrandIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-
         end)
-
     elseif getcustomasset and isfile and isfile("NexHub/nexworks_icon.png") then
-
         pcall(function()
-
             BrandIcon.Image = getcustomasset("NexHub/nexworks_icon.png")
-
             BrandIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
-
         end)
-
     end
 
-
-
-    -- Title Label ("NexWorks", cleanly spaced with zero kerning overlap)
-
+    -- Title text
     local TitleLabel = make("TextLabel", {
-
         Name = "TitleLabel",
-
         LayoutOrder = 2,
-
         AutomaticSize = Enum.AutomaticSize.X,
-
         Size = UDim2.new(0, 0, 1, 0),
-
         BackgroundTransparency = 1,
-
         Text = "NexWorks",
-
         TextColor3 = Color3.fromRGB(255, 255, 255),
-
         TextSize = 14,
-
         Font = Enum.Font.SourceSansBold,
-
         TextXAlignment = Enum.TextXAlignment.Left,
-
         TextYAlignment = Enum.TextYAlignment.Center,
-
         ZIndex = 1000001,
-
     }, BrandContainer)
 
-
-
     local togDragActive, togDragStart, togStartPos, togMoved = false, nil, nil, false
-
     FloatingPill.InputBegan:Connect(function(inp)
-
         if isTouchOrClick(inp) then 
-
             togDragActive = true
-
             togDragStart = inp.Position
-
             togStartPos = FloatingPill.Position
-
             togMoved = false
-
         end
-
     end)
 
-
-
     table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-
         if togDragActive and (inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement) then
-
             local delta = inp.Position - togDragStart
-
             if delta.Magnitude > 5 then togMoved = true end
-
             FloatingPill.Position = UDim2.new(
-
                 togStartPos.X.Scale, togStartPos.X.Offset + delta.X, 
-
                 togStartPos.Y.Scale, togStartPos.Y.Offset + delta.Y
-
             )
-
         end
-
     end))
-
-
 
     table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp)
-
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-
             togDragActive = false
-
         end
-
     end))
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 2. MAIN WINDOW FRAME ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Main window
     local Win = make("Frame", {
-
         Name = "Win",
-
         AnchorPoint = Vector2.new(0.5, 0.5),
-
         Position = UDim2.new(0.5, 0, 0.5, 0),
-
         Size = DefaultSize,
-
         BackgroundColor3 = COLORS.BG,
-
         ClipsDescendants = true,
-
         Active = true,
-
     }, ScreenGui)
-
     corner(9, Win)
-
     stroke(1.2, C.border, Win)
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 1b. BACKDROP WALLPAPER (STARLIGHT STYLE) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Backdrop wallpaper
     local bgImage = nil
-
     if Backdrop ~= false and Backdrop ~= "" then
-
         local initialAsset = nil
-
         local numId = nil
-
         if type(Backdrop) == "number" then
-
             numId = tostring(Backdrop)
-
         elseif type(Backdrop) == "string" then
-
             numId = Backdrop:match("(%d+)")
-
         end
-
-
 
         if Backdrop == "auto" or Backdrop == 0 then
-
             initialAsset = "rbxthumb://type=Asset&id=" .. tostring(game.PlaceId) .. "&w=768&h=432"
-
         elseif numId then
-
             initialAsset = "rbxthumb://type=Asset&id=" .. numId .. "&w=768&h=432"
-
         elseif type(Backdrop) == "string" then
-
             initialAsset = Backdrop
-
         end
-
-
 
         if initialAsset then
-
             bgImage = make("ImageLabel", {
-
                 Name = "Backdrop",
-
                 Size = UDim2.new(1, 0, 1, 0),
-
                 Position = UDim2.new(0, 0, 0, 0),
-
                 BackgroundTransparency = 1,
-
                 Image = initialAsset,
-
                 ImageTransparency = BackdropTransparency,
-
                 ScaleType = Enum.ScaleType.Crop,
-
                 ClipsDescendants = true,
-
                 ZIndex = 0,
-
             }, Win)
-
             corner(9, bgImage)
 
-
-
-            -- Executor HD Local Cache Downloader (Runs asynchronously in background)
-
+            -- Cache remote backdrop image
             if numId and writefile and getcustomasset then
-
                 task.spawn(function()
-
                     pcall(function()
-
                         local folder = "NexHub"
-
                         if makefolder and (not isfolder or not isfolder(folder)) then
-
                             pcall(makefolder, folder)
-
                         end
-
                         local filePath = folder .. "/backdrop_" .. numId .. ".png"
-
                         if isfile and isfile(filePath) then
-
                             local custom = getcustomasset(filePath)
-
                             if custom and custom ~= "" and bgImage and bgImage.Parent then
-
                                 bgImage.Image = custom
-
                             end
-
                         else
-
                             local cdnUrl = nil
-
                             if numId == "71011427072537" then
-
                                 cdnUrl = "https://tr.rbxcdn.com/180DAY-483237184c0828441ab855f24fce371e/768/432/Decal/Png/noFilter"
-
                             elseif game.HttpGet then
-
                                 local res = game:HttpGet("https://thumbnails.roblox.com/v1/assets?assetIds=" .. numId .. "&format=Png&size=768x432")
-
                                 cdnUrl = res:match('"imageUrl"%s*:%s*"([^"]+)"')
-
                             end
-
                             if cdnUrl and game.HttpGet then
-
                                 local data = game:HttpGet(cdnUrl)
-
                                 if data and #data > 500 then
-
                                     writefile(filePath, data)
-
                                     if isfile and isfile(filePath) then
-
                                         local custom = getcustomasset(filePath)
-
                                         if custom and custom ~= "" and bgImage and bgImage.Parent then
-
                                             bgImage.Image = custom
-
                                         end
-
                                     end
-
                                 end
-
                             end
-
                         end
-
                     end)
-
                 end)
-
             end
-
         end
-
     end
 
-
-
-    -- Auto-UIScale for mobile/tablet responsive fitting
-
+    -- Responsive scale
     local uiScale = Instance.new("UIScale", Win)
-
     local function updateScale()
-
         local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
-
         local scaleX = (vp.X * 0.95) / DefaultSize.X.Offset
-
         local scaleY = (vp.Y * 0.95) / DefaultSize.Y.Offset
-
         uiScale.Scale = math.min(scaleX, scaleY, 1)
-
     end
-
     updateScale()
-
     table.insert(cleanUpSignals, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
 
-
-
-    -- Window Open/Close Toggle Function
-
+    -- Toggle visibility
     local uiIsVisible = true
-
     local lastWinSize = DefaultSize
-
     local function toggleUI(state)
-
         if state == nil then state = not uiIsVisible end
-
         if state == uiIsVisible then return end
-
         uiIsVisible = state
-
         if not state then
-
             if Win.Size.X.Offset > 100 then lastWinSize = Win.Size end
-
             tw(Win, 0.35, {Size = UDim2.new(0, 0, 0, 0)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
-
             task.delay(0.35, function() 
-
                 Win.Visible = false
-
                 Win.Active = false
-
                 Win.BackgroundTransparency = 1 
-
             end)
-
         else
-
             if lastWinSize.X.Offset < 100 then lastWinSize = DefaultSize end
-
             Win.Visible = true
-
             Win.Active = true
-
             tw(Win, 0.45, {Size = lastWinSize}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
             task.delay(0.1, function() Win.BackgroundTransparency = 0 end)
-
         end
-
     end
 
-
-
     local pillBaseSize = UDim2.new(0, 138, 0, 34)
-
     FloatingPill.InputEnded:Connect(function(inp)
-
         if isTouchOrClick(inp) then
-
             if not togMoved then
-
                 tw(FloatingPill, 0.08, {Size = UDim2.new(0, 132, 0, 32)})
-
                 task.delay(0.08, function() 
-
                     tw(FloatingPill, 0.12, {Size = pillBaseSize}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) 
-
                 end)
-
                 toggleUI()
-
             end
-
             togDragActive = false
-
         end
-
     end)
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 3. TITLE BAR & DRAG SYSTEM ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Title bar
     local TitleBar = make("Frame", {
-
         Name = "TitleBar",
-
         Size = UDim2.new(1, 0, 0, 38),
-
         BackgroundColor3 = COLORS.Sidebar,
-
         BackgroundTransparency = 0.12,
-
         BorderSizePixel = 0,
-
     }, Win)
 
-
-
-    -- Window Dragging logic via TitleBar
-
     local winDragging, winDragStart, winStartPos = false, nil, nil
-
     TitleBar.InputBegan:Connect(function(inp)
-
         if isTouchOrClick(inp) then
-
             winDragging = true
-
             winDragStart = inp.Position
-
             winStartPos = Win.Position
-
         end
-
     end)
-
     table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-
         if winDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-
             local delta = inp.Position - winDragStart
-
             local scale = uiScale.Scale or 1
-
             Win.Position = UDim2.new(
-
                 winStartPos.X.Scale, winStartPos.X.Offset + (delta.X / scale),
-
                 winStartPos.Y.Scale, winStartPos.Y.Offset + (delta.Y / scale)
-
             )
-
         end
-
     end))
-
     table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp)
-
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-
             winDragging = false
-
         end
-
     end))
-
-
-
-    -- Title Label: Authentic Storage Hunters style (pure white bold)
 
     local fullTitleText = Title .. (Subtitle ~= "" and (" " .. Subtitle) or "")
-
     local TitleLabel = make("TextLabel", {
-
         Size = UDim2.new(0.5, 0, 1, 0),
-
         Position = UDim2.new(0, 14, 0, 0),
-
         BackgroundTransparency = 1,
-
         Text = fullTitleText,
-
         TextColor3 = C.text,
-
         TextSize = 13,
-
         Font = Enum.Font.MontserratBold,
-
         TextXAlignment = Enum.TextXAlignment.Left,
-
     }, TitleBar)
 
-
-
-    -- Version build badge (Authentic Storage Hunters badge)
-
+    -- Subtitle badge
     local BuildBadge = make("TextLabel", {
-
         Size = UDim2.new(0, 75, 0, 18),
         Position = UDim2.new(0.5, 0, 0.5, -9),
         BackgroundColor3 = Color3.fromRGB(0, 100, 200),
         BackgroundTransparency = 0.3,
         Text = (opt.BadgeText or opt.BuildBadge or "Low Build"),
-
         TextColor3 = Color3.fromRGB(200, 230, 255),
-
         TextSize = 9,
-
         Font = Enum.Font.MontserratBold,
-
         BorderSizePixel = 0,
-
     }, TitleBar)
-
     corner(4, BuildBadge)
 
-
-
-    -- Helper for header buttons
-
     local function createHeaderBtn(text, offset, bg, hover, clickCallback)
-
         local b = make("TextButton", {
-
             Size = UDim2.new(0, 24, 0, 24),
-
             Position = UDim2.new(1, offset, 0.5, -12),
-
             BackgroundColor3 = bg,
-
             Text = text,
-
             TextColor3 = C.text2,
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
         }, TitleBar)
-
         corner(5, b)
-
         b.MouseEnter:Connect(function() tw(b, 0.12, {BackgroundColor3 = hover, TextColor3 = C.text}) end)
-
         b.MouseLeave:Connect(function() tw(b, 0.12, {BackgroundColor3 = bg, TextColor3 = C.text2}) end)
-
         b.MouseButton1Click:Connect(clickCallback)
-
         return b
-
     end
 
-
-
-    -- Close (X) Button with modal confirmation
-
+    -- Close button
     createHeaderBtn("X", -32, Color3.fromRGB(48, 25, 30), Color3.fromRGB(200, 55, 75), function()
-
         local overlay = make("Frame", {
-
             Size = UDim2.new(1, 0, 1, 0),
-
             BackgroundColor3 = Color3.fromRGB(10, 10, 12),
-
             BackgroundTransparency = 0.5,
-
             BorderSizePixel = 0,
-
             ZIndex = 9999,
-
         }, ScreenGui)
 
-        
-
         local popup = make("Frame", {
-
             Size = UDim2.new(0, 260, 0, 110),
-
             Position = UDim2.new(0.5, -130, 0.5, -55),
-
             BackgroundColor3 = COLORS.BG,
-
             BorderSizePixel = 0,
-
             ZIndex = 10000,
-
         }, overlay)
-
         corner(8, popup)
-
         stroke(1.2, C.border, popup)
 
-        
-
         make("TextLabel", {
-
             Size = UDim2.new(1, 0, 0, 45),
-
             Position = UDim2.new(0, 0, 0, 5),
-
             BackgroundTransparency = 1,
-
             Text = "Destroy GUI?\nThis will close the menu permanently.",
-
             TextColor3 = C.text,
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             ZIndex = 10001,
-
         }, popup)
-
-        
 
         local yesBtn = make("TextButton", {
-
             Size = UDim2.new(0, 105, 0, 28),
-
             Position = UDim2.new(0, 20, 1, -40),
-
             BackgroundColor3 = Color3.fromRGB(64, 24, 28),
-
             Text = "Yes, Destroy",
-
             TextColor3 = C.red,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
             ZIndex = 10001,
-
         }, popup)
-
         corner(6, yesBtn)
-
         stroke(1, C.red, yesBtn)
 
-        
-
         local noBtn = make("TextButton", {
-
             Size = UDim2.new(0, 105, 0, 28),
-
             Position = UDim2.new(1, -125, 1, -40),
-
             BackgroundColor3 = C.card,
-
             Text = "No, Cancel",
-
             TextColor3 = C.text2,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
             ZIndex = 10001,
-
         }, popup)
-
         corner(6, noBtn)
-
         stroke(1, C.border, noBtn)
 
-        
-
         yesBtn.MouseButton1Click:Connect(function()
-
             overlay:Destroy()
-
             for _, s in ipairs(cleanUpSignals) do pcall(function() s:Disconnect() end) end
-
             ScreenGui:Destroy()
-
         end)
-
-        
 
         noBtn.MouseButton1Click:Connect(function()
-
             overlay:Destroy()
-
         end)
-
     end)
 
-
-
-    -- Minimize (-) Button
-
+    -- Minimize button
     local minned = false
-
     createHeaderBtn("-", -62, Color3.fromRGB(25, 28, 42), C.border, function()
-
         minned = not minned
-
         tw(Win, 0.22, {Size = UDim2.new(0, DefaultSize.X.Offset, 0, minned and 38 or DefaultSize.Y.Offset)})
-
     end)
 
-
-
-    -- Keybind (RShift) Button in TitleBar
-
+    -- Toggle keybind button
     local keybindBtn = make("TextButton", {
-
         Size = UDim2.new(0, 55, 0, 24),
-
         Position = UDim2.new(1, -122, 0.5, -12),
-
         BackgroundColor3 = Color3.fromRGB(25, 28, 42),
-
         Text = "RShift",
-
         TextColor3 = C.text2,
-
         TextSize = 9,
-
         Font = Enum.Font.MontserratBold,
-
         BorderSizePixel = 0,
-
     }, TitleBar)
-
     corner(5, keybindBtn)
-
     stroke(1.2, C.border, keybindBtn)
 
-
-
     keybindBtn.MouseEnter:Connect(function() tw(keybindBtn, 0.12, {BackgroundColor3 = C.border, TextColor3 = C.text}) end)
-
     keybindBtn.MouseLeave:Connect(function() tw(keybindBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(25, 28, 42), TextColor3 = C.text2}) end)
 
-
-
     local listeningForKey = false
-
     keybindBtn.MouseButton1Click:Connect(function()
-
         if listeningForKey then return end
-
         listeningForKey = true
-
         keybindBtn.Text = "..."
-
         local conn
-
         conn = UserInputService.InputBegan:Connect(function(input)
-
             if input.UserInputType == Enum.UserInputType.Keyboard then
-
                 CurrentKeybind = input.KeyCode
-
                 local name = input.KeyCode.Name
-
                 if name == "RightShift" then name = "RShift"
-
                 elseif name == "LeftShift" then name = "LShift"
-
                 elseif name == "RightControl" then name = "RCtrl"
-
                 elseif name == "LeftControl" then name = "LCtrl"
-
                 elseif name == "RightAlt" then name = "RAlt"
-
                 elseif name == "LeftAlt" then name = "LAlt"
-
                 end
-
                 keybindBtn.Text = name
-
                 listeningForKey = false
-
                 conn:Disconnect()
-
             end
-
         end)
-
     end)
-
-
 
     table.insert(cleanUpSignals, UserInputService.InputBegan:Connect(function(input, gpe)
-
         if not gpe and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == CurrentKeybind then
-
             toggleUI()
-
         end
-
     end))
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 4. RESIZE HANDLE (ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚Â¢ Bottom-Right Grip) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Resize handle
     local ResizeHandle = make("TextButton", {
-
         Name = "ResizeHandle",
-
         AnchorPoint = Vector2.new(1, 1),
-
         Position = UDim2.new(1, -2, 1, -2),
-
         Size = UDim2.new(0, 16, 0, 16),
-
         BackgroundColor3 = Color3.fromRGB(30, 38, 54),
-
         BackgroundTransparency = 0.5,
-
         Text = "//",
-
         TextColor3 = C.accent,
-
         TextSize = 10,
-
         Font = Enum.Font.MontserratBold,
-
         BorderSizePixel = 0,
-
         ZIndex = 9999,
-
         AutoButtonColor = false,
-
     }, Win)
-
     corner(4, ResizeHandle)
 
-
-
     local resizing, resizeStart, winStartSize = false, nil, nil
-
     ResizeHandle.InputBegan:Connect(function(inp)
-
         if isTouchOrClick(inp) then
-
             resizing = true
-
             resizeStart = inp.Position
-
             winStartSize = Win.AbsoluteSize
-
         end
-
     end)
-
     table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp)
-
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-
             resizing = false
-
         end
-
     end))
-
     table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-
         if resizing and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-
             local delta = inp.Position - resizeStart
-
             local scale = uiScale.Scale or 1
-
             local newW = math.clamp(winStartSize.X + (delta.X / scale), 480, 1200)
-
             local newH = math.clamp(winStartSize.Y + (delta.Y / scale), 320, 850)
-
             Win.Size = UDim2.new(0, newW, 0, newH)
-
             lastWinSize = Win.Size
-
         end
-
     end))
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 5. SIDEBAR NAVIGATION ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Sidebar navigation
     local Sidebar = make("ScrollingFrame", {
-
         Name = "Sidebar",
-
         Size = UDim2.new(0, 130, 1, -38),
-
         Position = UDim2.new(0, 0, 0, 38),
-
         BackgroundColor3 = COLORS.Sidebar,
-
         BackgroundTransparency = 0.15,
-
         BorderSizePixel = 0,
-
         ScrollBarThickness = 3,
-
         ScrollBarImageColor3 = C.accent,
-
         ScrollingDirection = Enum.ScrollingDirection.Y,
-
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
-
         CanvasSize = UDim2.new(0, 0, 0, 0),
-
         Active = true,
-
         ElasticBehavior = Enum.ElasticBehavior.Never,
-
         ScrollingEnabled = true,
-
     }, Win)
-
     list(Enum.HorizontalAlignment.Center, 4, Sidebar)
-
     pad(10, Sidebar)
 
-
-
     local Container = make("Frame", {
-
         Name = "Container",
-
         Size = UDim2.new(1, -140, 1, -48),
-
         Position = UDim2.new(0, 135, 0, 43),
-
         BackgroundTransparency = 1,
-
     }, Win)
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ NOTIFICATION TOAST SYSTEM ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Notifications
     local function notify(msg, col)
-
         if typeof(msg) == "table" then
-
             msg = msg.Content or msg.Text or msg.Title or tostring(msg)
-
         end
-
         if typeof(col) ~= "Color3" then
-
             col = C.accent or C.gold
-
         end
-
         local toast = make("TextLabel", {
-
             Text = msg,
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             TextColor3 = col,
-
             BackgroundColor3 = Color3.fromRGB(22, 22, 26),
-
             BackgroundTransparency = 0.05,
-
             Size = UDim2.new(0, 310, 0, 42),
-
             Position = UDim2.new(0.5, -155, 0.5, -21),
-
             ZIndex = 5000,
-
             TextWrapped = true,
-
         }, Win)
-
         corner(8, toast); stroke(2, col, toast)
 
-        
-
         tw(toast, 0.3, { Position = UDim2.new(0.5, -155, 0.5, -45) })
-
         task.delay(3.2, function()
-
             tw(toast, 0.4, { Position = UDim2.new(0.5, -155, 0.5, -80), TextTransparency = 1, BackgroundTransparency = 1 })
-
             task.delay(0.4, function() pcall(function() toast:Destroy() end) end)
-
         end)
-
     end
-
     NexUI.Notify = notify
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ CONFIG SYSTEM ENGINE (JSON Profiles & Autoload) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Config persistence
     local configBaseFolder = ConfigRoot
-
     local configSettingsFolder = ConfigRoot .. "/settings"
-
     local autoloadFile = ConfigRoot .. "/autoload.txt"
-
     local currentProfileName = "default"
-
     local isLoadingConfig = false
 
-
-
     local function getAutoloadInfo()
-
         if isfile and isfile(autoloadFile) then
-
             local text = readfile(autoloadFile)
-
             local name, en = text:match("([^|]+)|([^|]+)")
-
             return name or "default", (en == "true")
-
         end
-
         return "default", false
-
     end
-
-
 
     local function setAutoloadInfo(name, enabled)
-
         pcall(function()
-
             if not isfolder("NexHub") then makefolder("NexHub") end
-
             if not isfolder(configBaseFolder) then makefolder(configBaseFolder) end
-
             writefile(autoloadFile, tostring(name) .. "|" .. tostring(enabled))
-
         end)
-
     end
-
-
 
     local function saveConfig(profileName)
-
         if isLoadingConfig then return true end
-
         profileName = profileName or currentProfileName or "default"
-
         local success, err = pcall(function()
-
             if not isfolder("NexHub") then makefolder("NexHub") end
-
             if not isfolder(configBaseFolder) then makefolder(configBaseFolder) end
-
             if not isfolder(configSettingsFolder) then makefolder(configSettingsFolder) end
 
-
-
             local data = {}
-
             for k, v in pairs(NexUI.Config) do
-
                 if type(v) ~= "function" then
-
                     data[k] = v
-
                 end
-
             end
-
             local json = HttpService:JSONEncode(data)
-
             writefile(configSettingsFolder .. "/" .. profileName .. ".json", json)
-
             currentProfileName = profileName
-
         end)
-
         return success, err
-
     end
-
-
 
     local function loadConfig(profileName)
-
         isLoadingConfig = true
-
         profileName = profileName or currentProfileName or "default"
-
         local success, err = pcall(function()
-
             local filePath = configSettingsFolder .. "/" .. profileName .. ".json"
-
             if isfile and isfile(filePath) then
-
                 local json = readfile(filePath)
-
                 local data = HttpService:JSONDecode(json)
-
                 if data and type(data) == "table" then
-
                     for flag, val in pairs(data) do
-
                         NexUI.Config[flag] = val
-
                         if NexUI.FlagUpdaters[flag] then
-
                             pcall(NexUI.FlagUpdaters[flag], val)
-
                         end
-
                         if NexUI.FlagCallbacks[flag] then
-
                             pcall(NexUI.FlagCallbacks[flag], val)
-
                         end
-
                     end
-
                 end
-
             end
-
             currentProfileName = profileName
-
         end)
-
         task.delay(0.2, function() isLoadingConfig = false end)
-
         return success, err
-
     end
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ TAB MANAGER ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Tabs & controls
     local tabs = {}
-
     local activeTab = nil
-
     local tabOrderCounter = 10
 
-
-
     local function activateTab(tabData)
-
         if not tabData then return end
-
         if activeTab then
-
             activeTab.frame.Visible = false
-
             tw(activeTab.btn, 0.15, { BackgroundColor3 = COLORS.Sidebar, TextColor3 = C.text2 })
-
             activeTab.btn.BackgroundTransparency = 1
-
         end
-
         activeTab = tabData
-
         tabData.frame.Visible = true
-
         if tabData.frame:IsA("ScrollingFrame") then
-
             tabData.frame.CanvasPosition = Vector2.new(0, 0)
-
         end
-
         tabData.btn.BackgroundTransparency = 0
-
         tw(tabData.btn, 0.15, { BackgroundColor3 = COLORS.TabBtnActive, TextColor3 = C.accent })
-
         if tabData.onOpen then pcall(tabData.onOpen) end
-
     end
 
-
-
     local function createTabInternal(name, icon, isPlainFrame)
-
         tabOrderCounter = tabOrderCounter + 1
-
         local tabBtn = make("TextButton", {
-
             Size = UDim2.new(0, 114, 0, 30),
-
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-
             BackgroundTransparency = 1,
-
             Text = name,
-
             TextColor3 = C.text2,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
             LayoutOrder = tabOrderCounter,
-
         }, Sidebar)
-
         corner(6, tabBtn)
 
-
-
         local tabFrame
-
         if isPlainFrame then
-
             tabFrame = make("Frame", {
-
                 Size = UDim2.new(1, 0, 1, 0),
-
                 BackgroundTransparency = 1,
-
                 BorderSizePixel = 0,
-
                 Visible = false,
-
             }, Container)
-
         else
-
             tabFrame = make("ScrollingFrame", {
-
                 Size = UDim2.new(1, 0, 1, 0),
-
                 BackgroundTransparency = 1,
-
                 BorderSizePixel = 0,
-
                 ScrollBarThickness = 2,
-
                 ScrollBarImageColor3 = C.accent,
-
                 Visible = false,
-
                 AutomaticCanvasSize = Enum.AutomaticSize.Y,
-
                 CanvasSize = UDim2.new(0, 0, 0, 0),
-
                 Active = true,
-
                 ScrollingDirection = Enum.ScrollingDirection.Y,
-
             }, Container)
-
             list(nil, 6, tabFrame)
-
             pad(4, tabFrame)
-
         end
 
-
-
         tabBtn.MouseEnter:Connect(function()
-
             if activeTab ~= tabData then
-
                 tw(tabBtn, 0.12, { TextColor3 = C.text, BackgroundColor3 = Color3.fromRGB(30, 36, 50) })
-
                 tabBtn.BackgroundTransparency = 0.4
-
             end
-
         end)
-
         tabBtn.MouseLeave:Connect(function()
-
             if activeTab ~= tabData then
-
                 tw(tabBtn, 0.12, { TextColor3 = C.text2 })
-
                 tabBtn.BackgroundTransparency = 1
-
             end
-
         end)
-
-
 
         local tabData = { btn = tabBtn, frame = tabFrame, name = name }
-
         tabs[name] = tabData
 
-
-
         tabBtn.MouseButton1Click:Connect(function()
-
             activateTab(tabData)
-
         end)
-
-
 
                 local TabObj = {}
         TabObj.Name = name
         TabObj.Btn = tabBtn
-
         local function attachTabMethods(targetFrame, targetObj)
             targetObj = targetObj or {}
             targetObj.Frame = targetFrame
-
             function targetObj:CreateSubTabs(subTabNames, defaultName)
                 local nav = make("ScrollingFrame", {
                     Size = UDim2.new(1, 0, 0, 30),
@@ -1907,10 +964,8 @@ function NexUI:CreateWindow(opt)
                 local subLayout = list(Enum.HorizontalAlignment.Left, 6, nav)
                 subLayout.FillDirection = Enum.FillDirection.Horizontal
                 pad(2, nav)
-
                 local subFrames = {}
                 local subBtns = {}
-
                 for _, sName in ipairs(subTabNames) do
                     local sBtn = make("TextButton", {
                         Size = UDim2.new(0, 0, 0, 26),
@@ -1937,7 +992,6 @@ function NexUI:CreateWindow(opt)
                             tw(sBtn, 0.15, { BackgroundColor3 = C.card })
                         end
                     end)
-
                     local sFrame = make("ScrollingFrame", {
                         Size = UDim2.new(1, 0, 1, -36),
                         Position = UDim2.new(0, 0, 0, 36),
@@ -1953,12 +1007,10 @@ function NexUI:CreateWindow(opt)
                     }, targetFrame)
                     list(nil, 6, sFrame)
                     pad(4, sFrame)
-
                     local subObj = attachTabMethods(sFrame, { Frame = sFrame, Name = sName })
                     setmetatable(subObj, { __index = sFrame })
                     subFrames[sName] = subObj
                     subBtns[sName] = sBtn
-
                     sBtn.MouseButton1Click:Connect(function()
                         for k, f in pairs(subFrames) do
                             local isCur = (k == sName)
@@ -1971,7 +1023,6 @@ function NexUI:CreateWindow(opt)
                         end
                     end)
                 end
-
                 defaultName = defaultName or subTabNames[1]
                 if defaultName and subFrames[defaultName] then
                     subFrames[defaultName].Frame.Visible = true
@@ -1980,730 +1031,377 @@ function NexUI:CreateWindow(opt)
                         TextColor3 = C.accent
                     })
                 end
-
                 return subFrames
             end
-
 function targetObj:CreateToggle(label, flag, initVal, onChange)
-
             if type(flag) == "boolean" and onChange == nil then
-
                 onChange = initVal
-
                 initVal = flag
-
                 flag = label:gsub("%s+", ""):lower()
-
             end
-
             flag = flag or label:gsub("%s+", ""):lower()
-
             initVal = (NexUI.Config[flag] ~= nil) and NexUI.Config[flag] or (initVal == true)
-
             NexUI.Config[flag] = initVal
 
-
-
             local card = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, 38),
-
                 BackgroundColor3 = C.card,
-
                 BorderSizePixel = 0,
-
             }, targetFrame)
-
             corner(6, card)
-
             makeHoverable(card)
 
-
-
             make("TextLabel", {
-
                 Size = UDim2.new(0.7, 0, 1, 0),
-
                 Position = UDim2.new(0, 12, 0, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = label,
-
                 TextColor3 = C.text,
-
                 TextSize = 11,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, card)
-
-
 
             local switch = make("Frame", {
-
                 Size = UDim2.new(0, 42, 0, 22),
-
                 Position = UDim2.new(1, -54, 0.5, -11),
-
                 BackgroundColor3 = initVal and C.accent or Color3.fromRGB(45, 45, 50),
-
                 BorderSizePixel = 0,
-
             }, card)
-
             corner(11, switch)
 
-
-
             local knob = make("Frame", {
-
                 Size = UDim2.new(0, 14, 0, 14),
-
                 Position = initVal and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7),
-
                 BackgroundColor3 = Color3.new(1, 1, 1),
-
                 BorderSizePixel = 0,
-
             }, switch)
-
             corner(7, knob)
 
-
-
             local btn = make("TextButton", {
-
                 Size = UDim2.new(1, 0, 1, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = "",
-
                 ZIndex = 10,
-
                 Active = true,
-
             }, card)
-
-
 
             local state = initVal
-
             local isToggling = false
-
             local function doToggle()
-
                 if isToggling then return end
-
                 isToggling = true
-
                 state = not state
-
                 tw(switch, 0.15, { BackgroundColor3 = state and C.accent or Color3.fromRGB(45, 45, 50) })
-
                 tw(knob, 0.15, { Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
-
                 NexUI.Config[flag] = state
-
                 saveConfig()
-
                 if onChange then pcall(onChange, state) end
-
                 task.delay(0.1, function() isToggling = false end)
-
             end
-
             btn.MouseButton1Click:Connect(doToggle)
 
-
-
             local function updateToggle(newState)
-
                 state = (newState == true)
-
                 tw(switch, 0.15, { BackgroundColor3 = state and C.accent or Color3.fromRGB(45, 45, 50) })
-
                 tw(knob, 0.15, { Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
-
             end
-
-
 
             NexUI.FlagUpdaters[flag] = updateToggle
-
             NexUI.FlagCallbacks[flag] = onChange
-
-
 
             return card, updateToggle
-
         end
-
-
 
         -- Button
-
         function targetObj:CreateButton(label, onClick)
-
             local card = make("TextButton", {
-
                 Size = UDim2.new(1, 0, 0, 34),
-
                 BackgroundColor3 = C.card,
-
                 Text = label,
-
                 TextColor3 = C.text,
-
                 TextSize = 11,
-
                 Font = Enum.Font.MontserratBold,
-
                 BorderSizePixel = 0,
-
             }, targetFrame)
-
             corner(6, card)
-
             makeHoverable(card)
-
             card.MouseButton1Click:Connect(function()
-
                 if onClick then pcall(onClick) end
-
             end)
-
             return card
-
         end
-
-
 
         -- Slider
-
         function targetObj:CreateSlider(label, flag, minVal, maxVal, initVal, step, onChange)
-
             if type(flag) == "number" then
-
                 onChange = step
-
                 step = initVal
-
                 initVal = maxVal
-
                 maxVal = minVal
-
                 minVal = flag
-
                 flag = label:gsub("%s+", ""):lower()
-
             end
-
             flag = flag or label:gsub("%s+", ""):lower()
-
             step = step or 1
-
             initVal = (NexUI.Config[flag] ~= nil) and NexUI.Config[flag] or (initVal or minVal)
-
             NexUI.Config[flag] = initVal
 
-
-
             local card = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, 48),
-
                 BackgroundColor3 = C.card,
-
                 BorderSizePixel = 0,
-
             }, targetFrame)
-
             corner(6, card)
-
             makeHoverable(card)
 
-
-
             make("TextLabel", {
-
                 Size = UDim2.new(0.6, 0, 0, 20),
-
                 Position = UDim2.new(0, 12, 0, 4),
-
                 BackgroundTransparency = 1,
-
                 Text = label,
-
                 TextColor3 = C.text,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, card)
-
-
 
             local valLbl = make("TextLabel", {
-
                 Size = UDim2.new(0.3, 0, 0, 20),
-
                 Position = UDim2.new(0.7, -12, 0, 4),
-
                 BackgroundTransparency = 1,
-
                 Text = tostring(initVal),
-
                 TextColor3 = C.accent,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Right,
-
             }, card)
-
-
 
             local sliderTrack = make("Frame", {
-
                 Size = UDim2.new(1, -24, 0, 8),
-
                 Position = UDim2.new(0, 12, 0.7, -4),
-
                 BackgroundColor3 = COLORS.BG,
-
                 BorderSizePixel = 0,
-
             }, card)
-
             corner(4, sliderTrack)
 
-
-
             local currentRatio = math.clamp((initVal - minVal) / (maxVal - minVal), 0, 1)
-
             local sliderFill = make("Frame", {
-
                 Size = UDim2.fromScale(currentRatio, 1),
-
                 BackgroundColor3 = C.accent,
-
                 BorderSizePixel = 0,
-
             }, sliderTrack)
-
             corner(4, sliderFill)
 
-
-
             local sliderBtn = make("ImageButton", {
-
                 Size = UDim2.fromOffset(20, 20),
-
                 AnchorPoint = Vector2.new(0.5, 0.5),
-
                 Position = UDim2.fromScale(currentRatio, 0.5),
-
                 BackgroundColor3 = C.text,
-
                 BorderSizePixel = 0,
-
                 AutoButtonColor = false,
-
                 ZIndex = 5,
-
             }, sliderTrack)
-
             corner(10, sliderBtn)
 
-
-
             local dragging = false
-
             local function applyAt(ratio)
-
                 local exact = minVal + ratio * (maxVal - minVal)
-
                 local stepped = math.floor((exact / step) + 0.5) * step
-
                 stepped = math.clamp(stepped, minVal, maxVal)
-
                 valLbl.Text = tostring(stepped)
-
                 local r = math.clamp((stepped - minVal) / (maxVal - minVal), 0, 1)
-
                 sliderFill.Size = UDim2.fromScale(r, 1)
-
                 sliderBtn.Position = UDim2.fromScale(r, 0.5)
-
                 NexUI.Config[flag] = stepped
-
                 if onChange then pcall(onChange, stepped) end
-
             end
-
-
 
             local function startDrag(inp)
-
                 if isTouchOrClick(inp) then
-
                     dragging = true
-
                     applyAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1))
-
                 end
-
             end
-
-
 
             table.insert(cleanUpSignals, sliderTrack.InputBegan:Connect(startDrag))
-
             table.insert(cleanUpSignals, sliderBtn.InputBegan:Connect(startDrag))
-
             table.insert(cleanUpSignals, card.InputBegan:Connect(function(inp)
-
                 if isTouchOrClick(inp) then
-
                     local relY = inp.Position.Y - card.AbsolutePosition.Y
-
                     if relY > 20 then
-
                         startDrag(inp)
-
                     end
-
                 end
-
             end))
-
             table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-
                 if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-
                     applyAt(math.clamp((inp.Position.X - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1))
-
                 end
-
             end))
-
             table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp)
-
                 if isTouchOrClick(inp) and dragging then
-
                     dragging = false
-
                     saveConfig()
-
                 end
-
             end))
-
-
 
             local function updateSlider(newVal)
-
                 newVal = tonumber(newVal) or initVal
-
                 newVal = math.clamp(newVal, minVal, maxVal)
-
                 local r = math.clamp((newVal - minVal) / (maxVal - minVal), 0, 1)
-
                 valLbl.Text = tostring(newVal)
-
                 sliderFill.Size = UDim2.fromScale(r, 1)
-
                 sliderBtn.Position = UDim2.fromScale(r, 0.5)
-
             end
-
-
 
             NexUI.FlagUpdaters[flag] = updateSlider
-
             NexUI.FlagCallbacks[flag] = onChange
 
-
-
             return card, updateSlider
-
         end
 
-
-
         -- Dropdown
-
         function targetObj:CreateDropdown(label, flag, optionsList, defaultOpt, onSelect)
-
             if type(flag) == "table" then
-
                 onSelect = defaultOpt
-
                 defaultOpt = optionsList
-
                 optionsList = flag
-
                 flag = label:gsub("%s+", ""):lower()
-
             end
-
             flag = flag or label:gsub("%s+", ""):lower()
-
             optionsList = optionsList or {}
-
             defaultOpt = (NexUI.Config[flag] ~= nil) and NexUI.Config[flag] or (defaultOpt or optionsList[1] or "Select")
-
             NexUI.Config[flag] = defaultOpt
-
-
 
             local closedH = 62
             local listH = math.max(0, (#optionsList * 22) + math.max(0, #optionsList - 1) * 3)
             local openH = closedH + 6 + listH
-
             local card = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, closedH),
-
                 BackgroundColor3 = C.card,
-
                 BorderSizePixel = 0,
-
                 ClipsDescendants = true,
-
             }, targetFrame)
-
             corner(6, card); pad(8, card); list(Enum.HorizontalAlignment.Left, 4, card)
-
             makeHoverable(card)
 
-
-
             make("TextLabel", {
-
                 Size = UDim2.new(1, 0, 0, 16),
-
                 BackgroundTransparency = 1,
-
                 Text = label,
-
                 TextColor3 = C.text,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, card)
-
-
 
             local currentSelected = defaultOpt
-
             local dropBtn = make("TextButton", {
-
                 Size = UDim2.new(1, 0, 0, 26),
-
                 BackgroundColor3 = COLORS.BG,
-
                 Text = tostring(currentSelected) .. " v",
-
                 TextColor3 = C.gold,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 BorderSizePixel = 0,
-
             }, card)
-
             corner(5, dropBtn); stroke(1, C.border, dropBtn)
 
-
-
             local listContainer = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, listH),
-
                 BackgroundTransparency = 1,
-
                 Visible = false,
-
             }, card)
-
             list(Enum.HorizontalAlignment.Left, 3, listContainer)
-
-
 
             local isOpen = false
             local optBtns = {}
-
             local function syncOpenState()
                 listContainer.Visible = isOpen
                 card.Size = UDim2.new(1, 0, 0, isOpen and openH or closedH)
                 dropBtn.Text = tostring(currentSelected) .. (isOpen and " ^" or " v")
             end
-
             dropBtn.MouseButton1Click:Connect(function()
-
                 isOpen = not isOpen
-
                 syncOpenState()
-
             end)
 
-
-
             local function selectOption(val)
-
                 currentSelected = val
-
                 NexUI.Config[flag] = val
-
                 saveConfig()
-
                 for oVal, btn in pairs(optBtns) do
                     btn.TextColor3 = (oVal == currentSelected) and C.gold or C.text2
                 end
-
                 dropBtn.Text = tostring(val) .. (isOpen and " ^" or " v")
-
                 if onSelect then pcall(onSelect, val) end
-
             end
-
-
 
             for _, opt in ipairs(optionsList) do
-
                 local obtn = make("TextButton", {
-
                     Size = UDim2.new(1, 0, 0, 22),
-
                     BackgroundColor3 = C.panel,
-
                     Text = tostring(opt),
-
                     TextColor3 = (opt == currentSelected) and C.gold or C.text2,
-
                     TextSize = 9,
-
                     Font = Enum.Font.MontserratBold,
-
                     BorderSizePixel = 0,
-
                 }, listContainer)
-
                 corner(4, obtn)
                 optBtns[opt] = obtn
-
                 obtn.MouseButton1Click:Connect(function()
-
                     isOpen = false
-
                     selectOption(opt)
-
                     syncOpenState()
-
                 end)
-
             end
-
-
 
             local function updateDropdown(newOpt)
-
                 currentSelected = newOpt
-
                 dropBtn.Text = tostring(newOpt) .. " v"
-
             end
-
-
 
             NexUI.FlagUpdaters[flag] = updateDropdown
-
             NexUI.FlagCallbacks[flag] = onSelect
 
-
-
             return card, updateDropdown
-
         end
 
-
-
         -- MultiDropdown
-
         function targetObj:CreateMultiDropdown(label, flag, optionsList, defaultList, onSelect)
-
             if type(flag) == "table" then
-
                 onSelect = defaultList
-
                 defaultList = optionsList
-
                 optionsList = flag
-
                 flag = label:gsub("%s+", ""):lower()
-
             end
-
             flag = flag or label:gsub("%s+", ""):lower()
-
             optionsList = optionsList or {}
 
-
-
             local selectedMap = {}
-
             if type(NexUI.Config[flag]) == "table" then
-
                 for k, v in pairs(NexUI.Config[flag]) do
-
                     if type(k) == "number" then selectedMap[v] = true
-
                     elseif v then selectedMap[k] = true end
-
                 end
-
             elseif type(defaultList) == "table" then
-
                 for k, v in pairs(defaultList) do
-
                     if type(k) == "number" then selectedMap[v] = true
-
                     elseif v then selectedMap[k] = true end
-
                 end
-
             else
-
                 for _, opt in ipairs(optionsList) do
-
                     selectedMap[opt] = true
-
                 end
-
             end
 
             NexUI.Config[flag] = selectedMap
 
-
-
+            local useScroll = (#optionsList > 8)
             local closedH = 62
-            local listH = math.max(0, (#optionsList * 22) + math.max(0, #optionsList - 1) * 3)
+            local scrollH = 172
+            local listH = useScroll and (26 + scrollH) or math.max(0, (#optionsList * 22) + math.max(0, #optionsList - 1) * 3)
             local openH = closedH + 6 + listH
 
             local card = make("Frame", {
@@ -2722,8 +1420,6 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             makeHoverable(card)
 
-
-
             make("TextLabel", {
 
                 Size = UDim2.new(1, 0, 0, 16),
@@ -2741,8 +1437,6 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
                 TextXAlignment = Enum.TextXAlignment.Left,
 
             }, card)
-
-
 
             local isOpen = false
 
@@ -2774,8 +1468,6 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             end
 
-
-
             local dropBtn = make("TextButton", {
 
                 Size = UDim2.new(1, 0, 0, 26),
@@ -2796,8 +1488,6 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             corner(5, dropBtn); stroke(1, C.border, dropBtn)
 
-
-
             local listContainer = make("Frame", {
 
                 Size = UDim2.new(1, 0, 0, listH),
@@ -2808,24 +1498,9 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             }, card)
 
-            list(Enum.HorizontalAlignment.Left, 3, listContainer)
+            list(Enum.HorizontalAlignment.Left, useScroll and 4 or 3, listContainer)
 
-
-
-            dropBtn.MouseButton1Click:Connect(function()
-
-                isOpen = not isOpen
-
-                listContainer.Visible = isOpen
-
-                card.Size = UDim2.new(1, 0, 0, isOpen and openH or closedH)
-
-                dropBtn.Text = formatSummary()
-
-            end)
-
-
-
+            local optParent = listContainer
             local optBtns = {}
 
             local function refreshButtons()
@@ -2846,13 +1521,82 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             end
 
+            if useScroll then
+                local searchRow = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 22),
+                    BackgroundTransparency = 1,
+                }, listContainer)
 
+                local searchBox = make("TextBox", {
+                    Size = UDim2.new(1, -48, 1, 0),
+                    BackgroundColor3 = COLORS.BG,
+                    Text = "",
+                    PlaceholderText = "Search filter...",
+                    TextColor3 = C.text,
+                    PlaceholderColor3 = C.textMuted,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    ClearTextOnFocus = false,
+                    BorderSizePixel = 0,
+                }, searchRow)
+                corner(4, searchBox); stroke(1, C.border, searchBox)
+
+                local clearBtn = make("TextButton", {
+                    Size = UDim2.new(0, 44, 1, 0),
+                    Position = UDim2.new(1, -44, 0, 0),
+                    BackgroundColor3 = C.panel,
+                    Text = "Clear",
+                    TextColor3 = C.text2,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, searchRow)
+                corner(4, clearBtn); stroke(1, C.border, clearBtn)
+
+                clearBtn.MouseButton1Click:Connect(function()
+                    table.clear(selectedMap)
+                    NexUI.Config[flag] = selectedMap
+                    saveConfig()
+                    refreshButtons()
+                    if onSelect then pcall(onSelect, selectedMap) end
+                end)
+
+                optParent = make("ScrollingFrame", {
+                    Size = UDim2.new(1, 0, 0, scrollH),
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    ScrollBarThickness = 3,
+                    ScrollBarImageColor3 = C.accent,
+                    CanvasSize = UDim2.new(0, 0, 0, 0),
+                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                }, listContainer)
+                list(Enum.HorizontalAlignment.Left, 3, optParent)
+
+                searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                    local q = string.lower(searchBox.Text or "")
+                    for opt, obtn in pairs(optBtns) do
+                        obtn.Visible = (q == "" or string.find(string.lower(tostring(opt)), q, 1, true) ~= nil)
+                    end
+                end)
+            end
+
+            dropBtn.MouseButton1Click:Connect(function()
+
+                isOpen = not isOpen
+
+                listContainer.Visible = isOpen
+
+                card.Size = UDim2.new(1, 0, 0, isOpen and openH or closedH)
+
+                dropBtn.Text = formatSummary()
+
+            end)
 
             for _, opt in ipairs(optionsList) do
 
                 local obtn = make("TextButton", {
 
-                    Size = UDim2.new(1, 0, 0, 22),
+                    Size = useScroll and UDim2.new(1, -6, 0, 22) or UDim2.new(1, 0, 0, 22),
 
                     BackgroundColor3 = C.panel,
 
@@ -2866,7 +1610,7 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
                     BorderSizePixel = 0,
 
-                }, listContainer)
+                }, optParent)
 
                 corner(4, obtn)
 
@@ -2898,724 +1642,367 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
 
             refreshButtons()
 
-
-
             local function updateMulti(newMap)
-
                 if type(newMap) == "table" then
-
                     selectedMap = {}
-
                     for k, v in pairs(newMap) do
-
                         if type(k) == "number" then selectedMap[v] = true
-
                         elseif v then selectedMap[k] = true end
-
                     end
-
                     NexUI.Config[flag] = selectedMap
-
                     refreshButtons()
-
                 end
-
             end
-
-
 
             NexUI.FlagUpdaters[flag] = updateMulti
-
             NexUI.FlagCallbacks[flag] = onSelect
 
-
-
             return card, updateMulti
-
         end
-
-
 
         -- TextInput
-
         function targetObj:CreateTextInput(label, flag, placeholder, defaultVal, onEnter)
-
             if type(flag) == "string" and placeholder == nil and defaultVal == nil then
-
                 placeholder = flag
-
                 flag = label:gsub("%s+", ""):lower()
-
             end
-
             flag = flag or label:gsub("%s+", ""):lower()
-
             defaultVal = (NexUI.Config[flag] ~= nil) and NexUI.Config[flag] or (defaultVal or "")
-
             NexUI.Config[flag] = defaultVal
 
-
-
             local card = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, 38),
-
                 BackgroundColor3 = C.card,
-
                 BorderSizePixel = 0,
-
             }, targetFrame)
-
             corner(6, card)
-
             makeHoverable(card)
 
-
-
             make("TextLabel", {
-
                 Size = UDim2.new(0.55, 0, 1, 0),
-
                 Position = UDim2.new(0, 12, 0, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = label,
-
                 TextColor3 = C.text,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, card)
-
-
 
             local box = make("TextBox", {
-
                 Size = UDim2.new(0.4, -12, 0, 24),
-
                 Position = UDim2.new(0.6, 0, 0.5, -12),
-
                 BackgroundColor3 = COLORS.BG,
-
                 Text = tostring(defaultVal),
-
                 PlaceholderText = placeholder or "Type...",
-
                 TextColor3 = C.gold,
-
                 PlaceholderColor3 = C.textMuted,
-
                 TextSize = 10,
-
                 Font = Enum.Font.MontserratBold,
-
                 ClearTextOnFocus = false,
-
             }, card)
-
             corner(5, box); stroke(1, C.border, box)
 
-
-
             box.FocusLost:Connect(function(enterPressed)
-
                 NexUI.Config[flag] = box.Text
-
                 saveConfig()
-
                 if onEnter then pcall(onEnter, box.Text, enterPressed) end
-
             end)
 
-
-
             local function updateInput(newTxt)
-
                 box.Text = tostring(newTxt)
-
             end
-
-
 
             NexUI.FlagUpdaters[flag] = updateInput
-
             NexUI.FlagCallbacks[flag] = onEnter
 
-
-
             return card, updateInput
-
         end
 
-
-
-        -- Section Header
-
+        -- Section
         function targetObj:CreateSection(headerText)
-
             local sec = make("TextLabel", {
-
                 Size = UDim2.new(1, 0, 0, 22),
-
                 BackgroundTransparency = 1,
-
                 Text = headerText,
-
                 TextColor3 = C.gold,
-
                 TextSize = 11,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, targetFrame)
-
             pad(2, sec)
-
             return sec
-
         end
-
         function targetObj:CreateNotice(noticeText, noticeColor)
-
             local card = make("Frame", {
-
                 Size = UDim2.new(1, 0, 0, 44),
-
                 BackgroundColor3 = Color3.fromRGB(26, 22, 16),
-
                 BorderSizePixel = 0,
-
             }, targetFrame)
-
             corner(6, card)
-
             stroke(1, noticeColor or Color3.fromRGB(255, 175, 50), card)
-
             local lbl = make("TextLabel", {
-
                 Size = UDim2.new(1, -18, 1, 0),
-
                 Position = UDim2.new(0, 10, 0, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = noticeText,
-
                 TextColor3 = noticeColor or Color3.fromRGB(255, 195, 75),
-
                 TextSize = 10,
-
                 Font = Enum.Font.GothamMedium,
-
                 TextWrapped = true,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
                 TextYAlignment = Enum.TextYAlignment.Center,
-
             }, card)
-
             return card
-
         end
 
-
-
-        
             return targetObj
         end
-
         TabObj = attachTabMethods(tabFrame, TabObj)
-
         return TabObj
-
     end
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 6. MANDATORY MAIN TAB (NEX HUB DASHBOARD) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Main tab
     local tabMain = createTabInternal("Main", "", true)
-
     tabMain.Btn.LayoutOrder = 1
-
     do
-
         local mainFrame = Instance.new("Frame")
-
         mainFrame.Size = UDim2.new(1, 0, 1, 0)
-
         mainFrame.BackgroundTransparency = 1
-
         mainFrame.Parent = tabMain.Frame
 
-
-
-        -- Player Banner
-
+        -- Player card
         local playerBanner = make("Frame", {
-
             Size = UDim2.new(0.96, 0, 0, 54),
-
             Position = UDim2.new(0.02, 0, 0.02, 0),
-
             BackgroundColor3 = C.panel,
-
             BorderSizePixel = 0,
-
         }, mainFrame)
-
         corner(8, playerBanner)
-
         makeHoverable(playerBanner, C.panel, Color3.fromRGB(18, 23, 36))
 
-
-
         local avatarImg = make("ImageLabel", {
-
             Size = UDim2.new(0, 44, 0, 44),
-
             Position = UDim2.new(0.02, 0, 0.5, -22),
-
             BackgroundColor3 = C.card,
-
             BorderSizePixel = 0,
-
             Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=150&h=150",
-
         }, playerBanner)
-
         corner(22, avatarImg)
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.8, 0, 0.5, 0),
-
             Position = UDim2.new(0.16, 0, 0.1, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Hello, " .. LocalPlayer.DisplayName,
-
             TextColor3 = C.text,
-
             TextSize = 14,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, playerBanner)
-
-
 
         make("TextLabel", {
-
             Size = UDim2.new(0.8, 0, 0.4, 0),
-
             Position = UDim2.new(0.16, 0, 0.5, 0),
-
             BackgroundTransparency = 1,
-
             Text = LocalPlayer.Name .. " - Active - " .. GameName,
-
             TextColor3 = C.text2,
-
             TextSize = 11,
-
             Font = Enum.Font.SourceSans,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, playerBanner)
 
-
-
-        -- Server Information Card
-
+        -- Server card
         local serverCard = make("Frame", {
-
             Size = UDim2.new(0.53, 0, 0, 160),
-
             Position = UDim2.new(0.02, 0, 0.22, 0),
-
             BackgroundColor3 = C.panel,
-
             BorderSizePixel = 0,
-
         }, mainFrame)
-
         corner(8, serverCard)
-
         makeHoverable(serverCard, C.panel, Color3.fromRGB(18, 23, 36))
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0, 24),
-
             Position = UDim2.new(0.05, 0, 0.03, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Server Information",
-
             TextColor3 = C.gold,
-
             TextSize = 13,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, serverCard)
-
-
 
         local serverGrid = make("Frame", {
-
             Size = UDim2.new(0.9, 0, 0.75, 0),
-
             Position = UDim2.new(0.05, 0, 0.2, 0),
-
             BackgroundTransparency = 1,
-
         }, serverCard)
 
-
-
         local sLayout = Instance.new("UIGridLayout", serverGrid)
-
         sLayout.CellSize = UDim2.new(0.48, -4, 0.3, -4)
-
         sLayout.CellPadding = UDim2.new(0, 8, 0, 8)
 
-
-
         local function makeStatBox(tText, vText, parent)
-
             local box = make("Frame", {
-
                 BackgroundColor3 = C.card,
-
                 BorderSizePixel = 0,
-
             }, parent)
-
             corner(4, box)
-
             make("TextLabel", {
-
                 Size = UDim2.new(0.9, 0, 0.4, 0),
-
                 Position = UDim2.new(0.05, 0, 0.1, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = tText,
-
                 TextColor3 = C.text2,
-
                 TextSize = 9,
-
                 Font = Enum.Font.MontserratBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, box)
-
             local v = make("TextLabel", {
-
                 Size = UDim2.new(0.9, 0, 0.45, 0),
-
                 Position = UDim2.new(0.05, 0, 0.45, 0),
-
                 BackgroundTransparency = 1,
-
                 Text = vText,
-
                 TextColor3 = C.text,
-
                 TextSize = 10,
-
                 Font = Enum.Font.SourceSansBold,
-
                 TextXAlignment = Enum.TextXAlignment.Left,
-
             }, box)
-
             return box, v
-
         end
-
-
 
         local _, playersVal = makeStatBox("Players", tostring(#Players:GetPlayers()) .. " playing", serverGrid)
-
         local _, maxPlayersVal = makeStatBox("Max Players", tostring(Players.MaxPlayers), serverGrid)
-
         local _, pingVal = makeStatBox("Latency", "Calculating...", serverGrid)
-
         local _, regionVal = makeStatBox("Server Region", "US", serverGrid)
-
         local _, sessionVal = makeStatBox("In server for", "00:00:00", serverGrid)
-
         local _, fpsVal = makeStatBox("FPS", "Calculating...", serverGrid)
 
-
-
-        -- Executor Info Card
-
+        -- Executor card
         local executorCard = make("Frame", {
-
             Size = UDim2.new(0.41, 0, 0, 60),
-
             Position = UDim2.new(0.57, 0, 0.22, 0),
-
             BackgroundColor3 = C.panel,
-
             BorderSizePixel = 0,
-
         }, mainFrame)
-
         corner(8, executorCard)
-
         makeHoverable(executorCard, C.panel, Color3.fromRGB(18, 23, 36))
 
-
-
         local execNameOnly = "Unknown"
-
         if identifyexecutor then
-
             local n = identifyexecutor()
-
             execNameOnly = tostring(n)
-
         elseif getexecutorname then
-
             execNameOnly = tostring(getexecutorname())
-
         end
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0.4, 0),
-
             Position = UDim2.new(0.05, 0, 0.1, 0),
-
             BackgroundTransparency = 1,
-
             Text = execNameOnly,
-
             TextColor3 = C.accent,
-
             TextSize = 13,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, executorCard)
-
-
 
         make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0.4, 0),
-
             Position = UDim2.new(0.05, 0, 0.5, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Executor is compatible with NexWorks.",
-
             TextColor3 = C.text2,
-
             TextSize = 10,
-
             Font = Enum.Font.SourceSans,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, executorCard)
 
-
-
-        -- Friends List Card
-
+        -- Friends card
         local friendsCard = make("Frame", {
-
             Size = UDim2.new(0.41, 0, 0, 90),
-
             Position = UDim2.new(0.57, 0, 0.44, 0),
-
             BackgroundColor3 = C.panel,
-
             BorderSizePixel = 0,
-
         }, mainFrame)
-
         corner(8, friendsCard)
-
         makeHoverable(friendsCard, C.panel, Color3.fromRGB(18, 23, 36))
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0.25, 0),
-
             Position = UDim2.new(0.05, 0, 0.05, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Friends",
-
             TextColor3 = C.gold,
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, friendsCard)
-
-
 
         local friendsGrid = make("Frame", {
-
             Size = UDim2.new(0.9, 0, 0.65, 0),
-
             Position = UDim2.new(0.05, 0, 0.3, 0),
-
             BackgroundTransparency = 1,
-
         }, friendsCard)
-
         local fLayout = Instance.new("UIGridLayout", friendsGrid)
-
         fLayout.CellSize = UDim2.new(0.48, -4, 0.45, -4)
-
         fLayout.CellPadding = UDim2.new(0, 8, 0, 8)
 
-
-
         local _, fInServer = makeStatBox("In server", "0 friends", friendsGrid)
-
         local _, fOnline   = makeStatBox("Online", "0 friends", friendsGrid)
-
         local _, fOffline  = makeStatBox("Offline", "Offline", friendsGrid)
-
         local _, fAll      = makeStatBox("All", "All Friends", friendsGrid)
 
-
-
-        -- Discord Large Button Card
-
+        -- Discord card
         local discordCard = make("TextButton", {
-
             Size = UDim2.new(0.96, 0, 0, 46),
-
             Position = UDim2.new(0.02, 0, 0.77, 0),
-
             BackgroundColor3 = Color3.fromRGB(88, 101, 242),
-
             BorderSizePixel = 0,
-
             Text = "",
-
         }, mainFrame)
-
         corner(8, discordCard)
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0.5, 0),
-
             Position = UDim2.new(0.05, 0, 0.1, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Join our Discord Community",
-
             TextColor3 = C.text,
-
             TextSize = 12,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, discordCard)
-
-
 
         local discordSub = make("TextLabel", {
-
             Size = UDim2.new(0.9, 0, 0.4, 0),
-
             Position = UDim2.new(0.05, 0, 0.5, 0),
-
             BackgroundTransparency = 1,
-
             Text = "Tap to copy invite link to your clipboard",
-
             TextColor3 = Color3.fromRGB(220, 220, 220),
-
             TextSize = 10,
-
             Font = Enum.Font.SourceSans,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, discordCard)
 
-
-
         discordCard.MouseButton1Click:Connect(function()
-
             if setclipboard then
-
                 setclipboard(DiscordUrl)
-
                 discordSub.Text = "Link copied! Paste it in browser or Discord app."
-
                 task.delay(2, function() discordSub.Text = "Tap to copy invite link to your clipboard" end)
-
             else
-
                 discordSub.Text = "Clipboard access failed"
-
             end
-
         end)
 
-
-
-        -- Live Heartbeat Updater (FPS, Ping, Session Timer, Throttled Friends Fetch)
+        -- Stats updater
         local startTime = os.time()
         local lastTime = os.clock()
         local lastFriendsSync = -999
         local friendsFetchRunning = false
         local frameCount = 0
         local fps = 60
-
         local function refreshOnlineFriendsAsync()
             if friendsFetchRunning then return end
             friendsFetchRunning = true
@@ -3629,9 +2016,7 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
                 friendsFetchRunning = false
             end)
         end
-
         task.delay(1.5, refreshOnlineFriendsAsync)
-
         table.insert(cleanUpSignals, RunService.Heartbeat:Connect(function()
             frameCount = frameCount + 1
             local now = os.clock()
@@ -3639,7 +2024,6 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
                 fps = math.round(frameCount / (now - lastTime))
                 frameCount = 0
                 lastTime = now
-
                 if tabMain and tabMain.Frame and tabMain.Frame.Visible then
                     if fpsVal and fpsVal.Parent then
                         fpsVal.Text = tostring(fps) .. " FPS"
@@ -3662,524 +2046,263 @@ function targetObj:CreateToggle(label, flag, initVal, onChange)
                 end
             end
         end))
-
     end
 
-
-
-    -- ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ 7. BUILT-IN PROFILES & CONFIG TAB ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
-
+    -- Profiles tab
     local tabProfiles = createTabInternal("Profiles", "", false)
-
     tabProfiles.Btn.LayoutOrder = 9999
-
     do
-
         local activeProfCard = make("Frame", {
-
             Size = UDim2.new(1, 0, 0, 56),
-
             BackgroundColor3 = C.panel,
-
             BorderSizePixel = 0,
-
         }, tabProfiles.Frame)
-
         corner(8, activeProfCard); stroke(1, C.accent, activeProfCard)
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.55, 0, 0, 20),
-
             Position = UDim2.new(0, 12, 0, 8),
-
             BackgroundTransparency = 1,
-
             Text = "Active Profile:",
-
             TextColor3 = C.text2,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, activeProfCard)
-
-
 
         local activeProfLbl = make("TextLabel", {
-
             Size = UDim2.new(0.55, 0, 0, 22),
-
             Position = UDim2.new(0, 12, 0, 26),
-
             BackgroundTransparency = 1,
-
             Text = currentProfileName .. ".json",
-
             TextColor3 = C.gold,
-
             TextSize = 13,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, activeProfCard)
-
-
 
         local saveBtn = make("TextButton", {
-
             Size = UDim2.new(0.4, -12, 0, 36),
-
             Position = UDim2.new(0.6, 0, 0.5, -18),
-
             BackgroundColor3 = Color3.fromRGB(35, 80, 55),
-
             Text = "Save Config",
-
             TextColor3 = Color3.fromRGB(120, 255, 170),
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
         }, activeProfCard)
-
         corner(6, saveBtn); stroke(1, Color3.fromRGB(60, 180, 100), saveBtn)
-
         saveBtn.MouseButton1Click:Connect(function()
-
             local ok = saveConfig(currentProfileName)
-
             if ok then
-
                 saveBtn.Text = "Saved!"
-
                 task.delay(1.5, function() saveBtn.Text = "Save Config" end)
-
                 notify("Config saved to " .. currentProfileName .. ".json", C.green)
-
             else
-
                 saveBtn.Text = "Failed"
-
                 task.delay(1.5, function() saveBtn.Text = "Save Config" end)
-
             end
-
         end)
 
-
-
-        -- Autoload Card
-
+        -- Autoload
         local autoCard = make("Frame", {
-
             Size = UDim2.new(1, 0, 0, 56),
-
             BackgroundColor3 = C.card,
-
             BorderSizePixel = 0,
-
         }, tabProfiles.Frame)
-
         corner(8, autoCard); stroke(1, C.border, autoCard)
 
-
-
         make("TextLabel", {
-
             Size = UDim2.new(0.68, 0, 0, 18),
-
             Position = UDim2.new(0, 12, 0, 8),
-
             BackgroundTransparency = 1,
-
             Text = "Autoload on Startup:",
-
             TextColor3 = C.text2,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, autoCard)
-
-
 
         local autoStatus = make("TextLabel", {
-
             Size = UDim2.new(0.68, 0, 0, 22),
-
             Position = UDim2.new(0, 12, 0, 26),
-
             BackgroundTransparency = 1,
-
             Text = "Loading...",
-
             TextColor3 = C.gold,
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             TextXAlignment = Enum.TextXAlignment.Left,
-
         }, autoCard)
-
-
 
         local autoTogBtn = make("TextButton", {
-
             Size = UDim2.new(0.28, -12, 0, 36),
-
             Position = UDim2.new(0.72, 0, 0.5, -18),
-
             BackgroundColor3 = Color3.fromRGB(30, 65, 45),
-
             Text = "ON",
-
             TextColor3 = Color3.fromRGB(120, 255, 170),
-
             TextSize = 11,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
         }, autoCard)
-
         corner(6, autoTogBtn)
 
-
-
         local function refreshAutoDisplay()
-
             local aName, aEn = getAutoloadInfo()
-
             if aEn and aName and aName ~= "" then
-
                 autoStatus.Text = aName .. ".json"
-
                 autoTogBtn.Text = "ON"
-
                 autoTogBtn.BackgroundColor3 = Color3.fromRGB(30, 65, 45)
-
             else
-
                 autoStatus.Text = "Disabled"
-
                 autoTogBtn.Text = "OFF"
-
                 autoTogBtn.BackgroundColor3 = Color3.fromRGB(40, 35, 45)
-
             end
-
         end
-
         refreshAutoDisplay()
 
-
-
         autoTogBtn.MouseButton1Click:Connect(function()
-
             local _, isAuto = getAutoloadInfo()
-
             setAutoloadInfo(currentProfileName, not isAuto)
-
             refreshAutoDisplay()
-
         end)
 
-
-
-        -- Create New Profile Input Card
-
+        -- New profile
         local newProfCard = make("Frame", {
-
             Size = UDim2.new(1, 0, 0, 48),
-
             BackgroundColor3 = C.card,
-
             BorderSizePixel = 0,
-
         }, tabProfiles.Frame)
-
         corner(6, newProfCard)
 
-
-
         local newProfBox = make("TextBox", {
-
             Size = UDim2.new(0.6, 0, 0, 28),
-
             Position = UDim2.new(0, 12, 0.5, -14),
-
             BackgroundColor3 = COLORS.BG,
-
             Text = "",
-
             PlaceholderText = "New profile name...",
-
             TextColor3 = C.gold,
-
             PlaceholderColor3 = C.textMuted,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             ClearTextOnFocus = false,
-
         }, newProfCard)
-
         corner(5, newProfBox); stroke(1, C.border, newProfBox)
 
-
-
         local createProfBtn = make("TextButton", {
-
             Size = UDim2.new(0.35, -12, 0, 28),
-
             Position = UDim2.new(0.65, 0, 0.5, -14),
-
             BackgroundColor3 = C.panel,
-
             Text = "+ Create Profile",
-
             TextColor3 = C.accent,
-
             TextSize = 10,
-
             Font = Enum.Font.MontserratBold,
-
             BorderSizePixel = 0,
-
         }, newProfCard)
-
         corner(5, createProfBtn)
 
-
-
         createProfBtn.MouseButton1Click:Connect(function()
-
             local pName = newProfBox.Text:gsub("%s+", "")
-
             if pName and pName ~= "" then
-
                 saveConfig(pName)
-
                 activeProfLbl.Text = pName .. ".json"
-
                 newProfBox.Text = ""
-
                 notify("Created profile: " .. pName .. ".json", C.green)
-
             end
-
         end)
-
     end
-
-
-
-    -- Initial tab activation
 
     task.spawn(function()
-
         task.wait(0.1)
-
         if tabs["Main"] then
-
             activateTab(tabs["Main"])
-
         end
-
-        -- Auto-load autoload profile if enabled
 
         local autoName, autoEnabled = getAutoloadInfo()
-
         if autoEnabled and autoName then
-
             loadConfig(autoName)
-
         else
-
             loadConfig("default")
-
         end
-
     end)
 
-
-
-    -- Window Object API
-
+    -- Window API
     local Window = {}
-
     Window.Frame = Win
-
     Window.ScreenGui = ScreenGui
 
-
-
     function Window:CreateTab(name, icon, isPlainFrame)
-
         if name == "Main" and tabMain then
-
             tabMain.Frame:ClearAllChildren()
-
             tabMain.Btn.Text = name
-
             return tabMain
-
         end
-
         return createTabInternal(name, icon, isPlainFrame)
-
     end
-
-
 
     function Window:Notify(titleOrMsg, msgOrCol, maybeCol)
-
         local message = tostring(titleOrMsg)
-
         local color = msgOrCol
-
         if typeof(msgOrCol) == "string" then
-
             message = tostring(titleOrMsg) .. ": " .. tostring(msgOrCol)
-
             color = maybeCol
-
         end
-
         notify(message, color)
-
     end
-
-
 
     function Window:Toggle(state)
-
         toggleUI(state)
-
     end
-
-
 
     function Window:SaveConfig(p)
-
         return saveConfig(p)
-
     end
-
-
 
     function Window:LoadConfig(p)
-
         return loadConfig(p)
-
     end
-
-
 
     table.insert(NexUI.ActiveWindows, Window)
-
     return Window
-
 end
 
-
-
--- Export global library reference
-
 getgenv().NexUI = NexUI
-
 print("[NexWorks] Universal UI Library Loaded.")
 
-
-
--- ============================================================================
-
--- STANDALONE MASTER LIBRARY LAUNCHER
-
--- If executed directly in ANY game without an external script calling CreateWindow,
-
--- automatically renders the clean, empty NexWorks UI shell for previewing and testing.
-
--- ============================================================================
+-- Standalone fallback shell when run directly
 
 task.defer(function()
-
     if #NexUI.ActiveWindows == 0 and not getgenv()._NexSuppressShell then
-
         local gName = "Universal"
-
         pcall(function()
-
             local MarketplaceService = game:GetService("MarketplaceService")
-
             local info = MarketplaceService:GetProductInfo(game.PlaceId)
-
             if info and info.Name then gName = info.Name end
-
         end)
 
-
-
         NexUI:CreateWindow({
-
             Title = "NexWorks",
-
             GameName = gName,
-
             Subtitle = "Universal Shell",
-
             Size = UDim2.new(0, 560, 0, 380),
-
-            Backdrop = false, -- Clean solid grey theme (no background decal)
-
+            Backdrop = false,
         })
-
     end
-
 end)
 
-
-
 return NexUI
-
-
 end)()
 
--- ============================================================================
--- NEXWORKS v1 | TAVERN TOWN SUITE
--- Place ID: 113180301776530
--- Clean Modular Automation (Built Step-by-Step)
--- ============================================================================
+-- Tavern Town
+-- PlaceId: 113180301776530
 
 getgenv()._NexSuppressShell = true
 
--- Cleanup previous instance in child thread so game/hook calls never strip loader capabilities
+-- Stop previous instance on reload
 if getgenv()._NexTavernCleanup and type(getgenv()._NexTavernCleanup) == "function" then
     task.spawn(pcall, getgenv()._NexTavernCleanup)
 end
 
--- ============================================================================
--- LOAD NEXWORKS UI LIBRARY
--- ============================================================================
+-- Load NexUI
 local NexUI = getgenv().NexUI
 if not NexUI then
     local libPaths = {
@@ -4213,9 +2336,7 @@ if not NexUI then
     return
 end
 
--- ============================================================================
--- SERVICES & PLAYER
--- ============================================================================
+-- Services
 local CollectionService = game:GetService("CollectionService")
 local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
@@ -4232,9 +2353,7 @@ end)
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local isMobile = UserInputService.TouchEnabled
 
--- ============================================================================
--- RUNTIME & CLEANUP REGISTRATION
--- ============================================================================
+-- Runtime & cleanup
 local Running = true
 local Connections = {}
 
@@ -4257,7 +2376,6 @@ local function trackConn(conn)
     return conn
 end
 
--- Forward-declared cleanup helpers filled once character/visuals helpers exist
 local cleanupVisualsAndMove = nil
 local restoreCookingHook = nil
 local restorePropCollision = nil
@@ -4278,9 +2396,7 @@ getgenv()._NexTavernCleanup = function()
     table.clear(Connections)
 end
 
--- ============================================================================
--- GAME MODULES & REMOTES
--- ============================================================================
+-- Modules & remotes
 local StateModule = nil
 local ActorController = nil
 local KitchenController = nil
@@ -4343,11 +2459,9 @@ pcall(function()
     if cookMod then CookingModule = require(cookMod) end
 end)
 
--- ============================================================================
--- RUNTIME STATE
--- ============================================================================
+-- State
 local State = {
-    -- Bar & Serve Automation (#1)
+    -- Bar & serve
     AutoBarServe = false,
     AutoClearWash = false,
     AutoRefillKegs = false,
@@ -4355,21 +2469,22 @@ local State = {
     ServeInterval = 0.35,
     KeepTavernOpen = false,
     MoveMode = "Auto Teleport", -- "Auto Teleport", "Auto Walk", "Nearby Only"
+    PlotLongHopMode = "Stepped Teleport", -- "Stepped Teleport", "Safe Glide"
     WalkThroughFurniture = true,
     MaxReach = 5.5,
 
-    -- Tavern Security (#2)
+    -- Security
     AutoKickTroublemakers = false,
     AlertTroublemakers = false,
 
-    -- Tavern Kitchen & Auto Cook (#5)
+    -- Kitchen
     AutoCook = false,
     AutoCookPerfect = true,
     AutoCookDeliver = true,
     AutoCookPrep = false,
     AutoCookMinGold = 0,
 
-    -- World, Travel & Movement (#3)
+    -- World & movement
     SelectedZone = "Own Tavern (Bar)",
     TravelMode = "Safe Glide", -- "Auto Walk" | "Safe Glide"
     SelectedPlotNum = 1,
@@ -4385,7 +2500,7 @@ local State = {
     InfiniteJump = false,
     Noclip = false,
 
-    -- Outdoors (#4): Hunting, Fishing, Mining
+    -- Outdoors
     AutoHunt = false,
     HuntFastBow = true,
     HuntFilter = { Bear = true, Wolf = true, Stag = true, Doe = true, Boar = true, Fox = true, Raccoon = true, Rabbit = true },
@@ -4396,11 +2511,14 @@ local State = {
     FishSpot = "Nearest Water", -- "Nearest Water" | "River Bridge" | "Town Pond"
     FishWalkToWater = true,
     AutoSellFishMode = "When Full", -- "Off" | "When Full" | "Every 5 Catches" | "Every Catch"
+    KeepFishRarities = {}, -- { [rarity] = true }
+    KeepFishTypes = {},    -- { [speciesName] = true }
     AutoMine = false,
     MinePriority = "Largest First", -- "Nearest" | "Largest First" | "Smallest First"
+    MineMoveMode = "Auto Walk", -- "Auto Walk" | "Instant Teleport" | "Nearby Only"
     MineWalkToNodes = true,
 
-    -- Full Gems Automation (Hunt <-> Mine Loop)
+    -- Gem loop
     AutoGemFarm = false,
     GemTriggerBears = 3, -- 0 = Ignore, 1..5
     GemTriggerWolves = 0, -- 0 = Ignore, 1..10
@@ -4408,7 +2526,7 @@ local State = {
     GemCollectKills = true, -- false = Hunting Dog collects kills
     GemIncludePumpkin = true,
 
-    -- World Events & Challenges (Priority Overrides)
+    -- Overrides
     AutoDoChallenges = false,
     ChallengeFilter = { Mine = true, Fish = true, Hunt = true, Drinks = true, Food = true },
     ChallengePlotMode = "Auto Walk", -- "Auto Walk" | "Auto Teleport"
@@ -4416,6 +2534,11 @@ local State = {
 
     -- Settings
     AntiAFK = true,
+
+    -- Gem spoofer
+    SpoofGemsEnabled = false,
+    SpoofGemsMode = "Exact Amount", -- "Exact Amount" | "Add +Amount to Real" | "Endless Rain (+/s)"
+    SpoofGemsAmount = 999999,
 }
 
 local Cooldowns = {
@@ -4538,6 +2661,14 @@ local OutdoorsState = {
     fishGreenTop = nil,
     fishLastZone = "none",
     fishBagCount = 0,
+    fishBagItems = {},
+    fishBagSyncedAt = 0,
+    fishLastCatchAt = 0,
+    fishLastBagReqAt = 0,
+    fishPendingSell = false,
+    fishPendingSellAt = 0,
+    fishPendingSellManual = false,
+    fishKeepFullWarnAt = 0,
     fishCatches = 0,
     fishLastSellAt = 0,
     fishToolWarnAt = 0,
@@ -4606,6 +2737,10 @@ local TravelState = {
     direct3D = false,
     glideSpeed = nil,
     directDist = 0,
+    stepHoldPos = nil,
+    stepHoldLookAt = nil,
+    stepLastHopAt = 0,
+    stepMinWaitAt = 0,
     silent = false,
     waypoints = {},
     wpIdx = 2,
@@ -4629,9 +2764,7 @@ local OverrideState = {
     returning = false,
 }
 
--- ============================================================================
--- BAR & TAVERN HELPERS
--- ============================================================================
+-- Tavern helpers
 local function getCurrentState()
     return StateModule and StateModule.current or nil
 end
@@ -4718,19 +2851,60 @@ local function getPlotLevelFolders(plot)
     return includeList
 end
 
-local function getFloorHitForPlot(plot, xzPos, approxY, includeList)
-    local folders = includeList or getPlotLevelFolders(plot)
-    if #folders == 0 then return nil end
+local getFloorHitForPlot, getFloorYForPlot, isWallBlockedBetween, computeClearStandPos
+do
+local PlotFloorCache = setmetatable({}, { __mode = "k" })
+local PlotWallCache = setmetatable({}, { __mode = "k" })
+
+local function getCachedPlotLevelChildren(plot, cacheTable, namePrefix)
+    if not plot then return {} end
+    local now = os.clock()
+    local cached = cacheTable[plot]
+    if cached and (now - cached.at) < 1.0 then
+        return cached.items
+    end
+    local items = {}
+    local prefixLen = #namePrefix
+    for _, folder in ipairs(getPlotLevelFolders(plot)) do
+        for _, child in ipairs(folder:GetChildren()) do
+            if string.sub(child.Name, 1, prefixLen) == namePrefix then
+                table.insert(items, child)
+            end
+        end
+    end
+    cacheTable[plot] = { at = now, items = items }
+    return items
+end
+
+local function getPlotFloorInstances(plot)
+    return getCachedPlotLevelChildren(plot, PlotFloorCache, "Floor")
+end
+
+local function getPlotWallInstances(plot)
+    -- Match ReplicatedStorage.Shared.WallSight ("Wall " parts only; ignore pillars/beams/trims)
+    return getCachedPlotLevelChildren(plot, PlotWallCache, "Wall ")
+end
+
+getFloorHitForPlot = function(plot, xzPos, approxY, includeList)
+    local floors = includeList
+    if not floors then
+        floors = getPlotFloorInstances(plot)
+        if #floors == 0 then
+            floors = getPlotLevelFolders(plot)
+        end
+    end
+    if #floors == 0 then return nil end
 
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Include
-    params.FilterDescendantsInstances = folders
+    params.FilterDescendantsInstances = floors
+    params.IgnoreWater = true
 
     local origin = Vector3.new(xzPos.X, (approxY or 2.0) + 5.0, xzPos.Z)
-    return Workspace:Raycast(origin, Vector3.new(0, -14, 0), params)
+    return Workspace:Raycast(origin, Vector3.new(0, -16.5, 0), params)
 end
 
-local function getFloorYForPlot(plot, xzPos, approxY)
+getFloorYForPlot = function(plot, xzPos, approxY)
     local fallbackY = (approxY or 2.0) + 1.2
     local hit = getFloorHitForPlot(plot, xzPos, approxY)
     if hit then
@@ -4739,53 +2913,47 @@ local function getFloorYForPlot(plot, xzPos, approxY)
     return fallbackY
 end
 
-local isWallBlockedBetween, computeClearStandPos
-do
-local PlotWallCache = setmetatable({}, { __mode = "k" })
+-- Check wall occlusion from a standing spot toward targetPos; elevated targets (e.g. ServingWindow dishes) use head sight height to mirror WallSight
+local function hasWallObstruction(standPos, standFloorY, targetPos, wallParams)
+    local delta = Vector3.new(targetPos.X - standPos.X, 0, targetPos.Z - standPos.Z)
+    local mag = delta.Magnitude
+    if mag < 0.7 then return false end
 
-local function getPlotWallInstances(plot)
-    if not plot then return {} end
-    local now = os.clock()
-    local cached = PlotWallCache[plot]
-    if cached and (now - cached.at) < 1.0 then
-        return cached.walls
+    if targetPos.Y >= (standFloorY + 3.15) then
+        local origin = Vector3.new(standPos.X, math.max(standFloorY + 4.1, standPos.Y + 0.9), standPos.Z)
+        local goal = Vector3.new(targetPos.X, math.max(targetPos.Y, standFloorY + 3.45), targetPos.Z)
+        local rayVec = goal - origin
+        local rayMag = rayVec.Magnitude
+        if rayMag < 0.6 then return false end
+        return Workspace:Raycast(origin, rayVec.Unit * math.max(0.1, rayMag - 0.5), wallParams) ~= nil
     end
-    local walls = {}
-    for _, folder in ipairs(getPlotLevelFolders(plot)) do
-        for _, child in ipairs(folder:GetChildren()) do
-            -- Match ReplicatedStorage.Shared.WallSight ("Wall " parts only; ignore pillars/beams/trims)
-            if string.sub(child.Name, 1, 5) == "Wall " then
-                table.insert(walls, child)
-            end
-        end
-    end
-    PlotWallCache[plot] = { at = now, walls = walls }
-    return walls
+
+    local origin = Vector3.new(standPos.X, standFloorY + 2.4, standPos.Z)
+    -- Stop slightly short of targetPos so wall-adjacent counters, basins, or seats do not graze the wall behind them
+    local hit = Workspace:Raycast(origin, delta.Unit * math.max(0.1, mag - 0.65), wallParams)
+    if not hit or not hit.Instance then return false end
+    return (hit.Instance.Position.Y + hit.Instance.Size.Y * 0.5) > (standFloorY + 0.6)
 end
 
 isWallBlockedBetween = function(plot, posA, posB)
     if not plot or not posA or not posB then return false end
     local delta = Vector3.new(posB.X - posA.X, 0, posB.Z - posA.Z)
-    local mag = delta.Magnitude
-    if mag < 0.7 then return false end
+    if delta.Magnitude < 0.7 then return false end
 
     local walls = getPlotWallInstances(plot)
     if #walls == 0 then return false end
 
-    local folders = getPlotLevelFolders(plot)
-    local hitA = #folders > 0 and getFloorHitForPlot(plot, posA, posA.Y, folders) or nil
+    local floors = getPlotFloorInstances(plot)
+    if #floors == 0 then floors = getPlotLevelFolders(plot) end
+    local hitA = #floors > 0 and getFloorHitForPlot(plot, posA, posA.Y, floors) or nil
     local floorY = hitA and hitA.Position.Y or (math.min(posA.Y, posB.Y) - 2.4)
-    local origin = Vector3.new(posA.X, floorY + 2.4, posA.Z)
 
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Include
     params.FilterDescendantsInstances = walls
     params.IgnoreWater = true
 
-    -- Stop slightly short of posB so wall-adjacent counters, basins, or seats do not graze the wall behind them
-    local hit = Workspace:Raycast(origin, delta.Unit * math.max(0.1, mag - 0.65), params)
-    if not hit or not hit.Instance then return false end
-    return (hit.Instance.Position.Y + hit.Instance.Size.Y * 0.5) > (floorY + 0.6)
+    return hasWallObstruction(posA, floorY, posB, params)
 end
 
 local function computeStandPos(plot, pivotCF, offsetStuds)
@@ -4853,8 +3021,11 @@ computeClearStandPos = function(plot, targetPos, pivotCF, offsetStuds, excludeMo
         -fwd,
     }
 
-    local folders = getPlotLevelFolders(plot)
-    local hasFloors = #folders > 0
+    local floors = getPlotFloorInstances(plot)
+    if #floors == 0 then
+        floors = getPlotLevelFolders(plot)
+    end
+    local hasFloors = #floors > 0
     local walls = getPlotWallInstances(plot)
     local hasWalls = #walls > 0
     local wallParams = RaycastParams.new()
@@ -4870,50 +3041,52 @@ computeClearStandPos = function(plot, targetPos, pivotCF, offsetStuds, excludeMo
 
     local tavern = plot:FindFirstChild("Tavern")
     local propsFolder = tavern and tavern:FindFirstChild("Props")
-    local targetFloorHit = hasFloors and getFloorHitForPlot(plot, targetPos, targetPos.Y, folders) or nil
+    local targetFloorHit = hasFloors and getFloorHitForPlot(plot, targetPos, targetPos.Y, floors) or nil
+    if hasFloors and not targetFloorHit then
+        for _, seamDir in ipairs({ fwd, -fwd, right, -right }) do
+            targetFloorHit = getFloorHitForPlot(plot, targetPos + seamDir * 0.7, targetPos.Y, floors)
+            if targetFloorHit then break end
+        end
+    end
     local targetFloorY = targetFloorHit and targetFloorHit.Position.Y or (targetPos.Y - 1.5)
 
     local bestClear, bestClearScore = nil, math.huge
+    local bestNonWallOffWall, bestNonWallOffWallScore = nil, math.huge
     local bestNonWall, bestNonWallScore = nil, math.huge
 
     for _, radius in ipairs(radii) do
         for angleIdx, dirUnit in ipairs(candidates) do
             local candXZ = Vector3.new(targetPos.X + dirUnit.X * radius, 0, targetPos.Z + dirUnit.Z * radius)
-            local floorHit = hasFloors and getFloorHitForPlot(plot, candXZ, targetPos.Y, folders) or nil
+            local floorHit = hasFloors and getFloorHitForPlot(plot, candXZ, targetPos.Y, floors) or nil
             if (not hasFloors) or (floorHit and math.abs(floorHit.Position.Y - targetFloorY) <= 2.5) then
                 local candFloorY = floorHit and floorHit.Position.Y or targetFloorY
                 local standY = floorHit and (floorHit.Position.Y + 3.0) or getFloorYForPlot(plot, candXZ, targetPos.Y)
                 local candPos = Vector3.new(candXZ.X, standY, candXZ.Z)
 
-                local wallBlocked = false
-                if hasWalls then
-                    local seg = Vector3.new(candPos.X - targetPos.X, 0, candPos.Z - targetPos.Z)
-                    local segMag = seg.Magnitude
-                    if segMag >= 0.7 then
-                        local wOrigin = Vector3.new(targetPos.X, candFloorY + 2.4, targetPos.Z)
-                        local wHit = Workspace:Raycast(wOrigin, seg.Unit * math.max(0.1, segMag - 0.65), wallParams)
-                        if wHit and wHit.Instance and (wHit.Instance.Position.Y + wHit.Instance.Size.Y * 0.5) > (candFloorY + 0.6) then
-                            wallBlocked = true
-                        end
-                    end
-                end
-
+                local wallBlocked = hasWalls and hasWallObstruction(candPos, candFloorY, targetPos, wallParams) or false
                 if not wallBlocked then
                     local walkDist = fromPos and horizontalDist(fromPos, candPos) or radius
                     local score = walkDist * 0.65 + (angleIdx - 1) * 0.25 + math.abs(radius - pref) * 0.4
-                    if score < bestNonWallScore then
-                        bestNonWallScore = score
-                        bestNonWall = candPos
-                    end
 
                     local parts = Workspace:GetPartBoundsInRadius(Vector3.new(candXZ.X, candFloorY + 2.25, candXZ.Z), 0.95, overlapParams)
                     local obstructed = false
+                    local hitWallPart = false
                     for _, bp in ipairs(parts) do
                         local isPropPart = (propsFolder and bp:IsDescendantOf(propsFolder)) or PropNoclipSavedParts[bp] ~= nil
                         local isCollidable = bp.CanCollide or (PropNoclipSavedParts[bp] ~= nil)
                         if isCollidable and (isPropPart or (bp.Position.Y + bp.Size.Y * 0.5) > (candFloorY + 0.6)) then
                             obstructed = true
-                            break
+                            local cur = bp
+                            while cur and cur ~= tavern do
+                                if string.sub(cur.Name, 1, 5) == "Wall " then
+                                    hitWallPart = true
+                                    break
+                                end
+                                cur = cur.Parent
+                            end
+                            if hitWallPart then
+                                break
+                            end
                         end
                     end
 
@@ -4921,12 +3094,21 @@ computeClearStandPos = function(plot, targetPos, pivotCF, offsetStuds, excludeMo
                         bestClearScore = score
                         bestClear = candPos
                     end
+                    if not hitWallPart and score < bestNonWallOffWallScore then
+                        bestNonWallOffWallScore = score
+                        bestNonWallOffWall = candPos
+                    end
+                    if score < bestNonWallScore then
+                        bestNonWallScore = score
+                        bestNonWall = candPos
+                    end
                 end
             end
         end
     end
 
     if bestClear then return bestClear end
+    if bestNonWallOffWall then return bestNonWallOffWall end
     if bestNonWall then return bestNonWall end
     return pivotCF and computeStandPos(plot, pivotCF, pref) or Vector3.new(targetPos.X, targetFloorY + 3.0, targetPos.Z)
 end
@@ -5422,8 +3604,8 @@ local teleportCharacter
 
 -- Intra-plot server anti-TP allows ~85 studs on an isolated single snap, while
 -- continuous gliding rubberbands above ~48-55 studs/s right after snap bursts.
--- Keep isolated snaps <= 66 studs, sustainable debt ~46-52 studs/s, and
--- fall back cleanly to 45 / 38 studs/s direct3D glide to eliminate rubberbands.
+-- Keep isolated snaps <= 66 studs and sustainable debt ~46-52 studs/s; long plot
+-- hops default to paced Stepped Teleport (A -> B -> C -> D) or Safe Glide fallback.
 local PLOT_TP_SINGLE_MAX = 66
 local PLOT_TP_BURST_MAX = 68
 local PLOT_TP_BURST_DECAY = 52
@@ -5487,18 +3669,26 @@ local function ensureWithinRange(key, targetPos, standPos, now, maxReach, allowW
         end
     end
 
-    local routedDest = resolveMineRouteTarget(hrp.Position, rawDest)
+    local routedDest, reachedFinalRoute = resolveMineRouteTarget(hrp.Position, rawDest)
+    local forceCaveTp = (allowWalkOverride == "teleport")
+        and reachedFinalRoute
+        and rawDest.Y <= -20
+        and hrp.Position.Y <= -45
+        and hrp.Position.Z <= -324
+    local wantsWalk = (allowWalkOverride == true)
+        or (allowWalkOverride == "teleport" and not forceCaveTp)
+        or (allowWalkOverride == nil and State.MoveMode == "Auto Walk")
 
-    if allowWalkOverride == true or State.MoveMode == "Auto Walk" then
+    if wantsWalk then
         if hum then
             if hum.SeatPart then hum.Sit = false end
             local dist = (routedDest - hrp.Position).Magnitude
             local recomputeDist = math.max(2.5, math.min(18, dist * 0.15))
             local crossFloor = math.abs(routedDest.Y - hrp.Position.Y) > 5.5
             ActivePath.walking = true
-            ActivePath.forceWalk = (allowWalkOverride == true)
+            ActivePath.forceWalk = (allowWalkOverride ~= nil)
             local keyChanged = ActivePath.key ~= key
-            if allowWalkOverride == true or crossFloor then
+            if allowWalkOverride ~= nil or crossFloor then
                 ActivePath.canJump = true
             elseif keyChanged then
                 ActivePath.canJump = false
@@ -5516,7 +3706,7 @@ local function ensureWithinRange(key, targetPos, standPos, now, maxReach, allowW
             local staleSec = isTavernTarget and 6.0 or (dist > 60 and 2.5 or 1.4)
             local stale = (now - ActivePath.computedAt) > staleSec
             if keyChanged or movedTarget or stale then
-                computeWalkPath(key, hrp.Position, routedDest, now, allowWalkOverride == true or crossFloor, targetPos, keyChanged or movedTarget)
+                computeWalkPath(key, hrp.Position, routedDest, now, allowWalkOverride ~= nil or crossFloor, targetPos, keyChanged or movedTarget)
             end
             stepAutoWalk(now)
         end
@@ -5540,9 +3730,12 @@ local function ensureWithinRange(key, targetPos, standPos, now, maxReach, allowW
         Cooldowns.lastInstantTpAt = now
         Cooldowns.sustainedTpDebt = sustainedDebt
         Cooldowns.lastSustainedTpAt = now
-        local fastSpeed = (sustainedDebt > 45 or dist > 125 or math.abs(dest.Y - hrp.Position.Y) > 18) and 38 or 45
-        teleportCharacter(dest, lookAt, "Tavern Target", false, true, false, {
-            mode = "Safe Glide",
+        local longMode = (allowWalkOverride == "teleport" or State.PlotLongHopMode ~= "Safe Glide") and "Stepped Teleport" or "Safe Glide"
+        local fastSpeed = (longMode == "Safe Glide")
+            and (((sustainedDebt > 45 or dist > 125 or math.abs(dest.Y - hrp.Position.Y) > 18) and 38) or 45)
+            or nil
+        teleportCharacter(dest, lookAt, (allowWalkOverride == "teleport") and "Gem Node" or "Tavern Target", false, true, false, {
+            mode = longMode,
             keepDestY = true,
             direct3D = true,
             glideSpeed = fastSpeed,
@@ -5559,8 +3752,11 @@ local function ensureWithinRange(key, targetPos, standPos, now, maxReach, allowW
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     hrp.CFrame = cf
-    Cooldowns.moveArriveAt = now + 0.18
+    Cooldowns.moveArriveAt = now + ((allowWalkOverride == "teleport") and 0.14 or 0.18)
     Cooldowns.nextTick = math.min(Cooldowns.nextTick, Cooldowns.moveArriveAt)
+    if not isTavernTarget then
+        Cooldowns.nextOutdoorsTick = math.min(Cooldowns.nextOutdoorsTick, Cooldowns.moveArriveAt + 0.02)
+    end
     return false
 end
 
@@ -5885,9 +4081,7 @@ syncTroublemakerAlerts = function(troublemakers)
 end
 end
 
--- ============================================================================
--- WORLD, TRAVEL, EVENTS, ESP & MOVEMENT HELPERS (#3)
--- ============================================================================
+-- Travel, events & ESP
 local function getLiveWorldPartAndPos(inst, preferPivot)
     if not inst or not inst.Parent then return nil, nil end
     if inst:IsA("BasePart") then
@@ -5958,6 +4152,10 @@ local function resetTravelState()
     TravelState.direct3D = false
     TravelState.glideSpeed = nil
     TravelState.directDist = 0
+    TravelState.stepHoldPos = nil
+    TravelState.stepHoldLookAt = nil
+    TravelState.stepLastHopAt = 0
+    TravelState.stepMinWaitAt = 0
     TravelState.silent = false
     TravelState.waypoints = {}
     TravelState.wpIdx = 2
@@ -5974,6 +4172,7 @@ end
 
 local function finishTravel(hrp, hum, label)
     local wasDirect = TravelState.direct3D
+    local wasSteppedTp = (TravelState.mode == "Stepped Teleport")
     local directDist = TravelState.directDist or 0
     local isSilent = TravelState.silent
     if hum and hrp then
@@ -5988,13 +4187,18 @@ local function finishTravel(hrp, hum, label)
     end
     if wasDirect then
         local finishNow = os.clock()
-        local curBurst, curSustained = getPlotTpBudgets(finishNow)
-        Cooldowns.moveArriveAt = math.max(Cooldowns.moveArriveAt, finishNow + 0.12)
-        Cooldowns.nextTick = math.min(Cooldowns.nextTick, Cooldowns.moveArriveAt)
-        Cooldowns.lastInstantTpAt = finishNow
-        Cooldowns.instantTpDebt = math.max(curBurst, 22)
-        Cooldowns.lastSustainedTpAt = finishNow
-        Cooldowns.sustainedTpDebt = math.min(PLOT_TP_SUSTAINED_MAX, curSustained + directDist * 0.45)
+        if wasSteppedTp then
+            Cooldowns.moveArriveAt = math.max(Cooldowns.moveArriveAt, finishNow + 0.14)
+            Cooldowns.nextTick = math.min(Cooldowns.nextTick, Cooldowns.moveArriveAt)
+        else
+            local curBurst, curSustained = getPlotTpBudgets(finishNow)
+            Cooldowns.moveArriveAt = math.max(Cooldowns.moveArriveAt, finishNow + 0.12)
+            Cooldowns.nextTick = math.min(Cooldowns.nextTick, Cooldowns.moveArriveAt)
+            Cooldowns.lastInstantTpAt = finishNow
+            Cooldowns.instantTpDebt = math.max(curBurst, 22)
+            Cooldowns.lastSustainedTpAt = finishNow
+            Cooldowns.sustainedTpDebt = math.min(PLOT_TP_SUSTAINED_MAX, curSustained + directDist * 0.45)
+        end
     end
     if label and not isSilent then
         Window:Notify("Zone Travel", "Arrived at " .. tostring(label) .. "!")
@@ -6166,6 +4370,91 @@ local function stepTravelGlide(now, hrp, hum, curPos, destPos, dist3D)
     hrp.CFrame = cf
 end
 
+local STEP_TP_HOP_MAX = 62
+local STEP_TP_MIN_HOP = 46
+local STEP_TP_MIN_INTERVAL = 0.16
+
+local function stepTravelSteppedTp(now, hrp, hum, curPos, destPos, dist3D)
+    local tpDebt, sustainedDebt = getPlotTpBudgets(now)
+    Cooldowns.instantTpDebt = tpDebt
+    Cooldowns.lastInstantTpAt = now
+    Cooldowns.sustainedTpDebt = sustainedDebt
+    Cooldowns.lastSustainedTpAt = now
+
+    if TravelState.stepHoldPos and now > (TravelState.stepLastHopAt or 0) + 0.08 then
+        if (hrp.Position - TravelState.stepHoldPos).Magnitude > 6 then
+            TravelState.stepHoldPos = nil
+            TravelState.stepHoldLookAt = nil
+            TravelState.stepMinWaitAt = math.max(TravelState.stepMinWaitAt or 0, now + 0.28)
+        end
+    end
+
+    if dist3D <= 2.5 then
+        local lookAt = TravelState.lookAt
+        local cf
+        if lookAt then
+            local flatLook = Vector3.new(lookAt.X, destPos.Y, lookAt.Z)
+            if (flatLook - destPos).Magnitude > 0.1 then
+                cf = CFrame.lookAt(destPos, flatLook)
+            end
+        end
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = cf or CFrame.new(destPos)
+        finishTravel(hrp, hum, TravelState.label)
+        return
+    end
+
+    if now < (TravelState.stepMinWaitAt or 0) then
+        return
+    end
+
+    local cap = math.min(STEP_TP_HOP_MAX, PLOT_TP_BURST_MAX - tpDebt, PLOT_TP_SUSTAINED_MAX - sustainedDebt)
+    local minNeeded = math.min(dist3D, STEP_TP_MIN_HOP)
+    if cap < dist3D and cap < minNeeded then
+        return
+    end
+
+    local delta = destPos - curPos
+    if cap >= dist3D then
+        local lookAt = TravelState.lookAt
+        local cf
+        if lookAt then
+            local flatLook = Vector3.new(lookAt.X, destPos.Y, lookAt.Z)
+            if (flatLook - destPos).Magnitude > 0.1 then
+                cf = CFrame.lookAt(destPos, flatLook)
+            end
+        end
+        Cooldowns.instantTpDebt = tpDebt + dist3D
+        Cooldowns.lastInstantTpAt = now
+        Cooldowns.sustainedTpDebt = sustainedDebt + dist3D
+        Cooldowns.lastSustainedTpAt = now
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = cf or CFrame.new(destPos)
+        finishTravel(hrp, hum, TravelState.label)
+        return
+    end
+
+    local hopDist = math.min(dist3D, cap)
+    local hopPos = curPos + delta.Unit * hopDist
+    local flatAim = Vector3.new(destPos.X, hopPos.Y, destPos.Z)
+    local cf = (flatAim - hopPos).Magnitude > 0.1
+        and CFrame.lookAt(hopPos, flatAim)
+        or CFrame.new(hopPos)
+    Cooldowns.instantTpDebt = tpDebt + hopDist
+    Cooldowns.lastInstantTpAt = now
+    Cooldowns.sustainedTpDebt = sustainedDebt + hopDist
+    Cooldowns.lastSustainedTpAt = now
+    TravelState.stepHoldPos = hopPos
+    TravelState.stepHoldLookAt = destPos
+    TravelState.stepLastHopAt = now
+    TravelState.stepMinWaitAt = now + STEP_TP_MIN_INTERVAL
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.AssemblyAngularVelocity = Vector3.zero
+    hrp.CFrame = cf
+end
+
 stepTravel = function(now)
     if not TravelState.active or not TravelState.destPos then return end
     local hrp, hum = getPlayerRoot()
@@ -6195,6 +4484,8 @@ stepTravel = function(now)
 
     if TravelState.mode == "Auto Walk" then
         stepTravelWalk(now, hrp, hum, curPos, destPos, dist3D)
+    elseif TravelState.mode == "Stepped Teleport" then
+        stepTravelSteppedTp(now, hrp, hum, curPos, destPos, dist3D)
     else
         stepTravelGlide(now, hrp, hum, curPos, destPos, dist3D)
     end
@@ -6248,6 +4539,10 @@ teleportCharacter = function(destPos, lookAtPos, travelLabel, includeMine, inclu
     TravelState.direct3D = opts.direct3D == true
     TravelState.glideSpeed = tonumber(opts.glideSpeed)
     TravelState.directDist = dist
+    TravelState.stepHoldPos = nil
+    TravelState.stepHoldLookAt = nil
+    TravelState.stepLastHopAt = 0
+    TravelState.stepMinWaitAt = 0
     TravelState.silent = opts.silent == true
     TravelState.waypoints = {}
     TravelState.wpIdx = 2
@@ -6265,6 +4560,12 @@ teleportCharacter = function(destPos, lookAtPos, travelLabel, includeMine, inclu
         TravelState.nextPathAt = os.clock() + 3.2
         local estSec = math.max(1, math.ceil(dist / 30))
         return true, "Walking to " .. TravelState.label .. " (~" .. tostring(estSec) .. "s)..."
+    end
+
+    if mode == "Stepped Teleport" then
+        stepTravel(os.clock())
+        local estHops = math.max(2, math.ceil(dist / 54))
+        return true, "Stepped teleporting to " .. TravelState.label .. " (~" .. tostring(estHops) .. " hops)..."
     end
 
     local estSec = math.max(1, math.ceil(dist / (TravelState.glideSpeed or 38)))
@@ -7098,12 +5399,291 @@ local function resetOutdoorsState(cancelServerActions)
     OutdoorsState.fishCastId = nil
     OutdoorsState.fishPhase = "idle"
     OutdoorsState.fishHookAttemptAt = 0
+    OutdoorsState.fishPendingSell = false
+    OutdoorsState.fishPendingSellManual = false
     OutdoorsState.miningNodeId = nil
     OutdoorsState.miningUntil = 0
     OutdoorsState.miningAwaitStartUntil = 0
 end
 
+do
+    local gs = {
+        active = false,
+        writing = false,
+        hookedAmt = nil,
+        hookedNv = nil,
+        conns = {},
+        rainValue = nil,
+        nextRainAt = 0,
+        lastPartsCheckAt = 0,
+        cachedGemsFrame = nil,
+        cachedAmt = nil,
+        cachedNv = nil,
+        cachedIconHolder = nil,
+    }
+
+    local function parseAmount(raw)
+        if type(raw) == "number" then
+            if raw ~= raw or raw == math.huge or raw == -math.huge then
+                return nil
+            end
+            return math.clamp(math.floor(raw + 0.5), 0, 999999999999)
+        end
+        if type(raw) ~= "string" then
+            return nil
+        end
+        local cleaned = raw:gsub("[%s,_]+", ""):lower()
+        if cleaned == "" then
+            return nil
+        end
+        local mult = 1
+        local suffix = cleaned:sub(-1)
+        if suffix == "k" then
+            mult = 1e3
+            cleaned = cleaned:sub(1, -2)
+        elseif suffix == "m" then
+            mult = 1e6
+            cleaned = cleaned:sub(1, -2)
+        elseif suffix == "b" then
+            mult = 1e9
+            cleaned = cleaned:sub(1, -2)
+        elseif suffix == "t" then
+            mult = 1e12
+            cleaned = cleaned:sub(1, -2)
+        end
+        local num = tonumber(cleaned)
+        if not num or num ~= num or num == math.huge or num == -math.huge then
+            return nil
+        end
+        return math.clamp(math.floor(num * mult + 0.5), 0, 999999999999)
+    end
+
+    local function formatCommaNumber(n)
+        local clamped = math.clamp(math.floor((tonumber(n) or 0) + 0.5), 0, 999999999999)
+        local s = string.format("%.0f", clamped)
+        local rev = s:reverse():gsub("(%d%d%d)", "%1,")
+        local formatted = rev:reverse():gsub("^,", "")
+        return formatted
+    end
+
+    local function clearHooks()
+        for _, conn in ipairs(gs.conns) do
+            pcall(function() conn:Disconnect() end)
+        end
+        table.clear(gs.conns)
+        gs.hookedAmt = nil
+        gs.hookedNv = nil
+    end
+
+    local function getHudParts()
+        if gs.cachedAmt and gs.cachedAmt.Parent and gs.cachedGemsFrame and gs.cachedGemsFrame.Parent then
+            if gs.cachedNv and not gs.cachedNv.Parent then
+                gs.cachedNv = gs.cachedGemsFrame:FindFirstChildOfClass("NumberValue")
+            end
+            return gs.cachedAmt, gs.cachedNv, gs.cachedIconHolder
+        end
+        local pgui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local hud = pgui and pgui:FindFirstChild("Hud")
+        local curr = hud and hud:FindFirstChild("Currencies", true)
+        local gemsFrame = curr and curr:FindFirstChild("Gems")
+        local amt = gemsFrame and gemsFrame:FindFirstChild("Amount")
+        if not (gemsFrame and amt and amt:IsA("TextLabel")) then
+            return nil, nil, nil
+        end
+        gs.cachedGemsFrame = gemsFrame
+        gs.cachedAmt = amt
+        gs.cachedNv = gemsFrame:FindFirstChildOfClass("NumberValue")
+        gs.cachedIconHolder = gemsFrame:FindFirstChild("IconHolder")
+        return amt, gs.cachedNv, gs.cachedIconHolder
+    end
+
+    local function getRealGems(nv)
+        if nv and nv.Parent then
+            return math.max(0, math.round(nv.Value))
+        end
+        local ps = getPlayerState()
+        return math.max(0, math.floor(tonumber(ps and ps.gems) or 0))
+    end
+
+    local function computeDesired(nv)
+        local amtCfg = math.clamp(math.floor((tonumber(State.SpoofGemsAmount) or 0) + 0.5), 0, 999999999999)
+        if State.SpoofGemsMode == "Add +Amount to Real" then
+            return math.min(999999999999, getRealGems(nv) + amtCfg)
+        elseif State.SpoofGemsMode == "Endless Rain (+/s)" then
+            if not gs.rainValue then
+                gs.rainValue = math.max(getRealGems(nv), amtCfg)
+            end
+            return math.min(999999999999, gs.rainValue)
+        end
+        return amtCfg
+    end
+
+    local function writeAmtText(amt, txt)
+        if not (amt and amt.Parent) or gs.writing or amt.Text == txt then
+            return
+        end
+        gs.writing = true
+        amt.Text = txt
+        gs.writing = false
+    end
+
+    local function ensureHooks(amt, nv)
+        if gs.hookedAmt == amt and gs.hookedNv == nv then
+            return
+        end
+        clearHooks()
+        gs.hookedAmt = amt
+        gs.hookedNv = nv
+        table.insert(gs.conns, amt:GetPropertyChangedSignal("Text"):Connect(function()
+            if not Running or not State.SpoofGemsEnabled or gs.writing then
+                return
+            end
+            local curAmt, curNv = getHudParts()
+            if curAmt == amt then
+                writeAmtText(curAmt, formatCommaNumber(computeDesired(curNv)))
+            end
+        end))
+        if nv then
+            table.insert(gs.conns, nv:GetPropertyChangedSignal("Value"):Connect(function()
+                if not Running or not State.SpoofGemsEnabled or gs.writing then
+                    return
+                end
+                local curAmt, curNv = getHudParts()
+                if curAmt then
+                    writeAmtText(curAmt, formatCommaNumber(computeDesired(curNv)))
+                end
+            end))
+        end
+    end
+
+    local function triggerPop(delta)
+        local amt, _, iconHolder = getHudParts()
+        if not (amt and amt.Parent) then
+            return
+        end
+        local popDelta = math.max(1, math.floor(tonumber(delta) or 1000))
+        if State.SpoofGemsEnabled and State.SpoofGemsMode == "Endless Rain (+/s)" then
+            gs.rainValue = math.min(999999999999, (gs.rainValue or computeDesired(gs.cachedNv)) + popDelta)
+            writeAmtText(amt, formatCommaNumber(gs.rainValue))
+        end
+        if iconHolder and iconHolder.Parent then
+            local icon = iconHolder:FindFirstChild("Icon")
+            local uiScale = icon and icon:FindFirstChildOfClass("UIScale")
+            if uiScale then
+                uiScale.Scale = 1.28
+                pcall(function()
+                    TweenService:Create(uiScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+                end)
+            end
+            local glint = iconHolder:FindFirstChild("Glint")
+            if glint and glint:IsA("ImageLabel") then
+                glint.ImageTransparency = 0.15
+                pcall(function()
+                    TweenService:Create(glint, TweenInfo.new(0.7), { ImageTransparency = 1 }):Play()
+                end)
+            end
+        end
+        local pop = Instance.new("TextLabel")
+        pop.Name = "NexFakeGemPop"
+        pop.BackgroundTransparency = 1
+        pop.AnchorPoint = Vector2.new(1, 0)
+        pop.Position = UDim2.new(1, 0, 1, -8)
+        pop.Size = UDim2.fromOffset(160, 24)
+        pop.FontFace = amt.FontFace
+        pop.TextSize = 22
+        pop.TextXAlignment = Enum.TextXAlignment.Right
+        pop.TextColor3 = Color3.fromRGB(115, 255, 195)
+        pop.Text = "+" .. formatCommaNumber(popDelta)
+        pop.ZIndex = 6
+        pop.Parent = amt
+        local baseStroke = amt:FindFirstChildOfClass("UIStroke")
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = baseStroke and baseStroke.Color or Color3.fromRGB(24, 18, 12)
+        stroke.Thickness = 2
+        stroke.Parent = pop
+        local info = TweenInfo.new(1.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        pcall(function()
+            TweenService:Create(pop, info, { TextTransparency = 1, Position = UDim2.new(1, 0, 1, 22) }):Play()
+            TweenService:Create(stroke, info, { Transparency = 1 }):Play()
+        end)
+        task.delay(1.2, function()
+            if pop and pop.Parent then
+                pop:Destroy()
+            end
+        end)
+    end
+
+    local function sync(now, resetRain)
+        if not State.SpoofGemsEnabled then
+            return
+        end
+        local amt, nv = getHudParts()
+        if not amt then
+            return
+        end
+        ensureHooks(amt, nv)
+        local t = now or os.clock()
+        if not gs.active or resetRain then
+            gs.active = true
+            gs.rainValue = nil
+            gs.nextRainAt = t + 0.12
+        end
+        if State.SpoofGemsMode == "Endless Rain (+/s)" then
+            if not gs.rainValue then
+                local cfg = math.clamp(math.floor((tonumber(State.SpoofGemsAmount) or 0) + 0.5), 0, 999999999999)
+                gs.rainValue = math.max(getRealGems(nv), cfg)
+            end
+            if t >= (gs.nextRainAt or 0) then
+                gs.nextRainAt = t + 0.12
+                local base = math.max(100, tonumber(State.SpoofGemsAmount) or 0)
+                local step = math.max(15, math.floor(base * 0.0025))
+                gs.rainValue = math.min(999999999999, gs.rainValue + step + math.random(3, 29))
+            end
+        end
+        writeAmtText(amt, formatCommaNumber(computeDesired(nv)))
+    end
+
+    local function restore(destroyHooks)
+        local wasActive = gs.active
+        gs.active = false
+        gs.rainValue = nil
+        if destroyHooks then
+            clearHooks()
+        end
+        local amt, nv = getHudParts()
+        if amt and amt.Parent then
+            if destroyHooks then
+                for _, child in ipairs(amt:GetChildren()) do
+                    if child.Name == "NexFakeGemPop" then
+                        pcall(function() child:Destroy() end)
+                    end
+                end
+            end
+            if wasActive or destroyHooks then
+                writeAmtText(amt, formatCommaNumber(getRealGems(nv)))
+            end
+        end
+        if destroyHooks then
+            gs.cachedGemsFrame = nil
+            gs.cachedAmt = nil
+            gs.cachedNv = nil
+            gs.cachedIconHolder = nil
+        end
+    end
+
+    Cooldowns.gemSpoof = {
+        parseAmount = parseAmount,
+        formatNumber = formatCommaNumber,
+        sync = sync,
+        restore = restore,
+        triggerPop = triggerPop,
+    }
+end
+
 cleanupVisualsAndMove = function()
+    if Cooldowns.gemSpoof then
+        pcall(Cooldowns.gemSpoof.restore, true)
+    end
     local hrp, hum = getPlayerRoot()
     if hum and hrp then
         stopAutoWalk(hum, hrp)
@@ -7134,9 +5714,7 @@ local function isActionableTarget(hrpPos, targetPos, maxReach)
     return isWithinReach(hrpPos, targetPos, maxReach)
 end
 
--- ============================================================================
--- OUTDOORS GATHERING ENGINE (HUNTING, FISHING, GEM MINING)
--- ============================================================================
+-- Outdoors
 local HUNT_SPECIES_LIST = {
     "Bear",
     "Wolf",
@@ -7184,7 +5762,7 @@ local function normalizeSelectionMap(raw, validSet, orderedAll)
     return map
 end
 
--- Normalize saved single-string or multi-select table configs into a [species] = true lookup map
+-- Normalize multi-select config into a [key] = true map
 local function normalizeHuntFilter(raw)
     if raw == "High Value" then
         local map = {}
@@ -7943,6 +6521,129 @@ end
 
 local maybeSellFishBag
 do
+local function buildFishCatalog()
+    local cat = {
+        rarities = {},
+        raritySet = {},
+        speciesNames = {},
+        speciesNameSet = {},
+        speciesById = {},
+        speciesByLower = {},
+    }
+    local fishModData = nil
+    pcall(function()
+        local shared = ReplicatedStorage:FindFirstChild("Shared")
+        local cfg = shared and shared:FindFirstChild("Config")
+        local fm = cfg and cfg:FindFirstChild("Fish")
+        if fm then
+            fishModData = require(fm)
+        end
+    end)
+
+    local tiers = (fishModData and type(fishModData.TIER_LIST) == "table" and fishModData.TIER_LIST)
+        or { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic" }
+    for _, tier in ipairs(tiers) do
+        local tierId = type(tier) == "table" and tier.id or tier
+        if type(tierId) == "string" and tierId ~= "" and not cat.raritySet[tierId] then
+            cat.raritySet[tierId] = true
+            table.insert(cat.rarities, tierId)
+        end
+    end
+
+    if fishModData and type(fishModData.LIST) == "table" then
+        for _, f in ipairs(fishModData.LIST) do
+            if type(f) == "table" and type(f.id) == "string" and type(f.name) == "string" then
+                local info = { id = f.id, name = f.name, rarity = f.rarity }
+                cat.speciesById[f.id] = info
+                cat.speciesByLower[f.id:lower()] = info
+                cat.speciesByLower[f.name:lower()] = info
+                if not cat.speciesNameSet[f.name] then
+                    cat.speciesNameSet[f.name] = true
+                    table.insert(cat.speciesNames, f.name)
+                end
+            end
+        end
+    end
+    table.sort(cat.speciesNames)
+    return cat
+end
+
+OutdoorsState.fishCatalog = buildFishCatalog()
+
+function OutdoorsState.normalizeKeepFishRarities(raw)
+    local map = {}
+    local rSet = OutdoorsState.fishCatalog and OutdoorsState.fishCatalog.raritySet or {}
+    if type(raw) == "table" then
+        for k, v in pairs(raw) do
+            if type(k) == "number" and rSet[v] then
+                map[v] = true
+            elseif v == true and rSet[k] then
+                map[k] = true
+            end
+        end
+    elseif type(raw) == "string" and rSet[raw] then
+        map[raw] = true
+    end
+    return map
+end
+
+function OutdoorsState.normalizeKeepFishTypes(raw)
+    local map = {}
+    local cat = OutdoorsState.fishCatalog or {}
+    local byLower = cat.speciesByLower or {}
+    local nameSet = cat.speciesNameSet or {}
+    local function addEntry(val)
+        if type(val) ~= "string" then return end
+        local low = val:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        if low == "" then return end
+        local info = byLower[low]
+        if info then
+            map[info.name] = true
+        elseif nameSet[val] then
+            map[val] = true
+        end
+    end
+    if type(raw) == "table" then
+        for k, v in pairs(raw) do
+            if type(k) == "number" then
+                addEntry(v)
+            elseif v == true then
+                addEntry(k)
+            end
+        end
+    elseif type(raw) == "string" then
+        addEntry(raw)
+    end
+    return map
+end
+
+function OutdoorsState.hasFishKeepFilter()
+    return (type(State.KeepFishRarities) == "table" and next(State.KeepFishRarities) ~= nil)
+        or (type(State.KeepFishTypes) == "table" and next(State.KeepFishTypes) ~= nil)
+end
+
+function OutdoorsState.isFishProtected(entry)
+    if type(entry) ~= "table" then return false end
+    local cat = OutdoorsState.fishCatalog or {}
+    local specId = entry.s
+    local info = (type(specId) == "string") and cat.speciesById and cat.speciesById[specId] or nil
+    local rarity = entry.r or (info and info.rarity)
+    local keepR = State.KeepFishRarities
+    if rarity and type(keepR) == "table" and keepR[rarity] == true then
+        return true
+    end
+    local keepT = State.KeepFishTypes
+    if type(keepT) == "table" and next(keepT) ~= nil then
+        local name = (info and info.name) or specId
+        if (name and keepT[name] == true)
+            or (specId and keepT[specId] == true)
+            or (name and cat.speciesByLower and cat.speciesByLower[tostring(name):lower()] and keepT[cat.speciesByLower[tostring(name):lower()].name] == true) then
+            return true
+        end
+    end
+    return false
+end
+
 local function getFishBagCapacity()
     local cur = getCurrentState()
     local skills = cur and cur.skills
@@ -7954,26 +6655,88 @@ local function getFishBagCapacity()
     return 30 + extra
 end
 
-maybeSellFishBag = function(now)
-    local mode = State.AutoSellFishMode or "Off"
-    if mode == "Off" or now - OutdoorsState.fishLastSellAt < 1.5 then return end
+function OutdoorsState.executeSelectiveFishSell(now, isManual)
+    now = now or os.clock()
+    OutdoorsState.fishPendingSell = false
+    OutdoorsState.fishPendingSellManual = false
+    local fishBagRemote = getRemote("FishBag")
+    if not fishBagRemote then return end
 
-    local shouldSell = false
-    if mode == "Every Catch" and OutdoorsState.fishCatches >= 1 then
-        shouldSell = true
-    elseif mode == "Every 5 Catches" and OutdoorsState.fishCatches >= 5 then
-        shouldSell = true
-    elseif mode == "When Full" and OutdoorsState.fishBagCount >= math.max(1, getFishBagCapacity() - 1) then
-        shouldSell = true
+    local items = type(OutdoorsState.fishBagItems) == "table" and OutdoorsState.fishBagItems or {}
+    local sellIds = {}
+    for _, item in ipairs(items) do
+        if type(item) == "table" and item.id and not OutdoorsState.isFishProtected(item) then
+            table.insert(sellIds, item.id)
+        end
     end
 
-    if shouldSell then
-        local fishBagRemote = getRemote("FishBag")
-        if fishBagRemote then
-            OutdoorsState.fishLastSellAt = now
-            OutdoorsState.fishCatches = 0
-            fishBagRemote:FireServer("SellAll", nil)
+    OutdoorsState.fishLastSellAt = now
+    OutdoorsState.fishCatches = 0
+
+    if #sellIds > 0 then
+        fishBagRemote:FireServer("Sell", sellIds)
+        local keptCount = math.max(0, #items - #sellIds)
+        OutdoorsState.fishBagCount = keptCount
+        if isManual then
+            Window:Notify("Outdoors · Fishing", ("Sold %d unprotected fish (%d kept)."):format(#sellIds, keptCount))
         end
+    else
+        if isManual then
+            Window:Notify("Outdoors · Fishing", ("No unprotected fish to sell (%d kept)."):format(#items))
+        elseif OutdoorsState.fishBagCount >= math.max(1, getFishBagCapacity() - 1) and (now - (OutdoorsState.fishKeepFullWarnAt or 0)) >= 30 then
+            OutdoorsState.fishKeepFullWarnAt = now
+            Window:Notify("Outdoors · Fishing", "Fish bag is full of protected fish! Mount/tank or adjust Keep filters.")
+        end
+    end
+end
+
+maybeSellFishBag = function(now, forceNow)
+    now = now or os.clock()
+    local fishBagRemote = getRemote("FishBag")
+    if not fishBagRemote then return end
+
+    local manual = (forceNow == true)
+    if not manual then
+        local mode = State.AutoSellFishMode or "Off"
+        if mode == "Off" or now - OutdoorsState.fishLastSellAt < 1.5 then return end
+
+        local shouldSell = false
+        if mode == "Every Catch" and OutdoorsState.fishCatches >= 1 then
+            shouldSell = true
+        elseif mode == "Every 5 Catches" and OutdoorsState.fishCatches >= 5 then
+            shouldSell = true
+        elseif mode == "When Full" and OutdoorsState.fishBagCount >= math.max(1, getFishBagCapacity() - 1) then
+            shouldSell = true
+        end
+        if not shouldSell then return end
+    end
+
+    if not OutdoorsState.hasFishKeepFilter() then
+        OutdoorsState.fishLastSellAt = now
+        OutdoorsState.fishCatches = 0
+        OutdoorsState.fishBagCount = 0
+        OutdoorsState.fishPendingSell = false
+        fishBagRemote:FireServer("SellAll", nil)
+        if manual then
+            Window:Notify("Outdoors · Fishing", "Sold all fish in bag.")
+        end
+        return
+    end
+
+    local syncFresh = (OutdoorsState.fishBagSyncedAt or 0) > 0
+        and OutdoorsState.fishBagSyncedAt >= (OutdoorsState.fishLastCatchAt or 0)
+        and (not manual or (now - OutdoorsState.fishBagSyncedAt) <= 0.4)
+    if syncFresh then
+        OutdoorsState.executeSelectiveFishSell(now, manual)
+        return
+    end
+
+    if manual or (now - (OutdoorsState.fishLastBagReqAt or 0)) >= 0.6 then
+        OutdoorsState.fishLastBagReqAt = now
+        OutdoorsState.fishPendingSell = true
+        OutdoorsState.fishPendingSellAt = now
+        OutdoorsState.fishPendingSellManual = manual
+        fishBagRemote:FireServer("Bag", nil)
     end
 end
 end
@@ -8589,7 +7352,31 @@ local function stepMining(now, hrp, hum)
             walkDest = node.pos + flatDir.Unit * offset
         end
     end
-    if not ensureWithinRange("mine_node:" .. tostring(node.id), node.pos, walkDest, now, approachDist, State.MineWalkToNodes) then
+    if node.pos and node.isAsteroid ~= true and State.MineMoveMode == "Instant Teleport" then
+        refreshNoclipFloorCache(now)
+        if #noclipMineFloors > 0 then
+            local floorParams = RaycastParams.new()
+            floorParams.FilterType = Enum.RaycastFilterType.Include
+            floorParams.FilterDescendantsInstances = noclipMineFloors
+            local floorHit = Workspace:Raycast(Vector3.new(walkDest.X, -42, walkDest.Z), Vector3.new(0, -40, 0), floorParams)
+            if not floorHit then
+                local towardCenter = Vector3.new(420 - node.pos.X, 0, -355 - node.pos.Z)
+                if towardCenter.Magnitude > 0.25 then
+                    local altXZ = node.pos + towardCenter.Unit * math.clamp((node.standDist or 4.6) * 0.65, 2.2, math.max(2.2, approachDist - 1.2))
+                    floorHit = Workspace:Raycast(Vector3.new(altXZ.X, -42, altXZ.Z), Vector3.new(0, -40, 0), floorParams)
+                    if floorHit then
+                        walkDest = altXZ
+                    end
+                end
+            end
+            if floorHit and floorHit.Normal.Y >= 0.45 then
+                local standOff = (hum and (hum.HipHeight + hrp.Size.Y * 0.5)) or 2.95
+                walkDest = Vector3.new(walkDest.X, floorHit.Position.Y + standOff, walkDest.Z)
+            end
+        end
+    end
+    local moveArg = (State.MineMoveMode == "Instant Teleport") and "teleport" or State.MineWalkToNodes
+    if not ensureWithinRange("mine_node:" .. tostring(node.id), node.pos, walkDest, now, approachDist, moveArg) then
         return
     end
 
@@ -8780,6 +7567,9 @@ do
         State.AutoCollectKills = false
         State.AutoFish = false
         State.AutoMine = true
+        if State.MineMoveMode == "Nearby Only" then
+            State.MineMoveMode = "Auto Walk"
+        end
         State.MineWalkToNodes = true
     end
 
@@ -8913,6 +7703,9 @@ do
             if gem.phase ~= "mine" or not State.AutoMine or State.AutoHunt or State.AutoCollectKills then
                 enterMinePhase(hum, hrp)
             end
+            if State.MineMoveMode == "Nearby Only" then
+                State.MineMoveMode = "Auto Walk"
+            end
             State.MineWalkToNodes = true
             return false
         end
@@ -8997,7 +7790,7 @@ local function fireHuntHitPayload(shotId, shot)
     end
 end
 
--- Server event listeners for Outdoors skills
+-- Outdoors listeners
 pcall(function()
     local huntEvent = getRemote("HuntEvent")
     if huntEvent and huntEvent:IsA("RemoteEvent") then
@@ -9090,7 +7883,17 @@ pcall(function()
                 OutdoorsState.fishNextPulseAt = now
                 setVirtualSpaceHeld(false)
             elseif ev == "bag" and type(a2) == "table" then
+                OutdoorsState.fishBagItems = a2
                 OutdoorsState.fishBagCount = #a2
+                OutdoorsState.fishBagSyncedAt = now
+                if OutdoorsState.fishPendingSell then
+                    if (now - (OutdoorsState.fishPendingSellAt or 0)) < 6 then
+                        OutdoorsState.executeSelectiveFishSell(now, OutdoorsState.fishPendingSellManual)
+                    else
+                        OutdoorsState.fishPendingSell = false
+                        OutdoorsState.fishPendingSellManual = false
+                    end
+                end
             elseif ev == "caught" then
                 OutdoorsState.fishCastId = nil
                 OutdoorsState.fishPhase = "idle"
@@ -9100,11 +7903,27 @@ pcall(function()
                 if not soldInline then
                     OutdoorsState.fishBagCount = OutdoorsState.fishBagCount + 1
                     OutdoorsState.fishCatches = OutdoorsState.fishCatches + 1
+                    OutdoorsState.fishLastCatchAt = now
                 end
                 maybeSellFishBag(now)
             elseif ev == "sold" then
-                OutdoorsState.fishBagCount = 0
                 OutdoorsState.fishCatches = 0
+                OutdoorsState.fishPendingSell = false
+                OutdoorsState.fishPendingSellManual = false
+                if OutdoorsState.hasFishKeepFilter and OutdoorsState.hasFishKeepFilter() then
+                    local soldN = type(a1) == "number" and a1 or 0
+                    if soldN > 0 and #OutdoorsState.fishBagItems >= soldN then
+                        OutdoorsState.fishBagCount = math.max(0, #OutdoorsState.fishBagItems - soldN)
+                    end
+                    local fishBagRemote = getRemote("FishBag")
+                    if fishBagRemote and (now - (OutdoorsState.fishLastBagReqAt or 0)) >= 0.4 then
+                        OutdoorsState.fishLastBagReqAt = now
+                        pcall(function() fishBagRemote:FireServer("Bag", nil) end)
+                    end
+                else
+                    OutdoorsState.fishBagCount = 0
+                    table.clear(OutdoorsState.fishBagItems)
+                end
             elseif ev == "lost" or ev == "cancel" or ev == "refused" then
                 OutdoorsState.fishCastId = nil
                 OutdoorsState.fishPhase = "idle"
@@ -9503,9 +8322,7 @@ local function executeCookStart(candidate, myOwner, kitchenRemote, now)
     return true
 end
 
--- ============================================================================
--- BAR & TAVERN AUTOMATION STEP ENGINE
--- ============================================================================
+-- Bar loop
 local BarBatchState = {
     delivering = false,
     washing = false,
@@ -9760,7 +8577,7 @@ local function runBarStep(now)
         return
     end
 
-    -- 0. Tavern Security: Alerts work from anywhere; physical bar/security waits until near own plot
+    -- Tavern security
     local troublemakers = nil
     if State.AutoKickTroublemakers or State.AlertTroublemakers then
         troublemakers = getTroublemakers(myOwner)
@@ -9844,7 +8661,7 @@ local function runBarStep(now)
         BarBatchState.delivering = false
     end
 
-    -- 1. Finish dirty mug/plate batch up to maxCarry before washing at nearest reachable basin
+    -- Wash dirty dishes
     if State.AutoClearWash and trayInfo.dirtyCount > 0 and not BarBatchState.delivering then
         if trayInfo.total < maxCarry and not BarBatchState.washing then
             local nextSeat, justClearedWaiting = inspectDirtySeats(myOwner, hrpPos, now)
@@ -9868,7 +8685,7 @@ local function runBarStep(now)
         end
     end
 
-    -- 2. Auto Refill low kegs nearest-first (yields cleanly on gold shortage or Barrel Filler claim)
+    -- Refill low kegs
     if State.AutoRefillKegs and not BarBatchState.delivering then
         local slots = getMyBarSlots(cur)
         local bestRefill, bestRefillScore = nil, math.huge
@@ -9924,7 +8741,7 @@ local function runBarStep(now)
 
     local staffCounts = getStaffCarriedCounts(myOwner)
 
-    -- 3. Auto Serve & Auto Cook batch: fill drinks, ready counter food & cooked orders up to maxCarry before delivering
+    -- Serve drinks and food
     if State.AutoBarServe or State.AutoCook or State.AutoCookDeliver then
         local modeDeliverable = findModeDeliverableGuest(guests, trayInfo.counts, hrpPos, now)
         if not modeDeliverable then
@@ -10026,7 +8843,7 @@ local function runBarStep(now)
         end
     end
 
-    -- 4. Start clearing dirty mugs & plates when tray has space and no pending serve batch runs
+    -- Clear dirty mugs and plates
     if State.AutoClearWash and trayInfo.total < maxCarry then
         local nextSeat = inspectDirtySeats(myOwner, hrpPos, now)
         if nextSeat then
@@ -10035,7 +8852,7 @@ local function runBarStep(now)
         end
     end
 
-    -- 5. Auto Prep menu dishes onto serving counters when idle
+    -- Prep counter dishes
     if State.AutoCookPrep and kitchenRemote and trayInfo.total == 0 and not BarBatchState.delivering and not BarBatchState.washing then
         local plotKitchen = getPlotKitchenInfo(myOwner, hrpPos)
         local prepCand = findNextPrepCandidate(myOwner, cur, plotKitchen, hrpPos, now)
@@ -10045,9 +8862,7 @@ local function runBarStep(now)
     end
 end
 
--- ============================================================================
--- PRIORITY OVERRIDE COORDINATOR (SERVER CHALLENGES & UNIVERSAL ASTEROID)
--- ============================================================================
+-- Priority overrides
 local evaluatePriorityOverrides, cancelActiveOverride
 do
 local function isInMineTunnel(pos)
@@ -10100,6 +8915,7 @@ local function captureOverrideSnapshot(hrpPos)
         AutoCookPrep = State.AutoCookPrep,
         KeepTavernOpen = State.KeepTavernOpen,
         MoveMode = State.MoveMode,
+        MineMoveMode = State.MineMoveMode,
         MineWalkToNodes = State.MineWalkToNodes,
         FishWalkToWater = State.FishWalkToWater,
         AutoSellFishMode = State.AutoSellFishMode,
@@ -10179,6 +8995,7 @@ local function restoreSnapshotAndReturn(hrpPos, hum, hrp, silent)
     State.AutoCookPrep = snap.AutoCookPrep
     State.KeepTavernOpen = snap.KeepTavernOpen
     State.MoveMode = snap.MoveMode
+    State.MineMoveMode = snap.MineMoveMode
     State.MineWalkToNodes = snap.MineWalkToNodes
     State.FishWalkToWater = snap.FishWalkToWater
     State.AutoSellFishMode = snap.AutoSellFishMode
@@ -10230,6 +9047,9 @@ local function enterChallengeOverride(kind, endsAt, now, hrp, hum)
     local hrpPos = hrp.Position
     if kind == "Mine" then
         State.AutoMine = true
+        if State.MineMoveMode == "Nearby Only" then
+            State.MineMoveMode = "Auto Walk"
+        end
         State.MineWalkToNodes = true
         local astNode = findBestAvailableAsteroidNode(hrpPos, now)
         if astNode then
@@ -10344,7 +9164,7 @@ evaluatePriorityOverrides = function(now, hrp, hum)
     end
     OverrideState.nextEvalAt = now + 0.35
 
-    -- 1. Top Priority: Enabled Server Challenge
+    -- Challenge override
     local chalKind, chalEnds = nil, 0
     if State.AutoDoChallenges then
         chalKind, chalEnds = getActiveServerChallenge()
@@ -10361,7 +9181,7 @@ evaluatePriorityOverrides = function(now, hrp, hum)
         return
     end
 
-    -- 2. Second Priority: Universal Dynamic Gem Asteroid (when not already natively prioritizing asteroids via AutoMine)
+    -- Asteroid override
     if OverrideState.mode == "asteroid" then
         local astNode = State.AutoAsteroidUniversal and findBestAvailableAsteroidNode(hrp.Position, now) or nil
         if not astNode then
@@ -10379,9 +9199,7 @@ evaluatePriorityOverrides = function(now, hrp, hum)
 end
 end
 
--- ============================================================================
--- HEARTBEAT, STEPPED, JUMP & ANTI-AFK CONNECTIONS
--- ============================================================================
+-- Runtime connections
 trackConn(RunService.Heartbeat:Connect(function()
     if not Running then return end
     local now = os.clock()
@@ -10411,6 +9229,10 @@ trackConn(RunService.Heartbeat:Connect(function()
         OutdoorsState.gem.lastUiAt = now
         OutdoorsState.refreshGlobalPredators(now)
         OutdoorsState.gemStatusLabel.Text = OutdoorsState.getGemStatusText()
+    end
+
+    if State.SpoofGemsEnabled and Cooldowns.gemSpoof then
+        pcall(Cooldowns.gemSpoof.sync, now)
     end
 
     pcall(evaluatePriorityOverrides, now, hrp, hum)
@@ -10475,7 +9297,7 @@ trackConn(RunService.Stepped:Connect(function()
     if not Running then return end
     local now = os.clock()
     pcall(syncPropCollision, now)
-    local needsNoclip = State.Noclip or (TravelState.active and (TravelState.mode == "Safe Glide" or (not TravelState.legitWalk and now < TravelState.noclipGraceUntil)))
+    local needsNoclip = State.Noclip or (TravelState.active and (TravelState.mode == "Safe Glide" or TravelState.mode == "Stepped Teleport" or (not TravelState.legitWalk and now < TravelState.noclipGraceUntil)))
     if not needsNoclip then
         if next(NoclipSavedParts) ~= nil then
             restoreCollision()
@@ -10486,10 +9308,16 @@ trackConn(RunService.Stepped:Connect(function()
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if TravelState.active and TravelState.mode == "Safe Glide" then
+    if TravelState.active and (TravelState.mode == "Safe Glide" or TravelState.mode == "Stepped Teleport") then
         if hrp then
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
+            if TravelState.mode == "Stepped Teleport" and TravelState.stepHoldPos and (hrp.Position - TravelState.stepHoldPos).Magnitude <= 6 then
+                local hp = TravelState.stepHoldPos
+                local lookAt = TravelState.stepHoldLookAt
+                local flatLook = lookAt and Vector3.new(lookAt.X, hp.Y, lookAt.Z) or nil
+                hrp.CFrame = (flatLook and (flatLook - hp).Magnitude > 0.1) and CFrame.lookAt(hp, flatLook) or CFrame.new(hp)
+            end
         end
     elseif State.Noclip and not TravelState.active then
         pcall(applyNoclipFloorGuard, now, hrp, hum)
@@ -10541,9 +9369,7 @@ trackConn(LocalPlayer.Idled:Connect(function()
     end)
 end))
 
--- ============================================================================
--- NEXWORKS v1 UI SETUP
--- ============================================================================
+-- UI
 Window = NexUI:CreateWindow({
     Title = "NexWorks v1",
     GameName = "Tavern Town",
@@ -10556,13 +9382,13 @@ Window = NexUI:CreateWindow({
     FloatingPill = true,
 })
 
--- Shared outside tab do-blocks so Tab 3 (Outdoors) toggles resolve setToggleState cleanly
+-- Shared tab helpers
 local OVERRIDE_CONFLICT_GROUP = {
     AutoBarServe = "tavern", AutoClearWash = "tavern", KeepTavernOpen = "tavern", AutoRefillKegs = "tavern",
     AutoCook = "tavern", AutoCookPerfect = "tavern", AutoCookDeliver = "tavern", AutoCookPrep = "tavern",
     AutoHunt = "outdoors", HuntWalkToTarget = "outdoors", HuntPumpkin = "outdoors", AutoCollectKills = "outdoors",
     AutoFish = "outdoors", FishWalkToWater = "outdoors",
-    AutoMine = "outdoors", MineWalkToNodes = "outdoors",
+    AutoMine = "outdoors", MineMoveMode = "outdoors", MineWalkToNodes = "outdoors",
     AutoGemFarm = "outdoors",
 }
 
@@ -10584,7 +9410,7 @@ local function setToggleState(field, val)
     State[field] = val
 end
 
--- TAB 1: TAVERN (Feature #1: Bar & Serve | Kitchen & Cook | Feature #2: Security)
+-- Tab: Tavern
 do
 local TavernTab = Window:CreateTab("Tavern", "rbxassetid://11419713314", true)
 local tavernSubs = TavernTab:CreateSubTabs({ "Bar & Serve", "Kitchen & Cook", "Security" }, "Bar & Serve")
@@ -10606,6 +9432,9 @@ barPage:CreateDropdown("Service Range Mode", "bar_move_mode", { "Auto Teleport",
     else
         State.MoveMode = v
     end
+end)
+barPage:CreateDropdown("Plot Long-Hop Mode", "bar_long_hop_mode", { "Stepped Teleport", "Safe Glide" }, "Stepped Teleport", function(v)
+    State.PlotLongHopMode = v
 end)
 barPage:CreateToggle("Walk Through Furniture (Auto Walk)", "walk_through_furniture", true, function(v)
     State.WalkThroughFurniture = v
@@ -10774,7 +9603,7 @@ secPage:CreateButton("Kick Troublemakers Now", function()
 end)
 end
 
--- TAB 2: WORLD (Feature #3: Travel & Events | Visuals & Move)
+-- Tab: World
 do
 local WORLD_ZONES_ORDER = {
     "Own Tavern (Bar)",
@@ -10944,7 +9773,7 @@ visualsPage:CreateToggle("Noclip (Walk Through Walls)", "noclip", false, functio
 end)
 end
 
--- TAB 3: OUTDOORS (Feature #4: Hunting, Fishing, Mining)
+-- Tab: Outdoors
 do
 local OutdoorsTab = Window:CreateTab("Outdoors", "rbxassetid://11422142913", true)
 local outdoorsSubs = OutdoorsTab:CreateSubTabs({ "Hunting", "Fishing", "Mining", "Gems" }, "Hunting")
@@ -11018,9 +9847,33 @@ fishPage:CreateSection("FISH BAG")
 fishPage:CreateDropdown("Auto Sell Fish Bag", "outdoors_fish_autosell", { "Off", "When Full", "Every 5 Catches", "Every Catch" }, "When Full", function(v)
     setToggleState("AutoSellFishMode", v)
 end)
-fishPage:CreateButton("Sell All Fish Now", function()
+NexUI.Config["outdoors_fish_keep_rarities"] = OutdoorsState.normalizeKeepFishRarities(NexUI.Config["outdoors_fish_keep_rarities"])
+fishPage:CreateMultiDropdown("Don't Sell Rarities", "outdoors_fish_keep_rarities", OutdoorsState.fishCatalog.rarities, {}, function(v)
+    local norm = OutdoorsState.normalizeKeepFishRarities(v)
+    State.KeepFishRarities = norm
+    NexUI.Config["outdoors_fish_keep_rarities"] = norm
+end)
+NexUI.Config["outdoors_fish_keep_types"] = OutdoorsState.normalizeKeepFishTypes(NexUI.Config["outdoors_fish_keep_types"])
+fishPage:CreateMultiDropdown("Don't Sell Fish Types", "outdoors_fish_keep_types", OutdoorsState.fishCatalog.speciesNames, {}, function(v)
+    local norm = OutdoorsState.normalizeKeepFishTypes(v)
+    State.KeepFishTypes = norm
+    NexUI.Config["outdoors_fish_keep_types"] = norm
+end)
+fishPage:CreateButton("Sell Unprotected Fish Now", function()
+    if getRemote("FishBag") then
+        maybeSellFishBag(os.clock(), true)
+    else
+        Window:Notify("Outdoors · Fishing", "FishBag remote not found yet.")
+    end
+end)
+fishPage:CreateButton("Sell ALL Fish Now (Ignores Filters)", function()
     local fishBagRemote = getRemote("FishBag")
     if fishBagRemote then
+        OutdoorsState.fishPendingSell = false
+        OutdoorsState.fishPendingSellManual = false
+        OutdoorsState.fishBagCount = 0
+        OutdoorsState.fishCatches = 0
+        table.clear(OutdoorsState.fishBagItems)
         fishBagRemote:FireServer("SellAll", nil)
         Window:Notify("Outdoors · Fishing", "Sold all fish in bag.")
     else
@@ -11044,8 +9897,9 @@ end)
 minePage:CreateDropdown("Node Priority", "outdoors_mine_priority", { "Largest First", "Smallest First", "Nearest" }, "Largest First", function(v)
     State.MinePriority = v
 end)
-minePage:CreateToggle("Walk to Nodes & Mine Tunnel", "outdoors_mine_walk", true, function(v)
-    setToggleState("MineWalkToNodes", v)
+minePage:CreateDropdown("Mine Movement Mode", "outdoors_mine_mode", { "Auto Walk", "Instant Teleport", "Nearby Only" }, "Auto Walk", function(v)
+    setToggleState("MineMoveMode", v)
+    setToggleState("MineWalkToNodes", v ~= "Nearby Only")
 end)
 
 local gemsPage = outdoorsSubs["Gems"]
@@ -11117,7 +9971,8 @@ gemsPage:CreateToggle("Auto Farm Gems (Cycle Hunt + Mine)", "gems_auto_farm", fa
             State.AutoHunt = false
             State.AutoMine = false
             State.HuntWalkToTarget = NexUI.Config["outdoors_hunt_walk"] ~= false
-            State.MineWalkToNodes = NexUI.Config["outdoors_mine_walk"] ~= false
+            State.MineMoveMode = NexUI.Config["outdoors_mine_mode"] or "Auto Walk"
+            State.MineWalkToNodes = (State.MineMoveMode ~= "Nearby Only")
             State.AutoCollectKills = NexUI.Config["outdoors_collect_kills"] ~= false
             OutdoorsState.miningNodeId = nil
             OutdoorsState.miningUntil = 0
@@ -11171,7 +10026,7 @@ gemsPage:CreateToggle("Also Hunt Giant Pumpkin", "gems_include_pumpkin", true, f
 end)
 end
 
--- TAB 4: SETTINGS
+-- Tab: Settings
 do
 local SettingsTab = Window:CreateTab("Settings", "rbxassetid://11419714600")
 SettingsTab:CreateSection("INTERFACE")
@@ -11193,9 +10048,47 @@ SettingsTab:CreateButton("Server Hop", function()
         TeleportService:Teleport(game.PlaceId, LocalPlayer)
     end)
 end)
+
+SettingsTab:CreateSection("FUN / VISUAL SPOOFER (CLIENT ONLY)")
+SettingsTab:CreateToggle("Spoof HUD Gems (Visual Only)", "spoof_gems_enabled", false, function(v)
+    State.SpoofGemsEnabled = (v == true)
+    if Cooldowns.gemSpoof then
+        if State.SpoofGemsEnabled then
+            pcall(Cooldowns.gemSpoof.sync, os.clock(), true)
+        else
+            pcall(Cooldowns.gemSpoof.restore, false)
+        end
+    end
+end)
+SettingsTab:CreateDropdown("Spoof Mode", "spoof_gems_mode", { "Exact Amount", "Add +Amount to Real", "Endless Rain (+/s)" }, "Exact Amount", function(v)
+    State.SpoofGemsMode = v
+    if State.SpoofGemsEnabled and Cooldowns.gemSpoof then
+        pcall(Cooldowns.gemSpoof.sync, os.clock(), true)
+    end
+end)
+SettingsTab:CreateTextInput("Fake Gems Amount (e.g. 999999, 5m)", "spoof_gems_amount", "999999 or 5m", "999999", function(txt)
+    local parsed = Cooldowns.gemSpoof and Cooldowns.gemSpoof.parseAmount(txt)
+    if parsed ~= nil then
+        State.SpoofGemsAmount = parsed
+        if State.SpoofGemsEnabled and Cooldowns.gemSpoof then
+            pcall(Cooldowns.gemSpoof.sync, os.clock(), true)
+        end
+    elseif tostring(txt or ""):match("%S") then
+        Window:Notify("Gem Spoofer", "Use numbers like 999999, 250k, 5m, or 1b!")
+    end
+end)
+SettingsTab:CreateButton("Flash Fake +Gems Popup", function()
+    if Cooldowns.gemSpoof then
+        local delta = (State.SpoofGemsAmount and State.SpoofGemsAmount > 0) and math.min(State.SpoofGemsAmount, 999999999) or 1000
+        if State.SpoofGemsMode == "Endless Rain (+/s)" then
+            delta = math.max(500, math.min(State.SpoofGemsAmount or 5000, 1000000))
+        end
+        pcall(Cooldowns.gemSpoof.triggerPop, delta)
+    end
+end)
 end
 
--- Sync initial State from loaded NexUI.Config flags
+-- Load saved config
 State.AutoBarServe = NexUI.Config["auto_bar_serve"] == true
 State.AutoClearWash = NexUI.Config["auto_clear_wash"] == true
 State.KeepTavernOpen = NexUI.Config["keep_tavern_open"] == true
@@ -11203,6 +10096,7 @@ State.AutoRefillKegs = NexUI.Config["auto_refill_kegs"] == true
 State.RefillThreshold = NexUI.Config["refill_threshold"] or State.RefillThreshold
 State.ServeInterval = NexUI.Config["serve_interval"] or State.ServeInterval
 State.MoveMode = NexUI.Config["bar_move_mode"] or State.MoveMode
+State.PlotLongHopMode = NexUI.Config["bar_long_hop_mode"] or State.PlotLongHopMode
 State.WalkThroughFurniture = NexUI.Config["walk_through_furniture"] ~= false
 State.AutoCook = NexUI.Config["auto_cook_orders"] == true
 State.AutoCookPerfect = NexUI.Config["auto_cook_perfect"] ~= false
@@ -11239,9 +10133,12 @@ State.AutoFish = NexUI.Config["outdoors_auto_fish"] == true
 State.FishSpot = NexUI.Config["outdoors_fish_spot"] or State.FishSpot
 State.FishWalkToWater = NexUI.Config["outdoors_fish_walk"] ~= false
 State.AutoSellFishMode = NexUI.Config["outdoors_fish_autosell"] or State.AutoSellFishMode
+State.KeepFishRarities = OutdoorsState.normalizeKeepFishRarities(NexUI.Config["outdoors_fish_keep_rarities"])
+State.KeepFishTypes = OutdoorsState.normalizeKeepFishTypes(NexUI.Config["outdoors_fish_keep_types"])
 State.AutoMine = NexUI.Config["outdoors_auto_mine"] == true
 State.MinePriority = NexUI.Config["outdoors_mine_priority"] or State.MinePriority
-State.MineWalkToNodes = NexUI.Config["outdoors_mine_walk"] ~= false
+State.MineMoveMode = NexUI.Config["outdoors_mine_mode"] or "Auto Walk"
+State.MineWalkToNodes = (State.MineMoveMode ~= "Nearby Only")
 State.AutoGemFarm = NexUI.Config["gems_auto_farm"] == true
 State.GemTriggerBears = math.max(0, math.floor(tonumber(NexUI.Config["gems_trigger_bears"]) or State.GemTriggerBears))
 State.GemTriggerWolves = math.max(0, math.floor(tonumber(NexUI.Config["gems_trigger_wolves"]) or State.GemTriggerWolves))
@@ -11258,5 +10155,11 @@ if OutdoorsState.gemStatusLabel and OutdoorsState.gemStatusLabel.Parent then
     OutdoorsState.gemStatusLabel.Text = OutdoorsState.getGemStatusText()
 end
 State.AntiAFK = NexUI.Config["anti_afk"] ~= false
+State.SpoofGemsMode = NexUI.Config["spoof_gems_mode"] or State.SpoofGemsMode
+State.SpoofGemsAmount = (Cooldowns.gemSpoof and Cooldowns.gemSpoof.parseAmount(NexUI.Config["spoof_gems_amount"])) or State.SpoofGemsAmount
+State.SpoofGemsEnabled = NexUI.Config["spoof_gems_enabled"] == true
+if State.SpoofGemsEnabled and Cooldowns.gemSpoof then
+    pcall(Cooldowns.gemSpoof.sync, os.clock(), true)
+end
 
 Window:Notify("NexWorks v1", "Tavern Town Suite loaded (Bar, Kitchen, Security, World & Outdoors ready)!")
