@@ -1,5 +1,4 @@
 
-
 --[[
     ╔══════════════════════════════════════════════════════════════════════╗
     ║  NexWorks — STORAGE HUNTERS OPEN WORLD                               ║
@@ -91,19 +90,22 @@ local pMouse = nil
 pcall(function() pMouse = LocalPlayer:GetMouse() end)
 
 pcall(function()
-    if hookmetamethod then
+    if hookmetamethod and not _G._AHPoliceNamecallHooked then
+        _G._AHPoliceNamecallHooked = true
         local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local hookFn = function(self, ...)
             local method = getnamecallmethod()
-            if method == "FireServer" and not checkcaller() then
-                local sName = tostring(self.Name):lower()
-                if sName == "policechase" then
+            if method == "FireServer" and not checkcaller() and typeof(self) == "Instance" then
+                local okN, n = pcall(function() return self.Name end)
+                if okN and type(n) == "string" and string.lower(n) == "policechase" then
                     local arg1 = ...
                     if arg1 == "Arrest" then return end
                 end
             end
             return oldNamecall(self, ...)
-        end)
+        end
+        if newcclosure then hookFn = newcclosure(hookFn) end
+        oldNamecall = hookmetamethod(game, "__namecall", hookFn)
     end
 end)
 -- CLEANUP PREVIOUS RUN
@@ -112,6 +114,16 @@ if _G.AHAutoPlaceThread then pcall(task.cancel, _G.AHAutoPlaceThread); _G.AHAuto
 if _G.AHCollectorThread then pcall(task.cancel, _G.AHCollectorThread); _G.AHCollectorThread = nil end
 if _G.AuctionRush_Thread then pcall(task.cancel, _G.AuctionRush_Thread); _G.AuctionRush_Thread = nil end
 if _G.CameraWatchdogThread then pcall(task.cancel, _G.CameraWatchdogThread); _G.CameraWatchdogThread = nil end
+
+-- Reset transient activity locks & stale garage cooldowns on fresh run / re-execute
+_G.isMiningActive = false
+_G.isFreightCollecting = false
+_G.isPickupActive = false
+_G.questTpInProgress = false
+_G.bunkerTpInProgress = false
+_G._AHUnloadingVehicle = false
+_G.AHPickupCycleRunning = false
+_G.AHGarageCooldowns = {}
 
 _G.AHScanner_RunID = (_G.AHScanner_RunID or 0) + 1
 local myRunID = _G.AHScanner_RunID
@@ -171,19 +183,45 @@ local function safeTP(cf, includeVehicle)
             end
         end
         
-        -- Raycast from 40 studs above down to detect true ground surface (never clip into terrain!)
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        rayParams.FilterDescendantsInstances = { char, vehicle }
-        rayParams.RespectCanCollide = true
-        
         -- Request streaming for target position so terrain & models load before placement
         pcall(function()
             game:GetService("Players").LocalPlayer:RequestStreamAroundAsync(rawPos)
         end)
-        
-        -- Raycast from 120 studs above down to detect true ground surface (never clip into terrain!)
-        local rayHit = workspace:Raycast(rawPos + Vector3.new(0, 120, 0), Vector3.new(0, -250, 0), rayParams)
+
+        -- Raycast helper that ignores water surfaces/parts so underground spots (e.g. The Mines under Sea Tile 12.water) never snap onto ocean
+        local function raycastSolidGround(origin, dir)
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            local ex = { char, vehicle }
+            rayParams.FilterDescendantsInstances = ex
+            rayParams.RespectCanCollide = true
+            rayParams.IgnoreWater = true
+            for _ = 1, 8 do
+                local hit = workspace:Raycast(origin, dir, rayParams)
+                if not hit then return nil end
+                local inst = hit.Instance
+                local isWaterPart = inst and (
+                    hit.Material == Enum.Material.Water
+                    or string.find(string.lower(inst.Name), "water", 1, true) ~= nil
+                    or (inst.Parent and string.find(string.lower(inst.Parent.Name), "water", 1, true) ~= nil)
+                )
+                if not isWaterPart then
+                    return hit
+                end
+                table.insert(ex, inst)
+                rayParams.FilterDescendantsInstances = ex
+            end
+            return nil
+        end
+
+        -- Probe close to rawPos first (+6 studs down) so caves/interiors/garages hit their floor instead of overhead roofs or ocean water
+        local rayHit = raycastSolidGround(rawPos + Vector3.new(0, 6, 0), Vector3.new(0, -40, 0))
+        if not rayHit then
+            local highHit = raycastSolidGround(rawPos + Vector3.new(0, 120, 0), Vector3.new(0, -250, 0))
+            if highHit and highHit.Position.Y <= rawPos.Y + 25 then
+                rayHit = highHit
+            end
+        end
         local groundY = rayHit and rayHit.Position.Y or rawPos.Y
         -- Elevate safely above ground so legs never clip into terrain
         local finalY = groundY + (vehicle and 6.0 or 4.5)
@@ -252,13 +290,6 @@ if _G.AHCleanUpSignals then
         pcall(function() sig:Disconnect() end)
     end
 end
-pcall(function()
-    if getconnections and UserInputService and UserInputService.InputEnded then
-        for _, c in ipairs(getconnections(UserInputService.InputEnded)) do
-            if c.Disconnect then pcall(function() c:Disconnect() end) end
-        end
-    end
-end)
 _G.AHCleanUpSignals = {}
 local cleanUpSignals = _G.AHCleanUpSignals
 
@@ -288,7 +319,7 @@ end
 -- ═════════════════════════════════════════════════════
 local RARITY_MULT = { Common = 1.0, Uncommon = 1.3, Rare = 2.0, Epic = 4.0, Legendary = 8.0, Mythical = 15.0, Exclusive = 25.0 }
 local MUTATOR_MULT = {
-    None = 1, Silver = 2, Gold = 4, Corrupted = 6, Diamond = 8, Gem = 12, Rainbow = 20,
+    None = 1, Mint = 1.15, Silver = 2, Gold = 4, Corrupted = 6, Diamond = 8, Gem = 12, Rainbow = 20,
     Dusty = 0.9, ["Saloon Sparkle"] = 2.1, Tumbleweed = 3.5, Gunsmoked = 11.0, Goldrush = 25.0,
     -- [Train] Cargo Train Mutators
     ["Polished Brass"] = 3.5, Steam = 10.0, Clockwork = 25.0,
@@ -296,8 +327,151 @@ local MUTATOR_MULT = {
     Titanium = 7.0, Morganite = 9.0, Citrine = 11.0, Lapis = 13.0, Carnelian = 15.0,
     Aquamarine = 17.0, Amethyst = 20.0, Emerald = 40.0, Sapphire = 60.0, Ruby = 110.0,
     -- [Military] Military Base & Carnival Mutators
-    Bulletproof = 3.0, Fortified = 4.0, Jestered = 5.0, Vaulted = 7.0, Camo = 16.0, Warforged = 30.0, Encrypted = 35.0
+    Bulletproof = 3.0, Fortified = 4.0, Jestered = 5.0, Vaulted = 7.0, Camo = 16.0, Warforged = 30.0, Encrypted = 35.0,
+    -- [Pickle] Pickle Rain Event Mutators
+    Pickled = 2.0, Chamoy = 5.0, Spicy = 11.0, ["Pickle Jar"] = 20.0,
+    -- [Mastery & Thanksgiving] v0.27.0+ Mutators (auto-synced with live MutatorModule below)
+    Mastery = 10.0,
+    ["Whipped Cream"] = 3.5, Woven = 12.5, ["Cranberry Crush"] = 25.0, ["Gobbler's Gold"] = 50.0,
+    Gummy = 4.0, Frozen = 5.0, Swampy = 6.0, Onyx = 15.0
 }
+_G.MUTATOR_MULT = MUTATOR_MULT
+do
+    local function extractMutatorMult(mm, name, val)
+        if type(val) == "number" then return val end
+        if type(val) == "table" then
+            local m = tonumber(val.Multiplier or val.multiplier or val.Mult or val.mult or val.PriceMultiplier or val.ValueMultiplier or val.Value)
+            if m and m > 0 then return m end
+        end
+        if type(mm) == "table" then
+            for _, fnName in ipairs({"GetMultiplier", "GetPriceMultiplier", "GetMutatorMultiplier"}) do
+                if type(mm[fnName]) == "function" then
+                    local ok1, r1 = pcall(mm[fnName], mm, name)
+                    if ok1 and type(r1) == "number" and r1 > 0 then return r1 end
+                    local ok2, r2 = pcall(mm[fnName], name)
+                    if ok2 and type(r2) == "number" and r2 > 0 then return r2 end
+                end
+            end
+        end
+        return nil
+    end
+
+    _G.NexGetLiveMutations = function(forceRefresh)
+        if not forceRefresh and _G._NexLiveMutCache and _G._NexLiveMutCache.list and #_G._NexLiveMutCache.list > 0 then
+            return _G._NexLiveMutCache.list, MUTATOR_MULT
+        end
+        local seen = {}
+        local listOut = {}
+        local IGNORED_TAGS = {
+            Showcased = true, Fish = true, Quest = true, Police = true,
+            Limited = true, Exclusive = true, Artifact = true,
+        }
+        local function addMut(name, mult, uiColor)
+            if type(name) ~= "string" then return end
+            local clean = name:match("^%s*(.-)%s*$")
+            if not clean or clean == "" or clean == "None" or IGNORED_TAGS[clean] then return end
+            if type(mult) == "number" and mult > 0 then
+                MUTATOR_MULT[clean] = mult
+            elseif MUTATOR_MULT[clean] == nil then
+                MUTATOR_MULT[clean] = 1
+            end
+            if typeof and typeof(uiColor) == "Color3" and _G.MUT_COL then
+                _G.MUT_COL[clean] = uiColor
+            end
+            if not seen[clean] then
+                seen[clean] = true
+                table.insert(listOut, clean)
+            end
+        end
+
+        pcall(function()
+            local mods = ReplicatedStorage:FindFirstChild("Modules")
+            local mmMod = mods and mods:FindFirstChild("MutatorModule")
+            local mm = mmMod and require(mmMod)
+            if type(mm) == "table" then
+                local function getMeta(name, rawVal)
+                    local mult = extractMutatorMult(mm, name, rawVal)
+                    local col = (type(rawVal) == "table" and (rawVal.UIColor or rawVal.Color)) or nil
+                    if (not mult or not col) and type(mm.GetByName) == "function" then
+                        local okG, rec = pcall(mm.GetByName, mm, name)
+                        if not okG or type(rec) ~= "table" then
+                            okG, rec = pcall(mm.GetByName, name)
+                        end
+                        if okG and type(rec) == "table" then
+                            mult = mult or extractMutatorMult(mm, name, rec)
+                            col = col or rec.UIColor or rec.Color
+                        end
+                    end
+                    return mult, col
+                end
+                local candidateNames = {
+                    "Mutators", "ByName", "All", "Definitions", "Configs",
+                    "List", "Multipliers", "_kindByName", "Kinds", "MutationData", "Data"
+                }
+                for _, kName in ipairs(candidateNames) do
+                    local tbl = mm[kName]
+                    if type(tbl) == "table" then
+                        for k, v in pairs(tbl) do
+                            if type(k) == "string" and k ~= "" and not k:match("^_") then
+                                local resolvedName = (type(v) == "table" and (v.Name or v.name or v.DisplayName)) or k
+                                local mult, col = getMeta(tostring(resolvedName), v)
+                                addMut(tostring(resolvedName), mult, col)
+                            elseif type(k) == "number" and type(v) == "table" then
+                                local mName = v.Name or v.name or v.Id or v.DisplayName
+                                if type(mName) == "string" and mName ~= "" then
+                                    local mult, col = getMeta(mName, v)
+                                    addMut(mName, mult, col)
+                                end
+                            elseif type(k) == "number" and type(v) == "string" and v ~= "" then
+                                local mult, col = getMeta(v, nil)
+                                addMut(v, mult, col)
+                            end
+                        end
+                    end
+                end
+                -- Also inspect any table-valued field containing non-tag mutator records
+                for fieldK, fieldV in pairs(mm) do
+                    local fkLow = tostring(fieldK):lower()
+                    if type(fieldV) == "table" and fieldK ~= "_kindByName" and not fkLow:find("tag") then
+                        for k, v in pairs(fieldV) do
+                            if type(v) == "table" and (v.Multiplier or v.PriceMultiplier or v.Mult or v.Color or v.UIColor or v.Gradient) then
+                                local mName = (type(v.Name) == "string" and v.Name) or (type(k) == "string" and k) or nil
+                                if mName and mName ~= "" and not mName:match("^_") then
+                                    local mult, col = getMeta(mName, v)
+                                    addMut(mName, mult, col)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+
+        -- Merge static fallback mutators so nothing is ever lost
+        for mName, mVal in pairs(MUTATOR_MULT) do
+            if type(mName) == "string" and mName ~= "None" then
+                addMut(mName, mVal)
+            end
+        end
+        local extraFallbacks = {
+            "Mint", "Diamond", "Pure", "Gold", "Rainbow", "Corrupted", "Gem",
+            "Secret", "Void", "Ancient", "Timeless", "Antique", "Redacted", "Seized", "Silver",
+            "Dusty", "Saloon Sparkle", "Tumbleweed", "Gunsmoked", "Goldrush",
+            "Pickled", "Chamoy", "Spicy", "Pickle Jar",
+            "Mastery", "Whipped Cream", "Woven", "Cranberry Crush", "Gobbler's Gold",
+            "Gummy", "Frozen", "Swampy", "Onyx"
+        }
+        for _, fb in ipairs(extraFallbacks) do
+            addMut(fb, MUTATOR_MULT[fb])
+        end
+
+        table.sort(listOut)
+        _G._NexLiveMutCache = { list = listOut, map = MUTATOR_MULT, updatedAt = os.clock() }
+        return listOut, MUTATOR_MULT
+    end
+
+    pcall(_G.NexGetLiveMutations, true)
+end
 local GRADE_MULT = { [0] = 0.6, [1] = 0.8, [2] = 1.0, [3] = 1.25 }
 local CONDITION_MULT = { Broken = 0.3, Poor = 0.55, Fair = 0.75, Good = 0.9, Excellent = 1.0, Mint = 1.15 }
 -- ═════════════════════════════════════════════════════
@@ -343,6 +517,11 @@ local GARAGE_CATALOG = {
     ["Bunker Garage"]           = { name="Bunker Garage",        tier=43, area="Military Base", mascot="Soldier", minNW=400000000, minBid=50000, minProfit=-50000, maxProfit=500000, items=6, entMin=2200, entMax=2200, col=Color3.fromRGB(70, 90, 50), event=true },
     ["Camo Airdrop"]            = { name="Camo Airdrop",         tier=44, area="Military Base", mascot="Soldier", minNW=80000000,  minBid=20000, minProfit=-20000, maxProfit=200000, items=3, entMin=2000, entMax=2000, col=Color3.fromRGB(110, 116, 84), event=true },
     ["Train Container 4"]       = { name="Train Container 4",    tier=37, area="Cargo Train", mascot="Conductor", minNW=60000000, minBid=10000,minProfit=-10000,maxProfit=100000,items=4, entMin=1,   entMax=1,   col=Color3.fromRGB(240, 90,  30),  event=true },
+    -- [Thanksgiving] Thanksgiving Event Garages
+    ["Thanksgiving Garage 1"]   = { name="Thanksgiving G1",      tier=45, area="Thanksgiving", mascot="Pilgrim Pete", minNW=0, minBid=0, minProfit=0, maxProfit=5000,   items=6, entMin=8,   entMax=8,   col=Color3.fromRGB(235, 145, 50), event=true },
+    ["Thanksgiving Garage 2"]   = { name="Thanksgiving G2",      tier=46, area="Thanksgiving", mascot="Pilgrim Pete", minNW=0, minBid=0, minProfit=0, maxProfit=15000,  items=6, entMin=18,  entMax=18,  col=Color3.fromRGB(220, 118, 38), event=true },
+    ["Thanksgiving Garage 3"]   = { name="Thanksgiving G3",      tier=47, area="Thanksgiving", mascot="Pilgrim Pete", minNW=0, minBid=0, minProfit=0, maxProfit=50000,  items=6, entMin=65,  entMax=65,  col=Color3.fromRGB(200, 88,  30), event=true },
+    ["Thanksgiving Garage 4"]   = { name="Thanksgiving G4",      tier=48, area="Thanksgiving", mascot="Pilgrim Pete", minNW=0, minBid=0, minProfit=0, maxProfit=150000, items=6, entMin=250, entMax=250, col=Color3.fromRGB(180, 58,  25), event=true },
 }
 for id, gConfig in pairs(GARAGE_CATALOG) do
     local live = GaragesData[id]
@@ -352,8 +531,16 @@ for id, gConfig in pairs(GARAGE_CATALOG) do
         gConfig.minProfit = tonumber(live.MinProfit)       or gConfig.minProfit
         gConfig.maxProfit = tonumber(live.MaxProfit)       or gConfig.maxProfit
         gConfig.items     = tonumber(live.NumItems)        or gConfig.items
+        if type(live.EntryCost) == "table" then
+            gConfig.entMin = tonumber(live.EntryCost.Min) or gConfig.entMin
+            gConfig.entMax = tonumber(live.EntryCost.Max) or gConfig.entMax
+        elseif tonumber(live.EntryCost) then
+            gConfig.entMin = tonumber(live.EntryCost)
+            gConfig.entMax = tonumber(live.EntryCost)
+        end
     end
 end
+_G.GARAGE_CATALOG = GARAGE_CATALOG
 -- ═════════════════════════════════════════════════════
 -- THEME & PALETTES
 -- ═════════════════════════════════════════════════════
@@ -394,11 +581,25 @@ local C = {
     mutTumbleweed = Color3.fromRGB(186, 163, 100),
     mutGunsmoked = Color3.fromRGB(155, 151, 150),
     mutGoldrush = Color3.fromRGB(255, 181, 61),
+    mutPickled = Color3.fromRGB(115, 210, 75),
+    mutChamoy = Color3.fromRGB(215, 55, 55),
+    mutSpicy = Color3.fromRGB(255, 115, 45),
+    mutPickleJar = Color3.fromRGB(95, 235, 120),
+    mutMastery = Color3.fromRGB(255, 215, 70),
+    mutWhippedCream = Color3.fromRGB(255, 245, 225),
+    mutWoven = Color3.fromRGB(205, 145, 80),
+    mutCranberry = Color3.fromRGB(210, 38, 72),
+    mutGobblersGold = Color3.fromRGB(255, 195, 35),
 }
 local TIER_COL = {[0]=C.textMuted,[1]=C.t1,[2]=C.t2,[3]=C.t3,[4]=C.t4,[5]=C.t5,[6]=C.t6,[7]=C.t7}
 local MUT_COL  = { None=C.mutNone, Silver=C.mutSilver, Gold=C.mutGold, Corrupted=C.mutCorr,
                    Diamond=C.mutDia, Gem=C.mutGem, Rainbow=C.mutRainbow, Redacted=C.mutRedacted, Seized=C.mutSeized,
-                   Dusty=C.mutDusty, ["Saloon Sparkle"]=C.mutSaloonSparkle, Tumbleweed=C.mutTumbleweed, Gunsmoked=C.mutGunsmoked, Goldrush=C.mutGoldrush }
+                   Dusty=C.mutDusty, ["Saloon Sparkle"]=C.mutSaloonSparkle, Tumbleweed=C.mutTumbleweed, Gunsmoked=C.mutGunsmoked, Goldrush=C.mutGoldrush,
+                   Pickled=C.mutPickled, Chamoy=C.mutChamoy, Spicy=C.mutSpicy, ["Pickle Jar"]=C.mutPickleJar,
+                   Mastery=C.mutMastery, ["Whipped Cream"]=C.mutWhippedCream, Woven=C.mutWoven,
+                   ["Cranberry Crush"]=C.mutCranberry, ["Gobbler's Gold"]=C.mutGobblersGold }
+_G.MUT_COL = MUT_COL
+if _G.NexGetLiveMutations then pcall(_G.NexGetLiveMutations, true) end
 local RARITY_COL = {
     Common=C.textMuted, Uncommon=C.green, Rare=C.accent,
     Epic=C.purple, Legendary=C.gold, Mythical=C.orange, Exclusive=C.red
@@ -457,12 +658,11 @@ _G.gConfig = _G.gConfig or {
     autoBankHeist = false,
     heistEscapeLocation = "Plot",
     autoJailbreak = true,
-    autoWarehouseOrders = false,
-    targetOrderDifficulty = "Hard",
     autoBuyStorages = false,
     autoPlaceStoreItems = false,
     
     autoCollectWon = true,
+    autoRecallVehicle = true,
     minPickupValue = 0,
     minAutoPlaceValue = 0,
     maxAutoPlaceValue = 0,
@@ -489,9 +689,6 @@ _G.gConfig = _G.gConfig or {
     autoCollectMuseumGifts = false,
     autoClaimIndexRewards = false,
     autoClaimDiamondCharm = false,
-    autoSwapGavelLoadout = false,
-    mainGavelLoadout = 1,
-    charmGavelLoadout = 2,
     lastDiamondCharmClaim = 0,
     autoCollectTimeCapsules = false,
     targetCapsuleMutators = {["Antique"] = true, ["Ancient"] = true, ["Timeless"] = true},
@@ -502,9 +699,6 @@ _G.gConfig = _G.gConfig or {
     }
 gConfig = _G.gConfig
 if gConfig.autoClaimDiamondCharm == nil then gConfig.autoClaimDiamondCharm = false end
-if gConfig.autoSwapGavelLoadout == nil then gConfig.autoSwapGavelLoadout = false end
-if gConfig.mainGavelLoadout == nil then gConfig.mainGavelLoadout = 1 end
-if gConfig.charmGavelLoadout == nil then gConfig.charmGavelLoadout = 2 end
 if gConfig.lastDiamondCharmClaim == nil then gConfig.lastDiamondCharmClaim = 0 end
 if gConfig.quickWinAuction == nil then gConfig.quickWinAuction = false end
 if gConfig.quickWinMinStartBid == nil then gConfig.quickWinMinStartBid = 0 end
@@ -515,9 +709,6 @@ if gConfig.autoBankHeist == nil then gConfig.autoBankHeist = false end
 if gConfig.heistEscapeLocation == nil then gConfig.heistEscapeLocation = "Plot" end
 if gConfig.autoJailbreak == nil then gConfig.autoJailbreak = true end
 if gConfig.antiArrest == nil then gConfig.antiArrest = true end
-if gConfig.autoResetAfterSeized == nil then gConfig.autoResetAfterSeized = false end
-if gConfig.autoWarehouseOrders == nil then gConfig.autoWarehouseOrders = false end
-if gConfig.targetOrderDifficulty == nil then gConfig.targetOrderDifficulty = "Hard" end
 if gConfig.autoPlaceThreshold == nil then gConfig.autoPlaceThreshold = 80 end
 if gConfig.mutePlacingSounds == nil then gConfig.mutePlacingSounds = false end
 if gConfig.enablePlotPitStop == nil then gConfig.enablePlotPitStop = false end
@@ -528,7 +719,6 @@ _G.protectQuestParts = gConfig.protectQuestParts
 -- [Mine] The Mines Config Defaults
 if gConfig.autoMineNodes == nil then gConfig.autoMineNodes = false end
 if gConfig.miningTargetNode == nil then gConfig.miningTargetNode = "Auto" end
-if gConfig.miningSwingDelay == nil then gConfig.miningSwingDelay = 0.28 end
 if gConfig.autoBrewCauldron == nil then gConfig.autoBrewCauldron = false end
 if gConfig.autoBuyMiningDrinks == nil then gConfig.autoBuyMiningDrinks = false end
 if gConfig.buyMiningDrinks == nil or type(gConfig.buyMiningDrinks) ~= "table" then
@@ -540,13 +730,11 @@ if gConfig.useMiningDrinks == nil or type(gConfig.useMiningDrinks) ~= "table" th
 end
 
 if gConfig.auctionRush == nil then gConfig.auctionRush = true end
-if gConfig.minUraniumWeightKg == nil then gConfig.minUraniumWeightKg = 0 end
 if gConfig.continuousMiningDuringAuctions == nil then gConfig.continuousMiningDuringAuctions = true end
 
 -- [Train] Cargo Train & Freight Config Defaults
 if gConfig.autoCollectMissingFreight == nil then gConfig.autoCollectMissingFreight = false end
 if gConfig.autoClaimDailyTickets == nil then gConfig.autoClaimDailyTickets = true end
-if gConfig.autoHandInConductor == nil then gConfig.autoHandInConductor = false end
 
 -- [Military] Military Base & Carnival QoL Defaults
 if gConfig.tpOnNavigate == nil then gConfig.tpOnNavigate = false end
@@ -559,6 +747,68 @@ if gConfig.carnivalTargetGame == nil then gConfig.carnivalTargetGame = "Token Dr
 if gConfig.noNPCCollision == nil then gConfig.noNPCCollision = true end
 if gConfig.showFloatingCollect == nil then gConfig.showFloatingCollect = false end
 if gConfig.manualCollectDelay == nil then gConfig.manualCollectDelay = 15 end
+
+-- [v428] Management / Fishing / Crystal Cavern / Pickle Rain Defaults
+if gConfig.allowFavoritedLuckDrinks == nil then gConfig.allowFavoritedLuckDrinks = false end
+if gConfig.autoPawnMaxWeightKg == nil then gConfig.autoPawnMaxWeightKg = 0 end
+if gConfig.autoPawnMinWeightKg == nil then gConfig.autoPawnMinWeightKg = 0 end
+if gConfig.autoFish == nil then gConfig.autoFish = false end
+if gConfig.autoEquipFishingRod == nil then gConfig.autoEquipFishingRod = true end
+if gConfig.fishingRodPriority == nil then gConfig.fishingRodPriority = "Best First" end
+if gConfig.autoSelectBestBait == nil then gConfig.autoSelectBestBait = true end
+if gConfig.preferredFishingBait == nil then gConfig.preferredFishingBait = "Auto Best" end
+if gConfig.alwaysBidFishingBait == nil then gConfig.alwaysBidFishingBait = false end
+if gConfig.targetFishingBaitTypes == nil or type(gConfig.targetFishingBaitTypes) ~= "table" then
+    gConfig.targetFishingBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true }
+end
+if gConfig.protectFishingBait == nil then gConfig.protectFishingBait = true end
+if gConfig.protectFishingLures == nil then gConfig.protectFishingLures = true end
+if gConfig.autoBuyTackleBait == nil then gConfig.autoBuyTackleBait = false end
+if gConfig.tackleShopBaitTypes == nil or type(gConfig.tackleShopBaitTypes) ~= "table" then
+    gConfig.tackleShopBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true }
+end
+if gConfig.protectHighLuckFish == nil then gConfig.protectHighLuckFish = false end
+if gConfig.protectFishMinLuckPct == nil then gConfig.protectFishMinLuckPct = 5 end
+if gConfig.autoFillFishTank == nil then gConfig.autoFillFishTank = false end
+if gConfig.fishTankMode == nil then gConfig.fishTankMode = "Highest Luck First" end
+if gConfig.autoBuyFishingPotion == nil then gConfig.autoBuyFishingPotion = false end
+if gConfig.autoUseFishingPotion == nil then gConfig.autoUseFishingPotion = false end
+if gConfig.autoOpenCrystalCavern == nil then gConfig.autoOpenCrystalCavern = false end
+if gConfig.autoEnterCrystalCavern == nil then gConfig.autoEnterCrystalCavern = true end
+if gConfig.crystalEspEnabled == nil then gConfig.crystalEspEnabled = true end
+if gConfig.cavernSurfaceEsp == nil then gConfig.cavernSurfaceEsp = true end
+if gConfig.autoEquipPickaxe == nil then gConfig.autoEquipPickaxe = true end
+if gConfig.targetCrystalGems == nil or type(gConfig.targetCrystalGems) ~= "table" then
+    gConfig.targetCrystalGems = { Diamond = true, Ruby = true, Sapphire = true, Emerald = true }
+end
+if gConfig.autoCrackTargetCrystals == nil then gConfig.autoCrackTargetCrystals = false end
+if gConfig.autoDigCrystalCavern == nil then gConfig.autoDigCrystalCavern = false end
+if gConfig.autoCollectMiningAssistant == nil then gConfig.autoCollectMiningAssistant = false end
+if gConfig.autoRenewMiningAssistant == nil then gConfig.autoRenewMiningAssistant = false end
+if gConfig.alertPickleRain == nil then gConfig.alertPickleRain = true end
+if gConfig.prioritizePickleLots == nil then gConfig.prioritizePickleLots = false end
+if gConfig.alwaysBidPickleLots == nil then gConfig.alwaysBidPickleLots = false end
+
+-- [v16.6] Index Mastery & Thanksgiving Event Defaults
+if gConfig.autoIndexHunter == nil then gConfig.autoIndexHunter = false end
+if gConfig.indexHunterAreas == nil or type(gConfig.indexHunterAreas) ~= "table" then gConfig.indexHunterAreas = {} end
+if gConfig.indexHunterMode == nil then gConfig.indexHunterMode = "Thanksgiving Pool" end
+if gConfig.indexHunterAutoBestArea == nil then gConfig.indexHunterAutoBestArea = false end
+if gConfig.indexHunterRotateAfterMaster == nil then gConfig.indexHunterRotateAfterMaster = true end
+if gConfig.autoMasterArea == nil then gConfig.autoMasterArea = false end
+if gConfig.protectThanksgivingFood == nil then gConfig.protectThanksgivingFood = true end
+if gConfig.autoFeedGiantTurkey == nil then gConfig.autoFeedGiantTurkey = false end
+if gConfig.saveFoodWhileFeastActive == nil then gConfig.saveFoodWhileFeastActive = true end
+if gConfig.onlyPickupFeastFood == nil then gConfig.onlyPickupFeastFood = false end
+if gConfig.alwaysBidTurkeySafe == nil then gConfig.alwaysBidTurkeySafe = false end
+if gConfig.alwaysBidThanksgivingFood == nil then gConfig.alwaysBidThanksgivingFood = false end
+if gConfig.autoLockpickTurkeySafes == nil then gConfig.autoLockpickTurkeySafes = false end
+if gConfig.autoRollThanksgivingMarket == nil then gConfig.autoRollThanksgivingMarket = false end
+if gConfig.thanksgivingRollMode == nil then gConfig.thanksgivingRollMode = "x5" end
+if gConfig.autoUseTurkeyLuckDrink == nil then gConfig.autoUseTurkeyLuckDrink = false end
+if gConfig.alertTurkeyTrot == nil then gConfig.alertTurkeyTrot = true end
+if gConfig.autoJoinTurkeyTrot == nil then gConfig.autoJoinTurkeyTrot = false end
+if gConfig.autoRaceTurkeyTrot == nil then gConfig.autoRaceTurkeyTrot = false end
 
 _G.uiToggles = _G.uiToggles or {}
 _G.uiUpdaters = _G.uiUpdaters or {}
@@ -578,12 +828,10 @@ local function resetConfigToDefaults()
         heistEscapeLocation = "Plot",
         autoJailbreak = true,
         antiArrest = true,
-        autoResetAfterSeized = false,
-        autoWarehouseOrders = false,
-        targetOrderDifficulty = "Hard",
         autoBuyStorages = false,
         autoPlaceStoreItems = false,
         autoCollectWon = true,
+        autoRecallVehicle = true,
         manualCollectDelay = 15,
         minPickupValue = 0,
         minAutoPlaceValue = 0,
@@ -602,48 +850,9 @@ local function resetConfigToDefaults()
         afSelectedGarages = {},
         excludedItems = {},
         targetExcludedMutators = {},
-        itemRules = {},
-        itemLists = {
-            Pickup = {
-                items = {},
-                categories = {},
-                rarities = {},
-                mutations = {},
-                limitedItems = false,
-                vaultItems = false,
-            },
-            Shelves = {
-                items = {},
-                vaultItems = false,
-                limitedItems = false,
-                eventExclusives = false,
-                mutations = {},
-                categories = {},
-                rarities = {},
-            },
-            AutoSell = {
-                items = {},
-                vaultItems = false,
-                energyDrinks = false,
-                eventExclusives = false,
-                limitedItems = false,
-                mutations = {},
-                categories = {},
-                rarities = {},
-            },
-            Grading = {
-                rarities = {},
-                energyDrinks = false,
-            },
-            Auction = {
-                mutations = {},
-                items = {},
-                rarities = {},
-            },
-        },
         autoUnloadThreshold = 80,
         autoPlaceThreshold = 80,
-        pickupDelay = 0.65,
+        pickupDelay = 0.25,
         autoBuyDrinks = false,
         autoConsumeDrinks = false,
         buyLuckDrinks = { ["1"] = false, ["2"] = false, ["3"] = false },
@@ -661,6 +870,58 @@ local function resetConfigToDefaults()
         autoRollCarnival = false,
         autoPlayCarnival = false,
         carnivalTargetGame = "Token Drop",
+        allowFavoritedLuckDrinks = false,
+        autoPawnMaxWeightKg = 0,
+        autoPawnMinWeightKg = 0,
+        autoFish = false,
+        autoEquipFishingRod = true,
+        fishingRodPriority = "Best First",
+        autoSelectBestBait = true,
+        preferredFishingBait = "Auto Best",
+        alwaysBidFishingBait = false,
+        targetFishingBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true },
+        protectFishingBait = true,
+        protectFishingLures = true,
+        autoBuyTackleBait = false,
+        tackleShopBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true },
+        protectHighLuckFish = false,
+        protectFishMinLuckPct = 5,
+        autoFillFishTank = false,
+        fishTankMode = "Highest Luck First",
+        autoBuyFishingPotion = false,
+        autoUseFishingPotion = false,
+        autoOpenCrystalCavern = false,
+        autoEnterCrystalCavern = true,
+        crystalEspEnabled = true,
+        cavernSurfaceEsp = true,
+        autoEquipPickaxe = true,
+        targetCrystalGems = { Diamond = true, Ruby = true, Sapphire = true, Emerald = true },
+        autoCrackTargetCrystals = false,
+        autoDigCrystalCavern = false,
+        autoCollectMiningAssistant = false,
+        autoRenewMiningAssistant = false,
+        alertPickleRain = true,
+        prioritizePickleLots = false,
+        alwaysBidPickleLots = false,
+        autoIndexHunter = false,
+        indexHunterAreas = {},
+        indexHunterMode = "Thanksgiving Pool",
+        indexHunterAutoBestArea = false,
+        indexHunterRotateAfterMaster = true,
+        autoMasterArea = false,
+        protectThanksgivingFood = true,
+        autoFeedGiantTurkey = false,
+        saveFoodWhileFeastActive = true,
+        onlyPickupFeastFood = false,
+        alwaysBidTurkeySafe = false,
+        alwaysBidThanksgivingFood = false,
+        autoLockpickTurkeySafes = false,
+        autoRollThanksgivingMarket = false,
+        thanksgivingRollMode = "x5",
+        autoUseTurkeyLuckDrink = false,
+        alertTurkeyTrot = true,
+        autoJoinTurkeyTrot = false,
+        autoRaceTurkeyTrot = false,
         autoAcceptQuests = false,
         autoClaimQuests = false,
         autoEngineerQuest = false,
@@ -671,9 +932,6 @@ local function resetConfigToDefaults()
         autoCollectMuseumGifts = false,
         autoClaimIndexRewards = false,
         autoClaimDiamondCharm = false,
-        autoSwapGavelLoadout = false,
-        mainGavelLoadout = 1,
-        charmGavelLoadout = 2,
         lastDiamondCharmClaim = 0,
         autoCollectTimeCapsules = false,
         targetCapsuleMutators = {["Antique"] = true, ["Ancient"] = true, ["Timeless"] = true},
@@ -711,18 +969,6 @@ local function saveConfig(customProfile)
     if _G.flushInputValues then
         pcall(_G.flushInputValues)
     end
-    local function deepCopyTable(orig)
-        if type(orig) ~= "table" then return orig end
-        local copy = {}
-        for k, v in pairs(orig) do
-            if type(v) == "table" then
-                copy[k] = deepCopyTable(v)
-            else
-                copy[k] = v
-            end
-        end
-        return copy
-    end
     local profile = customProfile or currentProfileName or "default"
     local success, err = pcall(function()
         if not isfolder("NexHub") then makefolder("NexHub") end
@@ -735,7 +981,9 @@ local function saveConfig(customProfile)
                 if k == "savedPlotDriveway" and typeof(v) == "CFrame" then
                     data[k] = { v:GetComponents() }
                 elseif type(v) == "table" then
-                    data[k] = deepCopyTable(v)
+                    local copy = {}
+                    for subK, subV in pairs(v) do copy[subK] = subV end
+                    data[k] = copy
                 else
                     data[k] = v
                 end
@@ -890,16 +1138,54 @@ local function loadConfig(customProfile)
         if not gConfig.buyMiningDrinks or type(gConfig.buyMiningDrinks) ~= "table" then gConfig.buyMiningDrinks = { ["18"] = true, ["19"] = true } end
         if not gConfig.useMiningDrinks or type(gConfig.useMiningDrinks) ~= "table" then gConfig.useMiningDrinks = { ["18"] = true, ["19"] = true } end
         if not gConfig.targetCapsuleMutators then gConfig.targetCapsuleMutators = { ["Antique"] = true, ["Ancient"] = true, ["Timeless"] = true } end
-        if not gConfig.itemRules or type(gConfig.itemRules) ~= "table" then gConfig.itemRules = {} end
-        if not gConfig.itemLists or type(gConfig.itemLists) ~= "table" then
-            gConfig.itemLists = {
-                Pickup = { items = {}, categories = {}, rarities = {}, mutations = {}, limitedItems = false, vaultItems = false },
-                Shelves = { items = {}, vaultItems = false, limitedItems = false, eventExclusives = false, mutations = {}, categories = {}, rarities = {} },
-                AutoSell = { items = {}, vaultItems = false, energyDrinks = false, eventExclusives = false, limitedItems = false, mutations = {}, categories = {}, rarities = {} },
-                Grading = { rarities = {}, energyDrinks = false },
-                Auction = { mutations = {}, items = {}, rarities = {} },
-            }
+        if gConfig.allowFavoritedLuckDrinks == nil then gConfig.allowFavoritedLuckDrinks = false end
+        if gConfig.autoPawnMaxWeightKg == nil then gConfig.autoPawnMaxWeightKg = 0 end
+        if gConfig.autoPawnMinWeightKg == nil then gConfig.autoPawnMinWeightKg = 0 end
+        if gConfig.protectFishingBait == nil then gConfig.protectFishingBait = true end
+        if gConfig.protectFishingLures == nil then gConfig.protectFishingLures = true end
+        if gConfig.autoBuyTackleBait == nil then gConfig.autoBuyTackleBait = false end
+        if not gConfig.tackleShopBaitTypes or type(gConfig.tackleShopBaitTypes) ~= "table" then
+            gConfig.tackleShopBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true }
         end
+        if gConfig.protectHighLuckFish == nil then gConfig.protectHighLuckFish = false end
+        if gConfig.protectFishMinLuckPct == nil then gConfig.protectFishMinLuckPct = 5 end
+        if gConfig.autoEquipFishingRod == nil then gConfig.autoEquipFishingRod = true end
+        if gConfig.fishingRodPriority ~= "Worst First" and gConfig.fishingRodPriority ~= "Best First" then
+            gConfig.fishingRodPriority = "Best First"
+        end
+        if gConfig.autoSelectBestBait == nil then gConfig.autoSelectBestBait = true end
+        if gConfig.preferredFishingBait == nil then gConfig.preferredFishingBait = "Auto Best" end
+        if gConfig.fishTankMode == nil then gConfig.fishTankMode = "Highest Luck First" end
+        if gConfig.alertPickleRain == nil then gConfig.alertPickleRain = true end
+        if not gConfig.targetFishingBaitTypes or type(gConfig.targetFishingBaitTypes) ~= "table" then
+            gConfig.targetFishingBaitTypes = { Worm = true, Minnow = true, Shrimp = true, Squid = true }
+        end
+        if not gConfig.targetCrystalGems or type(gConfig.targetCrystalGems) ~= "table" then
+            gConfig.targetCrystalGems = { Diamond = true, Ruby = true, Sapphire = true, Emerald = true }
+        end
+        if gConfig.autoIndexHunter == nil then gConfig.autoIndexHunter = false end
+        if not gConfig.indexHunterAreas or type(gConfig.indexHunterAreas) ~= "table" then gConfig.indexHunterAreas = {} end
+        if gConfig.indexHunterMode ~= "Native Area" and gConfig.indexHunterMode ~= "Thanksgiving Pool" then
+            gConfig.indexHunterMode = "Thanksgiving Pool"
+        end
+        if gConfig.indexHunterAutoBestArea == nil then gConfig.indexHunterAutoBestArea = false end
+        if gConfig.indexHunterRotateAfterMaster == nil then gConfig.indexHunterRotateAfterMaster = true end
+        if gConfig.autoMasterArea == nil then gConfig.autoMasterArea = false end
+        if gConfig.protectThanksgivingFood == nil then gConfig.protectThanksgivingFood = true end
+        if gConfig.autoFeedGiantTurkey == nil then gConfig.autoFeedGiantTurkey = false end
+        if gConfig.saveFoodWhileFeastActive == nil then gConfig.saveFoodWhileFeastActive = true end
+        if gConfig.onlyPickupFeastFood == nil then gConfig.onlyPickupFeastFood = false end
+        if gConfig.alwaysBidTurkeySafe == nil then gConfig.alwaysBidTurkeySafe = false end
+        if gConfig.alwaysBidThanksgivingFood == nil then gConfig.alwaysBidThanksgivingFood = false end
+        if gConfig.autoLockpickTurkeySafes == nil then gConfig.autoLockpickTurkeySafes = false end
+        if gConfig.autoRollThanksgivingMarket == nil then gConfig.autoRollThanksgivingMarket = false end
+        if gConfig.thanksgivingRollMode ~= "x1" and gConfig.thanksgivingRollMode ~= "x5" then
+            gConfig.thanksgivingRollMode = "x5"
+        end
+        if gConfig.autoUseTurkeyLuckDrink == nil then gConfig.autoUseTurkeyLuckDrink = false end
+        if gConfig.alertTurkeyTrot == nil then gConfig.alertTurkeyTrot = true end
+        if gConfig.autoJoinTurkeyTrot == nil then gConfig.autoJoinTurkeyTrot = false end
+        if gConfig.autoRaceTurkeyTrot == nil then gConfig.autoRaceTurkeyTrot = false end
 
         if gConfig.quickWinAuction == true then gConfig.autoBidEnabled = false end
         if AB then
@@ -1051,7 +1337,8 @@ if not hasConfigFile and not next(gConfig.excludedItems) then
 
                 local isLucky = lowerName:find("luck drink") or lowerName:find("luck_drink") or lowerName:find("luckdrink")
                 local isBrewOrQuestTool = lowerName:find("cauldron skull") or lowerName:find("cauldron bag") or lowerName:find("gravedigger shovel") or lowerName:find("uranium ore") or category == "tool"
-                if isTrophy or isAccessory or isSafe or isWheel or isCert or isPart or isLucky or isBrewOrQuestTool then
+                local isConsumableSpray = lowerName:find("cleaning spray") or data.EnergyDrinkId ~= nil or data.MaxCleanUses ~= nil or data.Consumable == true
+                if isTrophy or isAccessory or isSafe or isWheel or isCert or isPart or isLucky or isBrewOrQuestTool or isConsumableSpray then
                     gConfig.excludedItems[name] = true
                 end
             end
@@ -1059,14 +1346,14 @@ if not hasConfigFile and not next(gConfig.excludedItems) then
     end)
 end
 
--- Always ensure Luck Drinks, Cauldron Skull Brew, and Quest Tools are excluded (even on existing configs)
+-- Always ensure Luck Drinks, Cauldron Skull Brew, Cleaning Sprays, and Quest Tools are excluded (even on existing configs)
 pcall(function()
     for id, data in pairs(ItemsData) do
         if type(data) == "table" then
             local name = data.Name or data.name or ""
             local lower = name:lower()
             local cat = (data.Category or data.category or ""):lower()
-            if lower:find("luck drink") or lower:find("cauldron skull") or lower:find("cauldron bag") or lower:find("gravedigger shovel") or cat == "tool" then
+            if lower:find("luck drink") or lower:find("cauldron skull") or lower:find("cauldron bag") or lower:find("gravedigger shovel") or lower:find("cleaning spray") or data.EnergyDrinkId ~= nil or data.MaxCleanUses ~= nil or cat == "tool" then
                 if gConfig.excludedItems[name] == nil then
                     gConfig.excludedItems[name] = true
                 end
@@ -1308,6 +1595,9 @@ end
 -- Helper to extract all mutators from item inventory data or displayName bracket tags
 local function getItemMutators(itemData, displayName)
     local muts = {}
+    if type(itemData) == "table" and type(itemData.data) == "table" then
+        itemData = itemData.data
+    end
     if itemData and type(itemData.Mutators) == "table" then
         for _, m in ipairs(itemData.Mutators) do
             local mName = type(m) == "table" and (m.name or m.Name) or tostring(m)
@@ -1320,14 +1610,27 @@ local function getItemMutators(itemData, displayName)
     if itemData and itemData.Mutator and itemData.Mutator ~= "None" then
         muts[tostring(itemData.Mutator)] = true
     end
+    if type(itemData) == "table" then
+        if tonumber(itemData.Condition) == 100 or tostring(itemData.Condition or ""):lower() == "mint" or itemData.Mint == true then
+            muts["Mint"] = true
+        end
+    end
     -- Roblox Instance support (Attributes)
     if itemData and typeof and typeof(itemData) == "Instance" then
         local m = itemData:GetAttribute("Mutator") or itemData:GetAttribute("CleanMutation")
         if m and m ~= "None" then muts[tostring(m)] = true end
+        local cond = itemData:GetAttribute("Condition")
+        if tonumber(cond) == 100 or tostring(cond or ""):lower() == "mint" or itemData:GetAttribute("Mint") == true then
+            muts["Mint"] = true
+        end
         local bp = itemData:FindFirstChild("Base") or itemData.PrimaryPart
         if bp and bp:IsA("BasePart") then
             local bm = bp:GetAttribute("Mutator") or bp:GetAttribute("CleanMutation")
             if bm and bm ~= "None" then muts[tostring(bm)] = true end
+            local bCond = bp:GetAttribute("Condition")
+            if tonumber(bCond) == 100 or tostring(bCond or ""):lower() == "mint" or bp:GetAttribute("Mint") == true then
+                muts["Mint"] = true
+            end
         end
     end
     if displayName then
@@ -1385,294 +1688,52 @@ local function getStockSaleRulesModule()
     return _stockSaleRulesCache
 end
 
--- ═════════════════════════════════════════════════════
--- 🛡️ NEXWORKS ITEM RULES LIFECYCLE ENGINE
--- ═════════════════════════════════════════════════════
-
-local evaluateItemRule
-do
-local function resolveItemAttributes(target)
-    local attr = {
-        name = "",
-        cleanName = "",
-        itemId = nil,
-        mutations = {},
-        category = "Misc",
-        rarity = "Common",
-        price = 0,
-        weight = 0,
-        isVault = false,
-        isDrink = false,
-        isLimited = false,
-        isEvent = false,
-    }
-    
-    if type(target) == "string" then
-        attr.name = target
-        attr.cleanName = target:gsub("%[.-%]%s*", ""):gsub("%s*%(.-%)%s*$", ""):match("^%s*(.-)%s*$") or target
-        if target:find("%[") then
-            for tag in target:gmatch("%[(.-)%]") do
-                local cleanTag = tag:gsub("%s*[%+%-]%d+%%", ""):match("^%s*(.-)%s*$")
-                if cleanTag and cleanTag ~= "" then attr.mutations[cleanTag] = true end
-            end
-        end
-        if ItemsData then
-            for id, data in pairs(ItemsData) do
-                if type(data) == "table" and (data.Name == attr.cleanName or data.Name == attr.name) then
-                    attr.itemId = tonumber(id) or id
-                    attr.category = tostring(data.Category or data.category or data.Type or "Misc")
-                    attr.rarity = tostring(data.Rarity or data.rarity or "Common")
-                    attr.price = tonumber(data.BasePrice or data.Price or 0) or 0
-                    attr.weight = tonumber(data.Weight or 0) or 0
-                    break
-                end
-            end
-        end
-    elseif typeof(target) == "Instance" then
-        attr.name = target.Name
-        local attrName = target:GetAttribute("ItemName") or target:GetAttribute("Name") or target.Name
-        attr.cleanName = tostring(attrName):gsub("%[.-%]%s*", ""):gsub("%s*%(.-%)%s*$", ""):match("^%s*(.-)%s*$") or tostring(attrName)
-        local rawId = target:GetAttribute("ItemId") or target:GetAttribute("ID")
-        if rawId then attr.itemId = tonumber(rawId) or rawId end
-        
-        local mutAttr = target:GetAttribute("Mutator") or target:GetAttribute("Mutation")
-        if mutAttr and tostring(mutAttr) ~= "" and tostring(mutAttr) ~= "None" then
-            attr.mutations[tostring(mutAttr)] = true
-        end
-        if target.Name:find("%[") then
-            for tag in target.Name:gmatch("%[(.-)%]") do
-                local cleanTag = tag:gsub("%s*[%+%-]%d+%%", ""):match("^%s*(.-)%s*$")
-                if cleanTag and cleanTag ~= "" then attr.mutations[cleanTag] = true end
-            end
-        end
-        
-        if (not attr.itemId or attr.category == "Misc") and ItemsData then
-            for id, data in pairs(ItemsData) do
-                if type(data) == "table" and (data.Name == attr.cleanName or data.Name == attr.name) then
-                    attr.itemId = attr.itemId or tonumber(id) or id
-                    attr.category = tostring(data.Category or data.category or data.Type or attr.category)
-                    attr.rarity = tostring(data.Rarity or data.rarity or attr.rarity)
-                    attr.price = attr.price > 0 and attr.price or (tonumber(data.BasePrice or data.Price or 0) or 0)
-                    attr.weight = attr.weight > 0 and attr.weight or (tonumber(data.Weight or 0) or 0)
-                    break
-                end
-            end
-        end
-        if getSafeTier and getSafeTier(target) ~= nil then attr.isVault = true end
-        if target:GetAttribute("Weight") then attr.weight = tonumber(target:GetAttribute("Weight")) or attr.weight end
-        if target:GetAttribute("Price") or target:GetAttribute("Value") then attr.price = tonumber(target:GetAttribute("Price") or target:GetAttribute("Value")) or attr.price end
-    elseif type(target) == "table" then
-        attr.itemId = target.ItemId or target.itemId or target.id
-        local itemConf = nil
-        if attr.itemId and ItemsData then
-            itemConf = ItemsData[tostring(attr.itemId)] or ItemsData[tonumber(attr.itemId)]
-        end
-        local rawName = target.Name or (itemConf and itemConf.Name) or ""
-        attr.name = rawName
-        attr.cleanName = tostring(rawName):gsub("%[.-%]%s*", ""):gsub("%s*%(.-%)%s*$", ""):match("^%s*(.-)%s*$") or tostring(rawName)
-        if itemConf then
-            attr.category = tostring(itemConf.Category or itemConf.category or itemConf.Type or "Misc")
-            attr.rarity = tostring(itemConf.Rarity or itemConf.rarity or "Common")
-            attr.price = tonumber(itemConf.BasePrice or itemConf.Price or 0) or 0
-            attr.weight = tonumber(itemConf.Weight or 0) or 0
-            if itemConf.SafeTier or itemConf.Tier or (attr.category:lower():find("safe") or attr.category:lower():find("vault")) then
-                attr.isVault = true
-            end
-        end
-        if target.Mutator and tostring(target.Mutator) ~= "" and tostring(target.Mutator) ~= "None" then
-            attr.mutations[tostring(target.Mutator)] = true
-        end
-        if target.Mutations and type(target.Mutations) == "table" then
-            for m, _ in pairs(target.Mutations) do attr.mutations[tostring(m)] = true end
-        end
-        if target.Price then attr.price = tonumber(target.Price) or attr.price end
-        if target.Weight then attr.weight = tonumber(target.Weight) or attr.weight end
-    end
-    
-    local lowerClean = attr.cleanName:lower()
-    local lowerCat = attr.category:lower()
-    if lowerClean:find("safe") or lowerClean:find("vault") or lowerClean:find("lockbox") or lowerCat:find("safe") or lowerCat:find("vault") then
-        attr.isVault = true
-    end
-    if lowerClean:find("drink") or lowerClean:find("potion") or lowerClean:find("brew") or lowerCat:find("drink") or lowerCat:find("potion") then
-        attr.isDrink = true
-    end
-    if lowerClean:find("alien") or lowerClean:find("saucer") or lowerClean:find("meteor") or lowerCat:find("limited") then
-        attr.isLimited = true
-    end
-    if lowerClean:find("sandstorm") or lowerClean:find("police") or lowerClean:find("camo") or lowerClean:find("military") or lowerClean:find("carnival") or lowerClean:find("jester") or lowerCat:find("event") then
-        attr.isEvent = true
-    end
-    return attr
-end
-
-evaluateItemRule = function(target, actionPhase)
-    local attr = resolveItemAttributes(target)
-    if not attr or attr.cleanName == "" then return nil end
-    
-    -- 1. Custom Rules (Evaluated top-to-bottom: First match wins)
-    local rules = gConfig.itemRules or {}
-    for idx, rule in ipairs(rules) do
-        if rule and rule.enabled ~= false then
-            local qualifies = false
-            local appliesTo = rule.appliesTo or "ALL"
-            local condMatches = {}
-            
-            -- Condition: Item Names / IDs (Strict Clean Name or Numeric ID match)
-            if rule.items and next(rule.items) then
-                local m = false
-                if attr.itemId and (rule.items[tostring(attr.itemId)] or rule.items[tonumber(attr.itemId)]) then
-                    m = true
-                elseif rule.items[attr.cleanName] or rule.items[attr.name] then
-                    m = true
-                end
-                table.insert(condMatches, m)
-            end
-            
-            -- Condition: Mutations
-            if rule.mutations and next(rule.mutations) then
-                local m = false
-                for mName, _ in pairs(rule.mutations) do
-                    if attr.mutations[mName] then m = true break end
-                end
-                table.insert(condMatches, m)
-            end
-            
-            -- Condition: Category
-            if rule.categories and next(rule.categories) then
-                table.insert(condMatches, rule.categories[attr.category] == true)
-            end
-            
-            -- Condition: Rarity
-            if rule.rarities and next(rule.rarities) then
-                table.insert(condMatches, rule.rarities[attr.rarity] == true)
-            end
-            
-            -- Condition: Is Types
-            if rule.isTypes and next(rule.isTypes) then
-                local m = false
-                if rule.isTypes["Vault items"] and attr.isVault then m = true end
-                if rule.isTypes["Energy drinks"] and attr.isDrink then m = true end
-                if rule.isTypes["Limited items"] and attr.isLimited then m = true end
-                if rule.isTypes["Event exclusives"] and attr.isEvent then m = true end
-                table.insert(condMatches, m)
-            end
-            
-            -- Condition: Worth Range
-            if rule.worthMin and rule.worthMin > 0 then
-                table.insert(condMatches, attr.price >= rule.worthMin)
-            end
-            if rule.worthMax and rule.worthMax > 0 then
-                table.insert(condMatches, attr.price <= rule.worthMax)
-            end
-            
-            -- Condition: Weight Range
-            if rule.weightMin and rule.weightMin > 0 then
-                table.insert(condMatches, attr.weight >= rule.weightMin)
-            end
-            if rule.weightMax and rule.weightMax > 0 then
-                table.insert(condMatches, attr.weight <= rule.weightMax)
-            end
-            
-            if #condMatches > 0 then
-                if appliesTo == "ANY" then
-                    for _, res in ipairs(condMatches) do
-                        if res then qualifies = true break end
-                    end
-                else
-                    qualifies = true
-                    for _, res in ipairs(condMatches) do
-                        if not res then qualifies = false break end
-                    end
-                end
-            end
-            
-            if qualifies and rule.effects then
-                local eff = rule.effects
-                local rName = rule.name or ("Rule #" .. idx)
-                if actionPhase == "pickup" then
-                    if eff.never_pickup then return "deny", rName end
-                    if eff.always_pickup then return "allow", rName end
-                elseif actionPhase == "sell" then
-                    if eff.never_sell then return "deny", rName end
-                    if eff.allow_selling then return "allow", rName end
-                elseif actionPhase == "place" then
-                    if eff.never_place then return "deny", rName end
-                    if eff.allow_placing then return "allow", rName end
-                elseif actionPhase == "grade" then
-                    if eff.never_grade then return "deny", rName end
-                    if eff.allow_grading then return "allow", rName end
-                elseif actionPhase == "wash" then
-                    if eff.never_wash then return "deny", rName end
-                elseif actionPhase == "auction" then
-                    if eff.ignore_min_bid then return "allow", rName end
-                elseif actionPhase == "general" then
-                    if eff.never_sell or eff.never_place then return "deny", rName end
-                    if eff.allow_selling or eff.allow_placing then return "allow", rName end
-                end
-            end
-        end
-    end
-    
-    -- 2. Lane Lists (If no custom rule matched)
-    local lists = gConfig.itemLists or {}
-    local function matchesLane(laneCfg)
-        if not laneCfg then return false end
-        if laneCfg.items and next(laneCfg.items) then
-            if (attr.itemId and (laneCfg.items[tostring(attr.itemId)] or laneCfg.items[tonumber(attr.itemId)]))
-                or laneCfg.items[attr.cleanName] or laneCfg.items[attr.name] then
-                return true
-            end
-        end
-        if laneCfg.mutations and next(laneCfg.mutations) then
-            for mName, _ in pairs(laneCfg.mutations) do
-                if attr.mutations[mName] then return true end
-            end
-        end
-        if laneCfg.categories and next(laneCfg.categories) and laneCfg.categories[attr.category] then
-            return true
-        end
-        if laneCfg.rarities and next(laneCfg.rarities) and laneCfg.rarities[attr.rarity] then
-            return true
-        end
-        if laneCfg.vaultItems and attr.isVault then return true end
-        if laneCfg.energyDrinks and attr.isDrink then return true end
-        if laneCfg.limitedItems and attr.isLimited then return true end
-        if laneCfg.eventExclusives and attr.isEvent then return true end
-        return false
-    end
-    
-    if actionPhase == "pickup" then
-        if matchesLane(lists.Pickup) then return "deny", "Pickup List" end
-    elseif actionPhase == "sell" then
-        if matchesLane(lists.AutoSell) then return "deny", "AutoSell List" end
-    elseif actionPhase == "place" then
-        if matchesLane(lists.Shelves) then return "deny", "Shelves List" end
-    elseif actionPhase == "grade" then
-        local gList = lists.Grading
-        if gList then
-            if gList.energyDrinks and attr.isDrink then return "allow", "Grading Energy Drinks" end
-            if gList.rarities and next(gList.rarities) then
-                if gList.rarities[attr.rarity] then return "allow", "Grading List" else return "deny", "Grading List" end
-            end
-        end
-    elseif actionPhase == "auction" then
-        if matchesLane(lists.Auction) then return "allow", "Auction List" end
-    elseif actionPhase == "general" then
-        if matchesLane(lists.AutoSell) or matchesLane(lists.Shelves) then return "deny", "AutoSell/Shelves List" end
-    end
-    
-    return nil, nil
-end
-end
-_G.evaluateItemRule = evaluateItemRule
-
 -- Returns true if an item is excluded from auto-place and auto-pawn
-local function isItemExcluded(displayName, itemData, actionPhase)
+local function isItemExcluded(displayName, itemData)
     if not displayName and not itemData then return false end
 
     -- Strip bracketed tags (e.g. "[Gold +50%] Gavel" -> "Gavel") and trailing parenthesized weight/info tags
-    local cleanName = tostring(displayName):gsub("%[.-%]%s*", ""):gsub("%s*%(.-%)%s*$", ""):match("^%s*(.-)%s*$")
+    local cleanName = tostring(displayName or ""):gsub("%[.-%]%s*", ""):gsub("%s*%(.-%)%s*$", ""):match("^%s*(.-)%s*$")
+
+    -- [Shield] FAVORITED ITEM PROTECTION: Never auto-sell, auto-place, or touch favorited/locked items!
+    if type(itemData) == "table" then
+        local entry = type(itemData.data) == "table" and itemData.data or itemData
+        if itemData.Favorited == true or itemData.Favorite == true or itemData.Locked == true or itemData.IsFavorited == true
+            or entry.Favorited == true or entry.Favorite == true or entry.Locked == true or entry.IsFavorited == true then
+            return true
+        end
+    elseif typeof and typeof(itemData) == "Instance" then
+        if itemData:GetAttribute("Favorited") == true or itemData:GetAttribute("Favorite") == true or itemData:GetAttribute("Locked") == true then
+            return true
+        end
+    end
+
+    -- [Shield] GEM CONSUMABLES, CLEANING SPRAYS & THANKSGIVING EVENT PROTECTIONS
+    local cleanLowerEarly = cleanName and cleanName:lower() or ""
+    if cleanLowerEarly ~= "" then
+        if cleanLowerEarly:find("cleaning spray") then
+            return true
+        end
+        if cleanLowerEarly == "roasted turkey safe"
+            or cleanLowerEarly == "mutator extractor potion"
+            or cleanLowerEarly == "grade removal potion"
+            or cleanLowerEarly == "seeker's energy drink"
+            or cleanLowerEarly == "double diamonds drink"
+            or cleanLowerEarly == "turkey luck drink"
+            or cleanLowerEarly == "farm turkey"
+            or cleanLowerEarly == "saddled turkey" then
+            return true
+        end
+        if gConfig.protectThanksgivingFood ~= false and (
+            cleanLowerEarly == "steamed corn with butter"
+            or cleanLowerEarly == "whipped cream"
+            or cleanLowerEarly == "pumpkin tart"
+            or cleanLowerEarly == "roasted turkey"
+            or cleanLowerEarly == "turkey cookie"
+        ) then
+            return true
+        end
+    end
 
     -- [Shield] QUEST & UNSELLABLE ITEM EXCLUSION: Never auto-place or auto-pawn [Quest] items, tools, or items blocked by StockSaleRules
     local itemMuts = getItemMutators(itemData, displayName)
@@ -1680,19 +1741,82 @@ local function isItemExcluded(displayName, itemData, actionPhase)
         return true
     end
     if type(itemData) == "table" then
+        local entry = type(itemData.data) == "table" and itemData.data or itemData
         local saleRules = getStockSaleRulesModule()
         if saleRules then
-            local okBlock, blockReason = pcall(function() return saleRules.GetSellBlockReason(itemData) end)
+            local okBlock, blockReason = pcall(function() return saleRules.GetSellBlockReason(entry) end)
             if okBlock and blockReason ~= nil then
                 return true
             end
-        end
-        if itemData.ItemId and ItemsData then
-            local itemConf = ItemsData[tostring(itemData.ItemId)] or ItemsData[tonumber(itemData.ItemId)]
-            if type(itemConf) == "table" then
-                -- Only exclude actual equipped tools (Candy Bag, Grave Shovel, Pickaxes) - NOT generic sellable junk like Propane Tanks
-                if itemConf.CandyBagTier or itemConf.GraveShovel or (itemConf.PickaxeDamage and tonumber(itemConf.PickaxeDamage) and tonumber(itemConf.PickaxeDamage) > 0) then
+            if saleRules.GetQuickSellBlockReason then
+                local okQBlock, qBlockReason = pcall(function() return saleRules.GetQuickSellBlockReason(entry) end)
+                if okQBlock and qBlockReason ~= nil then
                     return true
+                end
+            end
+        end
+        if entry.ItemId and ItemsData then
+            local itemConf = ItemsData[tostring(entry.ItemId)] or ItemsData[tonumber(entry.ItemId)]
+            if type(itemConf) == "table" then
+                -- Exclude equipped tools, gem cleaning sprays (MaxCleanUses), and energy drinks/consumables
+                if itemConf.CandyBagTier or itemConf.GraveShovel or (itemConf.PickaxeDamage and tonumber(itemConf.PickaxeDamage) and tonumber(itemConf.PickaxeDamage) > 0)
+                    or itemConf.EnergyDrinkId ~= nil or itemConf.MaxCleanUses ~= nil or itemConf.Consumable == true then
+                    return true
+                end
+            end
+        end
+        if tostring(entry.SafeId or itemData.SafeId or "") == "9" then
+            return true
+        end
+        if entry.ItemId then
+            local idStr = tostring(entry.ItemId)
+            if idStr == "1721" then
+                return true
+            end
+            -- [Thanksgiving] Protect Roasted Turkey Safe, Market Potions/Drinks & Turkey Mounts
+            if idStr == "1848" or idStr == "890" or idStr == "894" or idStr == "1775" or idStr == "1840" or idStr == "1841"
+                or idStr == "1844" or idStr == "1845" then
+                return true
+            end
+            -- [Thanksgiving] Protect Giant Turkey Feast Foods (toggleable)
+            if gConfig.protectThanksgivingFood ~= false and (idStr == "1784" or idStr == "1785" or idStr == "1786" or idStr == "1787" or idStr == "1788") then
+                return true
+            end
+            if gConfig.protectFishingBait ~= false and (idStr == "1722" or idStr == "1723" or idStr == "1724" or idStr == "1725") then
+                return true
+            end
+            if gConfig.protectFishingLures ~= false then
+                if idStr == "1727" or idStr == "1728" or idStr == "1729" or idStr == "1730" or idStr == "1731" or idStr == "1732" or idStr == "1733" then
+                    return true
+                end
+                local lc = _G._AHCachedLureConfig
+                if lc == nil then
+                    local okLc, modLc = pcall(function() return require(ReplicatedStorage.Modules.LureConfig) end)
+                    lc = (okLc and type(modLc) == "table") and modLc or false
+                    _G._AHCachedLureConfig = lc
+                end
+                if type(lc) == "table" and lc.ForItemId then
+                    local okLure, lDef = pcall(lc.ForItemId, idStr)
+                    if okLure and lDef ~= nil then
+                        return true
+                    end
+                end
+            end
+            if gConfig.protectHighLuckFish == true then
+                local ftc = _G._AHCachedFishTankConfig
+                if ftc == nil then
+                    local okFtc, modFtc = pcall(function() return require(ReplicatedStorage.Modules.FishTankConfig) end)
+                    ftc = (okFtc and type(modFtc) == "table") and modFtc or false
+                    _G._AHCachedFishTankConfig = ftc
+                end
+                if type(ftc) == "table" and ftc.IsFishItem then
+                    local okIsFish, isFish = pcall(ftc.IsFishItem, idStr, entry)
+                    if okIsFish and isFish and ftc.LuckForFish then
+                        local okLuck, luckPct = pcall(ftc.LuckForFish, entry)
+                        if okLuck and (tonumber(luckPct) or 0) >= (tonumber(gConfig.protectFishMinLuckPct) or 5) then
+                            return true
+                        end
+                    end
                 end
             end
         end
@@ -1713,15 +1837,6 @@ local function isItemExcluded(displayName, itemData, actionPhase)
                 end
             end
         end
-    end
-
-    -- [Shield] ITEM RULES LIFECYCLE EVALUATION (Rules > Lists > Legacy Exclusions)
-    local phase = actionPhase or "general"
-    local ruleDecision, ruleName = evaluateItemRule(itemData or displayName, phase)
-    if ruleDecision == "deny" then
-        return true
-    elseif ruleDecision == "allow" then
-        return false
     end
 
     if not gConfig.excludedItems then return false end
@@ -1860,6 +1975,8 @@ local AB = {
     currentBid = 0, predictedVal = 0, bidsThisRound = 0, auctionOpen = false,
     activeLot = nil, activeLotData = nil, startingAuction = false,
     pickupPhase = false, -- true while we are collecting won items (blocks new auctions)
+    vehicleTooFarTriggered = false,
+    vehicleTooFarAt = 0,
     logLines = {}, onLog = nil
 }
 _G.AB = AB
@@ -1942,139 +2059,152 @@ local function getGarageEntranceCFrame(garage)
     return nil
 end
 
-local function parkVehicleAtGarage(vehicle, garage, targetCF)
-    if not vehicle or not garage or not targetCF then return false end
-    local vehicleRoot = vehicle.PrimaryPart or vehicle:FindFirstChild("Body") or vehicle:FindFirstChildWhichIsA("BasePart")
-    if not vehicleRoot then return false end
-
-    local gPivot = garage:GetPivot()
-    local outDir = (targetCF.Position - gPivot.Position)
-    local outFlat = (outDir.Magnitude > 0.1) and Vector3.new(outDir.X, 0, outDir.Z).Unit or targetCF.LookVector
-    local roadDir = Vector3.new(-outFlat.Z, 0, outFlat.X)
-
-    local driveSeat = vehicle:FindFirstChildWhichIsA("VehicleSeat", true)
-        or vehicle:FindFirstChild("DriveSeat", true)
-        or vehicle:FindFirstChildWhichIsA("Seat", true)
-
-    local targetSeatPos = targetCF.Position + (outFlat * 2.8)
-
-    -- Request streaming for garage area before raycasting ground
-    pcall(function()
-        LocalPlayer:RequestStreamAroundAsync(targetCF.Position)
-    end)
-
-    local ray = RaycastParams.new()
-    ray.FilterDescendantsInstances = { LocalPlayer.Character, vehicle }
-    ray.FilterType = Enum.RaycastFilterType.Exclude
-
-    local hit = workspace:Raycast(targetSeatPos + Vector3.new(0, 5, 0), Vector3.new(0, -25, 0), ray)
-    local groundY = hit and hit.Position.Y or (targetCF.Position.Y - 2.5)
-
-    local alignedCF
-    if driveSeat then
-        local vPivot = vehicle:GetPivot()
-        local seatOffset = vPivot:ToObjectSpace(driveSeat.CFrame)
-
-        -- Evaluate both sideways orientations (parallel to garage door) so driver seat faces door and body extends outward into driveway
-        local rot1 = CFrame.lookAt(Vector3.zero, roadDir)
-        local rot2 = CFrame.lookAt(Vector3.zero, -roadDir)
-        local seatWorld1 = rot1:VectorToWorldSpace(seatOffset.Position)
-        local seatWorld2 = rot2:VectorToWorldSpace(seatOffset.Position)
-
-        local chosenRot = rot1
-        local chosenWorldSeatOffset = seatWorld1
-
-        local testPos1 = targetSeatPos - seatWorld1
-        local testPos2 = targetSeatPos - seatWorld2
-        -- Prioritize rotation extending vehicle body outward into open driveway (+outFlat) rather than clipping garage wall
-        if (testPos2 - targetCF.Position):Dot(outFlat) > (testPos1 - targetCF.Position):Dot(outFlat) then
-            chosenRot = rot2
-            chosenWorldSeatOffset = seatWorld2
-        end
-
-        -- Compute vehicle bounding box to accurately align tires to ground level
-        local vCF, vSize = vehicle:GetBoundingBox()
-        local pivotBottomOffset = math.max(0.5, vPivot.Position.Y - (vCF.Position.Y - vSize.Y / 2))
-        local finalPivotY = groundY + pivotBottomOffset + 0.3
-
-        local finalPivotPos = Vector3.new(
-            targetSeatPos.X - chosenWorldSeatOffset.X,
-            finalPivotY,
-            targetSeatPos.Z - chosenWorldSeatOffset.Z
-        )
-        alignedCF = CFrame.new(finalPivotPos) * chosenRot.Rotation
-    else
-        local spawnPos = targetCF.Position + (outFlat * 3.2)
-        local finalPos = Vector3.new(spawnPos.X, groundY + 2.5, spawnPos.Z)
-        alignedCF = CFrame.lookAt(finalPos, finalPos + roadDir)
-    end
-
-    vehicle:PivotTo(alignedCF)
-    for _, part in ipairs(vehicle:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.AssemblyLinearVelocity = Vector3.zero
-            part.AssemblyAngularVelocity = Vector3.zero
-        end
-    end
-    return true
-end
-
 _G.AHGarageCooldowns = _G.AHGarageCooldowns or {}
 
-local function handleAuctionSkip(reason, garageToCooldown)
-    -- Instant skip with synchronized leave tracking
-    AB.minBidBlocked = true
-    AB.auctionOpen = false
-    AB.biddingUIOpen = false
-    AB.activeLot = nil
-    AB.activeLotData = nil
-    AB.activeGarageInstance = nil
-    AB.startingAuction = false
-    AB.weAreWinning = false
-    currentGarageIsSeized = false
-    _G.AHIsCurrentGarageSeized = false
-    lastTargetLot = nil
-    stopBidLoop()
-    
-    if garageToCooldown then
-        _G.AHGarageCooldowns[garageToCooldown] = os.clock()
-    end
-    
-    if LeaveAuctionRemote then
-        task.spawn(requestLeaveAuction, LeaveAuctionRemote)
-    end
-    if reason then
-        abLog("[Skipped] " .. tostring(reason), Color3.fromRGB(255, 140, 60))
-    end
+-- Live Vehicle Weight & Overweight Listeners (works 100% on-foot / not seated!)
+_G._AHLiveVehicleWeight = _G._AHLiveVehicleWeight or 0
+_G._AHLiveVehicleLimit  = _G._AHLiveVehicleLimit or 0
+_G._AHVehicleOverweightTriggered = false
+_G._AHVehicleOverweightAt = 0
+_G._AHLastRemoteWeightCheck = 0
+
+local dismissOverweightPrompt, isVehicleOverweight, instantUnloadVehicle
+do
+dismissOverweightPrompt = function()
+    pcall(function()
+        local lp = Players.LocalPlayer
+        local pg = lp and lp:FindFirstChild("PlayerGui")
+        local uic = pg and pg:FindFirstChild("UIControllerGui")
+        if not uic then return end
+        for _, inst in ipairs(uic:GetDescendants()) do
+            if inst:IsA("TextLabel") and inst.Name == "Title" and inst.Text == "Vehicle Overweight" then
+                local dialog = inst.Parent
+                local modal = dialog and dialog.Parent
+                if modal and modal:IsA("GuiObject") and modal.Visible then
+                    local cancelBtn = dialog:FindFirstChild("CancelButton", true)
+                    if cancelBtn and cancelBtn:IsA("GuiButton") then
+                        pcall(function()
+                            if firesignal then
+                                firesignal(cancelBtn.MouseButton1Click)
+                                firesignal(cancelBtn.Activated)
+                            elseif getconnections then
+                                for _, c in ipairs(getconnections(cancelBtn.MouseButton1Click)) do pcall(function() c:Fire() end) end
+                                for _, c in ipairs(getconnections(cancelBtn.Activated)) do pcall(function() c:Fire() end) end
+                            end
+                        end)
+                    end
+                    modal.Visible = false
+                end
+            end
+        end
+    end)
 end
 
-local function matchLotName(n1, n2)
-    if not n1 or not n2 then return false end
-    n1 = n1:lower()
-    n2 = n2:lower()
-    
-    -- If numbers exist, they MUST match
-    local num1 = n1:match("%d+")
-    local num2 = n2:match("%d+")
-    if num1 or num2 then
-        if num1 ~= num2 then
-            return false
+pcall(function()
+    if _G._AHWeightUpdateConn then pcall(function() _G._AHWeightUpdateConn:Disconnect() end) end
+    if _G._AHOverweightOfferConn then pcall(function() _G._AHOverweightOfferConn:Disconnect() end) end
+    local uiEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI")
+    local wUpd = uiEv and uiEv:FindFirstChild("VehicleWeightUpdate")
+    if wUpd and wUpd:IsA("RemoteEvent") then
+        _G._AHWeightUpdateConn = wUpd.OnClientEvent:Connect(function(curW, maxW)
+            local cw = tonumber(curW)
+            local mw = tonumber(maxW)
+            if cw then _G._AHLiveVehicleWeight = cw end
+            if mw and mw > 0 then _G._AHLiveVehicleLimit = mw end
+        end)
+    end
+    local owOffer = uiEv and uiEv:FindFirstChild("OfferOverweightAdd")
+    if owOffer and owOffer:IsA("RemoteEvent") then
+        _G._AHOverweightOfferConn = owOffer.OnClientEvent:Connect(function()
+            _G._AHVehicleOverweightTriggered = true
+            _G._AHVehicleOverweightAt = os.clock()
+            if (gConfig and gConfig.afAutoUnload) or (AB and AB.isCollecting) then
+                task.defer(dismissOverweightPrompt)
+            end
+        end)
+    end
+end)
+
+local function parseHUDVehicleWeight()
+    local hudW, hudL = 0, 0
+    pcall(function()
+        local lp = Players.LocalPlayer
+        local pg = lp and lp:FindFirstChild("PlayerGui")
+        local uic = pg and pg:FindFirstChild("UIControllerGui")
+        if not uic then return end
+        local hud = uic:FindFirstChild("VehicleWeightHUD")
+        local valLbl = hud and hud:FindFirstChild("Value")
+        if not valLbl or not valLbl:IsA("TextLabel") or not hud.Visible then
+            valLbl = uic:FindFirstChild("OverweightValue")
+        end
+        if valLbl and valLbl:IsA("TextLabel") and valLbl.Text ~= "" then
+            local plain = valLbl.Text:gsub("<[^>]+>", ""):gsub(",", "")
+            local a, b = plain:match("(%d+%.?%d*)%s*/%s*(%d+%.?%d*)")
+            if a and b then
+                hudW = tonumber(a) or 0
+                hudL = tonumber(b) or 0
+            end
+        end
+    end)
+    return hudW, hudL
+end
+
+local function computeRemoteVehicleWeight(vehicleId)
+    if not vehicleId or vehicleId == "" then return 0, 0, nil end
+    local vEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles")
+    local getItemsRemote = vEvents and vEvents:FindFirstChild("GetVehicleItems")
+    if not getItemsRemote then return 0, 0, nil end
+    local ok, items = pcall(function() return getItemsRemote:InvokeServer(vehicleId) end)
+    if not ok or type(items) ~= "table" then return 0, 0, nil end
+    local totalW, count = 0, 0
+    for _, entry in pairs(items) do
+        if type(entry) == "table" then
+            count = count + 1
+            local w = tonumber(entry.Weight)
+            if not w and entry.ItemId and ItemsData then
+                local conf = ItemsData[tostring(entry.ItemId)] or ItemsData[tonumber(entry.ItemId)]
+                if type(conf) == "table" then w = tonumber(conf.Weight) end
+            end
+            totalW = totalW + (w or 0)
         end
     end
-    
-    -- Remove common generic suffixes but KEEP main words
-    local clean1 = n1:gsub("garage", ""):gsub("container", ""):gsub("shop", ""):gsub("front", ""):gsub("%s+", "")
-    local clean2 = n2:gsub("garage", ""):gsub("container", ""):gsub("shop", ""):gsub("front", ""):gsub("%s+", "")
-    
-    -- Prevent empty matches
-    if clean1 == "" or clean2 == "" then
-        return false
-    end
-    
-    return clean1:find(clean2) or clean2:find(clean1)
+    _G._AHLiveVehicleWeight = totalW
+    return totalW, count, items
 end
 
-local function isVehicleOverweight()
+local _cachedVehLimitGuid = nil
+local _cachedVehLimitVal  = 0
+local function resolveRemoteVehicleLimit(vehicleId)
+    if not vehicleId or vehicleId == "" then return 0 end
+    if _cachedVehLimitGuid == vehicleId and _cachedVehLimitVal > 0 then
+        return _cachedVehLimitVal
+    end
+    local cap = 0
+    pcall(function()
+        local vEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles")
+        local getOwned = vEvents and vEvents:FindFirstChild("GetOwnedVehicles")
+        local vModInst = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Vehicles")
+        if not getOwned or not vModInst then return end
+        local owned = getOwned:InvokeServer()
+        local vMod = require(vModInst)
+        local eq = type(owned) == "table" and type(owned.vehicles) == "table" and owned.vehicles[vehicleId]
+        local def = eq and eq.Name and type(vMod) == "table" and vMod[eq.Name]
+        if type(def) == "table" and tonumber(def.MaxWeightCapacity) then
+            cap = tonumber(def.MaxWeightCapacity)
+            local mBoost = tonumber(LocalPlayer:GetAttribute("MasteryPerk_CargoBoost")) or 0
+            if mBoost > 0 then cap = cap * (1 + 0.10 * mBoost) end
+            if LocalPlayer:GetAttribute("CarWeightBoost") == true then cap = cap * 2 end
+        end
+    end)
+    if cap > 0 then
+        _cachedVehLimitGuid = vehicleId
+        _cachedVehLimitVal = cap
+        _G._AHLiveVehicleLimit = cap
+    end
+    return cap
+end
+
+isVehicleOverweight = function(forceRemoteCheck)
     local vehicle = (typeof(getMyVehicle) == "function" and getMyVehicle()) or nil
     if not vehicle then
         for _, desc in ipairs(workspace:GetChildren()) do
@@ -2084,57 +2214,618 @@ local function isVehicleOverweight()
             end
         end
     end
-    if vehicle then
-        local weight = vehicle:GetAttribute("CargoWeight") or 0
-        local limit = vehicle:GetAttribute("CargoWeightLimit") or 99999
-        local threshold = ((gConfig and gConfig.autoUnloadThreshold) or 80) / 100
-        if limit > 0 and weight >= (limit * threshold) then
-            return true, vehicle, weight, limit
-        end
+
+    local vehicleId = (vehicle and (vehicle:GetAttribute("VehicleGUID") or vehicle:GetAttribute("GUID"))) or LocalPlayer:GetAttribute("EquippedVehicle")
+    local attrW = vehicle and (tonumber(vehicle:GetAttribute("CargoWeight")) or 0) or 0
+    local attrL = vehicle and (tonumber(vehicle:GetAttribute("CargoWeightLimit")) or 0) or 0
+    local hudW, hudL = parseHUDVehicleWeight()
+    local liveW = tonumber(_G._AHLiveVehicleWeight) or 0
+    local liveL = tonumber(_G._AHLiveVehicleLimit) or 0
+
+    local weight = math.max(attrW, liveW, hudW)
+    local limit = (attrL > 0 and attrL) or (liveL > 0 and liveL) or (hudL > 0 and hudL) or 0
+    if limit <= 0 and vehicleId and vehicleId ~= "" then
+        limit = resolveRemoteVehicleLimit(vehicleId)
     end
-    return false
+    if limit > 0 then _G._AHLiveVehicleLimit = limit end
+
+    if _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 6) then
+        return true, vehicle, math.max(weight, limit), limit
+    end
+
+    -- When on-foot, CargoWeight attribute can lag or stay 0: periodically verify real weight via GetVehicleItems
+    local now = os.clock()
+    if vehicleId and vehicleId ~= "" and (forceRemoteCheck == true or (weight <= 0 and (now - (_G._AHLastRemoteWeightCheck or 0) >= 3.0))) then
+        _G._AHLastRemoteWeightCheck = now
+        local remW = computeRemoteVehicleWeight(vehicleId)
+        if remW > weight then weight = remW end
+    end
+
+    local threshold = ((gConfig and gConfig.autoUnloadThreshold) or 80) / 100
+    if limit > 0 and weight >= (limit * threshold) then
+        return true, vehicle, weight, limit
+    end
+    return false, vehicle, weight, limit
 end
 
-local function instantUnloadVehicle(targetVehicle)
+local _cachedPlotUnloadPos = nil
+local function getPlotUnloadCFrame()
+    if _cachedPlotUnloadPos then return _cachedPlotUnloadPos end
+    local targetCF = nil
     pcall(function()
-        local v = targetVehicle or (typeof(getMyVehicle) == "function" and getMyVehicle()) or nil
-        local vehicleId = (v and (v:GetAttribute("VehicleGUID") or v:GetAttribute("GUID"))) or LocalPlayer:GetAttribute("EquippedVehicle")
-        if vehicleId and vehicleId ~= "" then
-            local vEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles")
-            local getItemsRemote = vEvents and vEvents:FindFirstChild("GetVehicleItems")
-            local transferRemote = vEvents and vEvents:FindFirstChild("TransferVehicleItemsToInventory")
-            if getItemsRemote and transferRemote then
-                local items = nil
-                pcall(function() items = getItemsRemote:InvokeServer(vehicleId) end)
-                if items and type(items) == "table" then
-                    local guids = {}
-                    for guid, _ in pairs(items) do
-                        table.insert(guids, guid)
-                    end
-                    if #guids > 0 then
-                        pcall(function() transferRemote:FireServer(guids) end)
-                        abLog("[Freight] Vehicle Full! Instant auto-unloaded " .. #guids .. " items.", C.green)
-                        task.wait(0.4)
-                    end
+        local mods = ReplicatedStorage:FindFirstChild("Modules")
+        local usMod = mods and mods:FindFirstChild("UnloadSpots")
+        local UnloadSpots = usMod and require(usMod)
+        if type(UnloadSpots) == "table" then
+            if UnloadSpots.GetPlacedPads then
+                local pads = UnloadSpots.GetPlacedPads(LocalPlayer)
+                if type(pads) == "table" and pads[1] and pads[1].CFrame then
+                    targetCF = pads[1].CFrame
+                end
+            end
+            if not targetCF and UnloadSpots.DefaultPosition then
+                local pEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Plot")
+                local reqPlot = pEv and pEv:FindFirstChild("RequestPlotData")
+                local pData = reqPlot and reqPlot:InvokeServer()
+                local defPos = pData and UnloadSpots.DefaultPosition(pData)
+                if typeof(defPos) == "Vector3" then
+                    targetCF = CFrame.new(defPos)
                 end
             end
         end
-        if v then
-            pcall(function() v:SetAttribute("CargoWeight", 0) end)
-        end
     end)
+    if not targetCF and typeof(getMyLivePlotDrivewayCF) == "function" then
+        pcall(function() targetCF = getMyLivePlotDrivewayCF() end)
+    end
+    if targetCF then _cachedPlotUnloadPos = targetCF end
+    return targetCF
 end
 
-local function triggerAutoPickup(lotName)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        AB.lastWonLot = lotName or "Unknown"
-        AB.originalPosition = root.CFrame
-        AB.isCollecting = true
-        AB.collectionStartTime = os.clock()
-        abLog("[Gift] Auto-Pickup Armed", C.green)
+instantUnloadVehicle = function(targetVehicle, opts)
+    opts = opts or {}
+    if _G._AHUnloadingVehicle and (os.clock() - (_G._AHUnloadingVehicleAt or 0) < 8) then
+        return false, 0, "busy"
     end
+    _G._AHUnloadingVehicle = true
+    _G._AHUnloadingVehicleAt = os.clock()
+
+    local unloaded = 0
+    local reason = nil
+    pcall(function()
+        local v = targetVehicle or (typeof(getMyVehicle) == "function" and getMyVehicle()) or nil
+        local vehicleId = (v and (v:GetAttribute("VehicleGUID") or v:GetAttribute("GUID"))) or LocalPlayer:GetAttribute("EquippedVehicle")
+        if not vehicleId or vehicleId == "" then
+            reason = "no_vehicle"
+            return
+        end
+        local vEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles")
+        local getItemsRemote = vEvents and vEvents:FindFirstChild("GetVehicleItems")
+        local transferRemote = vEvents and vEvents:FindFirstChild("TransferVehicleItemsToInventory")
+        if not getItemsRemote or not transferRemote then
+            reason = "no_remote"
+            return
+        end
+
+        local okI, items = pcall(function() return getItemsRemote:InvokeServer(vehicleId) end)
+        if not okI or type(items) ~= "table" then
+            reason = "fetch_failed"
+            return
+        end
+
+        -- Collect & sort heaviest-first so partial unloads (when bag is nearly full) free maximum kg
+        local entries = {}
+        for guid, entry in pairs(items) do
+            local w = 0
+            if type(entry) == "table" then
+                w = tonumber(entry.Weight) or 0
+                if w == 0 and entry.ItemId and ItemsData then
+                    local conf = ItemsData[tostring(entry.ItemId)] or ItemsData[tonumber(entry.ItemId)]
+                    if type(conf) == "table" then w = tonumber(conf.Weight) or 0 end
+                end
+            end
+            table.insert(entries, { guid = guid, weight = w })
+        end
+        if #entries == 0 then
+            _G._AHLiveVehicleWeight = 0
+            _G._AHVehicleOverweightTriggered = false
+            reason = "empty"
+            return
+        end
+        table.sort(entries, function(a, b) return a.weight > b.weight end)
+
+        -- Cap batch to free inventory slots so the server doesn't reject the whole batch
+        local invCap = tonumber(LocalPlayer:GetAttribute("InventoryCap")) or 0
+        local invCount = tonumber(LocalPlayer:GetAttribute("InventoryCount")) or 0
+        local maxTake = #entries
+        if invCap > 0 then
+            local freeSlots = math.max(0, invCap - invCount)
+            if freeSlots <= 0 then
+                reason = "inventory_full"
+                abLog(string.format("[Freight] Inventory full (%d/%d) — cannot remote-unload truck!", invCount, invCap), COLORS.Orange or C.gold)
+                return
+            end
+            maxTake = math.min(#entries, freeSlots)
+        end
+
+        local guids = {}
+        for i = 1, maxTake do
+            table.insert(guids, entries[i].guid)
+        end
+        if #guids == 0 then return end
+
+        -- Attempt 1: Direct remote unload (instant if server accepts or player is already seated)
+        pcall(function() transferRemote:FireServer(guids) end)
+        task.wait(0.4)
+        local remW, remCount = computeRemoteVehicleWeight(vehicleId)
+        unloaded = math.max(0, #entries - remCount)
+
+        -- Attempt 2 & 3: Server rejected while unseated -> quick-seat in DriveSeat (remote), with Plot UnloadSpot fallback if needed
+        if unloaded == 0 and opts.allowSeatHop ~= false then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not v then v = (typeof(getMyVehicle) == "function" and getMyVehicle()) or nil end
+            local seat = v and (v:FindFirstChild("DriveSeat") or v:FindFirstChildWhichIsA("VehicleSeat", true))
+            if hrp and hum and v and seat then
+                local wasSeated = (hum.SeatPart == seat)
+                local savedCharCF = hrp.CFrame
+                local savedVehCF = v:GetPivot()
+                local movedVeh = false
+
+                -- Sit briefly in DriveSeat right where the vehicle is (DriveSeat.Disabled=true, so enter via VehiclePrompt!)
+                if not wasSeated then
+                    pcall(function()
+                        hrp.CFrame = seat.CFrame + Vector3.new(0, 2.0, 0)
+                    end)
+                    task.wait(0.14)
+                    local drivePrompt = seat:FindFirstChild("VehiclePrompt", true) or v:FindFirstChild("VehiclePrompt", true)
+                    if drivePrompt and drivePrompt:IsA("ProximityPrompt") and fireproximityprompt then
+                        pcall(fireproximityprompt, drivePrompt, 0)
+                    else
+                        pcall(function() seat:Sit(hum) end)
+                    end
+                    local sw = 0
+                    while hum.SeatPart ~= seat and sw < 1.1 do
+                        task.wait(0.05)
+                        sw = sw + 0.05
+                    end
+                end
+
+                if hum.SeatPart == seat then
+                    -- Attempt 2: Fire remote while seated in-place (no plot teleport!)
+                    pcall(function() transferRemote:FireServer(guids) end)
+                    task.wait(0.45)
+                    remW, remCount = computeRemoteVehicleWeight(vehicleId)
+                    unloaded = math.max(0, #entries - remCount)
+
+                    -- Attempt 3: Only if server ALSO enforces UnloadSpots.IsInZone, quick-hop vehicle to plot UnloadSpot & return
+                    if unloaded == 0 then
+                        local uCF = getPlotUnloadCFrame()
+                        if uCF then
+                            movedVeh = true
+                            pcall(function() LocalPlayer:RequestStreamAroundAsync(uCF.Position) end)
+                            pcall(function() v:PivotTo(uCF + Vector3.new(0, 2.5, 0)) end)
+                            task.wait(0.3)
+                            pcall(function() transferRemote:FireServer(guids) end)
+                            task.wait(0.5)
+                            remW, remCount = computeRemoteVehicleWeight(vehicleId)
+                            unloaded = math.max(0, #entries - remCount)
+                            pcall(function()
+                                local uiCtrl = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("UIController")
+                                if uiCtrl then require(uiCtrl):Close("UnloadVehicle") end
+                            end)
+                        end
+                    end
+                end
+
+                -- Snap vehicle & player right back to exact original positions
+                if movedVeh and v and v.Parent then
+                    pcall(function()
+                        v:PivotTo(savedVehCF)
+                        for _, part in ipairs(v:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                            end
+                        end
+                    end)
+                    task.wait(0.08)
+                end
+                if not wasSeated and hum and hrp then
+                    pcall(function()
+                        hum.Sit = false
+                        task.wait(0.08)
+                        hrp.CFrame = savedCharCF
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                end
+            end
+        end
+
+        if unloaded > 0 then
+            _G._AHVehicleOverweightTriggered = false
+            dismissOverweightPrompt()
+            abLog(string.format("[Freight] Auto-unloaded %d item(s) from truck (remaining: %.0fkg).", unloaded, remW), C.green)
+        else
+            reason = "server_rejected"
+        end
+    end)
+    _G._AHUnloadingVehicle = false
+    return unloaded > 0, unloaded, reason
+end
+end
+
+do
+    -- Resolve nearest garage model in _Debris.Garages within maxRadius of a world position
+    local function findNearestGarageToPos(pos, maxRadius)
+        if not pos then return nil end
+        local debris = workspace:FindFirstChild("_Debris")
+        local garages = debris and debris:FindFirstChild("Garages")
+        if not garages then return nil end
+        local bestG, bestD = nil, maxRadius or 180
+        for _, g in ipairs(garages:GetChildren()) do
+            local entry = g:FindFirstChild("EntrySquare") and g.EntrySquare:FindFirstChild("PromptPart")
+            local fs = g:FindFirstChild("Floorspace") or g:FindFirstChild("Base")
+            local p = (entry and entry.Position) or (fs and fs:IsA("BasePart") and fs.Position) or g:GetPivot().Position
+            if p then
+                local d = (p - pos).Magnitude
+                if d < bestD then
+                    bestD = d
+                    bestG = g
+                end
+            end
+        end
+        return bestG
+    end
+
+    local function getVehicleWorldPos(vehicle)
+        if not vehicle or not vehicle.Parent then return nil end
+        local ch = vehicle:FindFirstChild("Chassis") or vehicle.PrimaryPart or vehicle:FindFirstChild("DriveSeat") or vehicle:FindFirstChildWhichIsA("BasePart")
+        if ch and ch:IsA("BasePart") then return ch.Position end
+        local ok, piv = pcall(function() return vehicle:GetPivot() end)
+        return (ok and piv) and piv.Position or nil
+    end
+
+    -- Spawns or recalls the equipped vehicle in front of the nearest garage without leaving the player seated or driving
+    local function ensureVehicleNearby(anchorPos, garage, opts)
+        opts = opts or {}
+        if _G.AHVehicleRecallInProgress then return false, getMyVehicle() end
+        if gConfig and gConfig.autoRecallVehicle == false and not opts.ignoreToggle then
+            return false, getMyVehicle()
+        end
+        if LocalPlayer:GetAttribute("InAuction") == true or (AB and AB.auctionOpen) then
+            return false, getMyVehicle()
+        end
+
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not char or not hum or not hrp or hum.Health <= 0 then
+            return false, getMyVehicle()
+        end
+
+        anchorPos = anchorPos or hrp.Position
+        if garage then
+            if not garage.Parent then
+                garage = nil
+            else
+                local okPiv, gPiv = pcall(function() return garage:GetPivot() end)
+                if not okPiv or not gPiv or (gPiv.Position - anchorPos).Magnitude > 180 then
+                    garage = nil
+                end
+            end
+        end
+        if opts.skipGarageSearch or typeof(opts.exactStandCF) == "CFrame" then
+            garage = nil
+        else
+            garage = garage or findNearestGarageToPos(anchorPos, 180)
+        end
+
+        local vehicle = getMyVehicle()
+        local vehPos = getVehicleWorldPos(vehicle)
+        local maxDist = opts.maxDist or 65
+        local maxFloorDist = opts.maxFloorDist or 85
+
+        if vehicle and vehPos and not opts.force then
+            local distAnchor = (vehPos - anchorPos).Magnitude
+            local withinFloor = true
+            if garage then
+                local fs = garage:FindFirstChild("Floorspace") or garage:FindFirstChild("Base")
+                if fs and fs:IsA("BasePart") then
+                    withinFloor = ((vehPos - fs.Position).Magnitude <= maxFloorDist)
+                end
+            end
+            if distAnchor <= maxDist and withinFloor then
+                return true, vehicle
+            end
+        end
+
+        local vEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles")
+        local spawnRemote = vEvents and vEvents:FindFirstChild("RequestSpawn")
+        local spawnResultRemote = vEvents and vEvents:FindFirstChild("SpawnResult")
+        if not spawnRemote then return false, vehicle end
+
+        local equippedGuid = LocalPlayer:GetAttribute("EquippedVehicle")
+        if typeof(equippedGuid) ~= "string" or equippedGuid == "" then
+            if vehicle then
+                local vg = vehicle:GetAttribute("VehicleGUID") or vehicle:GetAttribute("VehicleId")
+                if typeof(vg) == "string" and vg ~= "" then equippedGuid = vg end
+            end
+        end
+
+        local cooldownSec = 5.6
+        local elapsed = os.clock() - (_G.AHLastVehicleSpawnAt or 0)
+        if elapsed < cooldownSec then
+            if not opts.waitForCooldown then
+                return false, vehicle
+            end
+            local waitDeadline = os.clock() + (cooldownSec - elapsed) + 0.15
+            while os.clock() < waitDeadline do
+                if LocalPlayer:GetAttribute("InAuction") == true or (AB and AB.auctionOpen) then
+                    return false, getMyVehicle()
+                end
+                task.wait(0.15)
+            end
+        end
+
+        local function forceBreakSeat(h)
+            if not h then return false end
+            if not h.SeatPart and not h.Sit then return false end
+            local sp = h.SeatPart
+            h.Jump = true
+            h.Sit = false
+            h:ChangeState(Enum.HumanoidStateType.Jumping)
+            if sp then
+                local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                if sw then pcall(function() sw:Destroy() end) end
+            end
+            return true
+        end
+
+        _G.AHVehicleRecallInProgress = true
+        local spawnSuccess = false
+        local savedCF = hrp.CFrame
+        local tempPlat = nil
+
+        pcall(function()
+            -- Unseat first so SeatWeld can never pull the old vehicle with HRP and savedCF stays on foot
+            if hum.SeatPart or hum.Sit then
+                local uDeadline = os.clock() + 1.0
+                while (hum.SeatPart or hum.Sit) and os.clock() < uDeadline do
+                    forceBreakSeat(hum)
+                    task.wait(0.05)
+                end
+                if hum.SeatPart then return end
+                task.wait(0.12)
+                savedCF = hrp.CFrame
+            end
+            if typeof(opts.returnCF) == "CFrame" then
+                savedCF = opts.returnCF
+            end
+
+            local rp = RaycastParams.new()
+            local filterList = { char }
+            if vehicle then table.insert(filterList, vehicle) end
+            rp.FilterDescendantsInstances = filterList
+            rp.FilterType = Enum.RaycastFilterType.Exclude
+
+            local standPos, lookDir = nil, nil
+            if typeof(opts.exactStandCF) == "CFrame" then
+                local flatLook = Vector3.new(opts.exactStandCF.LookVector.X, 0, opts.exactStandCF.LookVector.Z)
+                lookDir = (flatLook.Magnitude > 0.1) and flatLook.Unit or Vector3.new(-1, 0, 0)
+                standPos = opts.exactStandCF.Position
+                pcall(function() LocalPlayer:RequestStreamAroundAsync(standPos + lookDir * 18) end)
+            elseif garage then
+                local entryCF = getGarageEntranceCFrame(garage)
+                if entryCF then
+                    local innerPart = garage:FindFirstChild("Floorspace") or garage:FindFirstChild("Base")
+                    local outVec
+                    if innerPart and innerPart:IsA("BasePart") then
+                        outVec = Vector3.new(entryCF.Position.X - innerPart.Position.X, 0, entryCF.Position.Z - innerPart.Position.Z)
+                    else
+                        local piv = garage:GetPivot()
+                        outVec = Vector3.new(entryCF.Position.X - piv.Position.X, 0, entryCF.Position.Z - piv.Position.Z)
+                    end
+                    local outFlat = (outVec.Magnitude > 0.2) and outVec.Unit or Vector3.new(-entryCF.LookVector.X, 0, -entryCF.LookVector.Z)
+                    if outFlat.Magnitude > 0.1 then outFlat = outFlat.Unit else outFlat = Vector3.new(0, 0, 1) end
+                    local rightFlat = Vector3.new(-outFlat.Z, 0, outFlat.X).Unit
+
+                    local halfLen = 12
+                    if vehicle then
+                        local bbOk, _, vSize = pcall(function() return vehicle:GetBoundingBox() end)
+                        if bbOk and vSize then
+                            halfLen = math.max(vSize.X, vSize.Z) * 0.5
+                        end
+                    end
+                    -- Server spawns vehicle ~18 studs ahead of HRP LookVector; stand slightly outside EntrySquare facing outward
+                    local desiredStandDist = math.clamp(halfLen + 5 - 18, 2, 10)
+                    pcall(function() LocalPlayer:RequestStreamAroundAsync(entryCF.Position + outFlat * 18) end)
+                    local candidates = {
+                        { pos = entryCF.Position + outFlat * desiredStandDist, dir = outFlat },
+                        { pos = entryCF.Position, dir = outFlat },
+                        { pos = entryCF.Position + outFlat * 2, dir = rightFlat },
+                        { pos = entryCF.Position + outFlat * 2, dir = -rightFlat },
+                    }
+                    for _, cand in ipairs(candidates) do
+                        local groundStand = workspace:Raycast(cand.pos + Vector3.new(0, 6, 0), Vector3.new(0, -24, 0), rp)
+                        local spawnSpot = cand.pos + cand.dir * 18
+                        local groundSpawn = workspace:Raycast(spawnSpot + Vector3.new(0, 12, 0), Vector3.new(0, -28, 0), rp)
+                        if groundStand and groundSpawn and math.abs(groundSpawn.Position.Y - groundStand.Position.Y) <= 10 then
+                            standPos = Vector3.new(cand.pos.X, groundStand.Position.Y + 3.0, cand.pos.Z)
+                            lookDir = cand.dir
+                            break
+                        end
+                    end
+                    if not standPos then
+                        local gHit = workspace:Raycast(entryCF.Position + Vector3.new(0, 6, 0), Vector3.new(0, -20, 0), rp)
+                        local gy = gHit and gHit.Position.Y or (entryCF.Position.Y - 2.5)
+                        standPos = Vector3.new(entryCF.Position.X, gy + 3.0, entryCF.Position.Z)
+                        lookDir = outFlat
+                    end
+                end
+            end
+
+            if not standPos then
+                -- Open-world fallback: face the horizontal direction with clearest space and solid ground
+                pcall(function() LocalPlayer:RequestStreamAroundAsync(savedCF.Position) end)
+                local baseFlat = Vector3.new(savedCF.LookVector.X, 0, savedCF.LookVector.Z)
+                baseFlat = (baseFlat.Magnitude > 0.1) and baseFlat.Unit or Vector3.new(0, 0, -1)
+                local rightFlat = Vector3.new(-baseFlat.Z, 0, baseFlat.X).Unit
+                local dirs = { baseFlat, -baseFlat, rightFlat, -rightFlat }
+                local bestScore, bestDir = -math.huge, baseFlat
+                for _, d in ipairs(dirs) do
+                    local wallHit = workspace:Raycast(savedCF.Position + Vector3.new(0, 2, 0), d * 28, rp)
+                    local wallDist = wallHit and wallHit.Distance or 28
+                    local groundAhead = workspace:Raycast(savedCF.Position + d * 18 + Vector3.new(0, 12, 0), Vector3.new(0, -30, 0), rp)
+                    local score = wallDist + (groundAhead and 20 or 0)
+                    if score > bestScore then
+                        bestScore = score
+                        bestDir = d
+                    end
+                end
+                standPos = savedCF.Position
+                lookDir = bestDir
+            end
+
+            local floorHit = workspace:Raycast(standPos + Vector3.new(0, 2, 0), Vector3.new(0, -16, 0), rp)
+            local floorY = floorHit and floorHit.Position.Y or (standPos.Y - 3.0)
+            tempPlat = Instance.new("Part")
+            tempPlat.Name = "NexRecallSafetyFloor"
+            tempPlat.Size = Vector3.new(14, 1, 14)
+            tempPlat.Anchored = true
+            tempPlat.CanCollide = true
+            tempPlat.Transparency = 1
+            tempPlat.Position = Vector3.new(standPos.X, floorY - 0.5, standPos.Z)
+            tempPlat.Parent = workspace
+
+            local oldPos = vehPos
+            local gotResult = false
+            local resOk = false
+            local resMsg = nil
+            local resConn = nil
+            if spawnResultRemote then
+                resConn = spawnResultRemote.OnClientEvent:Connect(function(ok, msg)
+                    gotResult = true
+                    resOk = (ok == true)
+                    resMsg = msg
+                    if ok == true then
+                        _G.AHLastVehicleSpawnAt = os.clock()
+                    end
+                end)
+            end
+
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = CFrame.lookAt(standPos, standPos + lookDir)
+            -- Allow client->server HRP replication before RequestSpawn executes (reinforce once mid-wait)
+            local repWait = typeof(opts.exactStandCF) == "CFrame" and 0.48 or 0.34
+            task.wait(repWait * 0.5)
+            if hrp and hrp.Parent then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                hrp.CFrame = CFrame.lookAt(standPos, standPos + lookDir)
+            end
+            task.wait(repWait * 0.5)
+
+            local spawnFiredAt = os.clock()
+            _G.AHLastVehicleSpawnAt = spawnFiredAt
+            if typeof(equippedGuid) == "string" and equippedGuid ~= "" then
+                spawnRemote:FireServer(equippedGuid)
+            else
+                spawnRemote:FireServer()
+            end
+
+            while (os.clock() - spawnFiredAt < 2.2) do
+                if gotResult then
+                    if resOk then spawnSuccess = true end
+                    break
+                end
+                local curVeh = getMyVehicle()
+                local curPos = getVehicleWorldPos(curVeh)
+                if curPos and (not oldPos or (curPos - oldPos).Magnitude > 25) and (curPos - standPos).Magnitude < 65 then
+                    spawnSuccess = true
+                    break
+                end
+                task.wait(0.04)
+            end
+
+            if resConn then pcall(function() resConn:Disconnect() end) end
+            if not spawnSuccess and type(resMsg) == "string" and resMsg:lower():find("wait") then
+                _G.AHLastVehicleSpawnAt = os.clock() - 2.5
+            end
+
+            -- Server auto-seats the player ~0.45-1.2s after SpawnResult; intercept & break it before returning to savedCF
+            if spawnSuccess then
+                local seatWatchDeadline = math.max(spawnFiredAt + 1.85, os.clock() + 1.15)
+                local caughtSeat = false
+                while os.clock() < seatWatchDeadline do
+                    if hum.SeatPart or hum.Sit then
+                        caughtSeat = true
+                        forceBreakSeat(hum)
+                        task.wait(0.10)
+                        if not hum.SeatPart and not hum.Sit then
+                            break
+                        end
+                    end
+                    task.wait(0.02)
+                end
+                if not caughtSeat and (hum.SeatPart or hum.Sit) then
+                    forceBreakSeat(hum)
+                end
+            end
+        end)
+
+        pcall(function()
+            local function clearAndRestore()
+                if hum and (hum.SeatPart or hum.Sit) then
+                    local sp = hum.SeatPart
+                    hum.Jump = true
+                    hum.Sit = false
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    if sp then
+                        local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                        if sw then pcall(function() sw:Destroy() end) end
+                    end
+                end
+                if hrp and hrp.Parent then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    hrp.CFrame = savedCF
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+            clearAndRestore()
+            -- Guard for 0.70s against server seat-exit snapback or late auto-seat
+            for _ = 1, 14 do
+                if not hrp or not hrp.Parent or not hum or hum.Health <= 0 then break end
+                if hum.SeatPart or hum.Sit or (hrp.Position - savedCF.Position).Magnitude > 4 then
+                    clearAndRestore()
+                end
+                task.wait(0.05)
+            end
+        end)
+        if tempPlat then
+            task.delay(0.5, function() pcall(function() tempPlat:Destroy() end) end)
+        end
+
+        local updatedVeh = getMyVehicle()
+        local newPos = getVehicleWorldPos(updatedVeh)
+        if spawnSuccess and newPos then
+            local oldD = vehPos and math.floor((vehPos - anchorPos).Magnitude) or -1
+            local newD = math.floor((newPos - anchorPos).Magnitude)
+            if AB then AB.vehicleTooFarTriggered = false end
+            local spawnWhere = opts.spawnLabel or (opts.exactStandCF and "at target coordinate" or "in front of garage")
+            abLog(string.format("[Vehicle] Spawned %s (%d -> %d studs).", spawnWhere, oldD, newD), C.green)
+        end
+
+        _G.AHVehicleRecallInProgress = false
+        return spawnSuccess, updatedVeh
+    end
+    _G.getMyVehicle = getMyVehicle
+    _G.getVehicleWorldPos = getVehicleWorldPos
+    _G.ensureVehicleNearby = ensureVehicleNearby
 end
 
 local function belongsToUs(itemModel)
@@ -2216,12 +2907,12 @@ local function ensureNotRagdolled(char, hum)
     local state = hum:GetState()
     if state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics then
         hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        task.wait(0.08)
+        task.wait(0.06)
         hum:ChangeState(Enum.HumanoidStateType.Running)
-    end
-    for _, d in ipairs(char:GetDescendants()) do
-        if d:IsA("BallSocketConstraint") and d.Name:lower():find("ragdoll") then
-            pcall(function() d:Destroy() end)
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BallSocketConstraint") and d.Name:lower():find("ragdoll") then
+                pcall(function() d:Destroy() end)
+            end
         end
     end
 end
@@ -2237,29 +2928,38 @@ local function equipWrenchTool()
         end
     end
 
+    -- Cached best wrench lookup (30s TTL) to avoid InvokeServer inside per-item pickup loop
+    local wCache = _G._AHBestWrenchCache
+    local targetWrench = (wCache and (os.clock() - (wCache.t or 0) < 30)) and wCache.id or nil
+    if not targetWrench then
+        pcall(function()
+            local RS = game:GetService("ReplicatedStorage")
+            local ws = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("WrenchShop")
+            local state = ws and ws:FindFirstChild("GetState") and ws.GetState:InvokeServer()
+            if state and state.equipped then
+                targetWrench = state.equipped
+            elseif state and state.owned then
+                for i = 8, 0, -1 do
+                    if state.owned["Wrench" .. i] then
+                        targetWrench = "Wrench" .. i
+                        break
+                    end
+                end
+            end
+        end)
+        targetWrench = targetWrench or "Wrench3"
+        _G._AHBestWrenchCache = { id = targetWrench, t = os.clock() }
+    end
+
     -- 1. Try Hotbar module EquipToolId (Native Storage Hunters Hotbar System)
     pcall(function()
         local RS = game:GetService("ReplicatedStorage")
         local hotbar = require(RS.Modules.Screens.Hotbar)
-        local targetWrench = nil
-        local ws = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("WrenchShop")
-        local state = ws and ws:FindFirstChild("GetState") and ws.GetState:InvokeServer()
-        if state and state.equipped then
-            targetWrench = state.equipped
-        elseif state and state.owned then
-            for i = 8, 0, -1 do
-                if state.owned["Wrench" .. i] then
-                    targetWrench = "Wrench" .. i
-                    break
-                end
-            end
-        end
-        targetWrench = targetWrench or "Wrench3"
-        if hotbar and hotbar.EquipToolId then
+        if hotbar and hotbar.EquipToolId and targetWrench then
             hotbar.EquipToolId(targetWrench)
         end
     end)
-    task.wait(0.12)
+    task.wait(0.08)
     for _, t in ipairs(char:GetChildren()) do
         if t:IsA("Tool") and t.Name:lower():find("wrench") then
             return true
@@ -2272,7 +2972,7 @@ local function equipWrenchTool()
         for _, t in ipairs(bp:GetChildren()) do
             if t:IsA("Tool") and t.Name:lower():find("wrench") then
                 hum:EquipTool(t)
-                task.wait(0.12)
+                task.wait(0.08)
                 return true
             end
         end
@@ -2282,14 +2982,11 @@ local function equipWrenchTool()
     pcall(function()
         local RS = game:GetService("ReplicatedStorage")
         local ws = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("WrenchShop")
-        if ws and ws:FindFirstChild("GetState") and ws:FindFirstChild("EquipWrench") then
-            local state = ws.GetState:InvokeServer()
-            if state and state.equipped then
-                ws.EquipWrench:InvokeServer(state.equipped)
-            end
+        if ws and ws:FindFirstChild("EquipWrench") and targetWrench then
+            ws.EquipWrench:InvokeServer(targetWrench)
         end
     end)
-    task.wait(0.15)
+    task.wait(0.1)
     for _, t in ipairs(char:GetChildren()) do
         if t:IsA("Tool") and t.Name:lower():find("wrench") then
             return true
@@ -2298,29 +2995,73 @@ local function equipWrenchTool()
     return false
 end
 
--- Safecracker helpers
+-- Safecracker helpers (dynamic Modules.Safes sync + 30s lockpick cache)
 local function getSafeTier(item)
     if not item then return nil end
-    local sId = item:GetAttribute("SafeId")
-    if sId then
-        sId = tostring(sId)
-        if sId == "1" or sId == "2" or sId == "7" then return 0 end
-        if sId == "3" then return 1 end
-        if sId == "4" then return 2 end
-        if sId == "5" then return 3 end
-        if sId == "6" then return 4 end
+    local sId = nil
+    local itemId = nil
+    if typeof and typeof(item) == "Instance" then
+        sId = item:GetAttribute("SafeId")
+        itemId = item:GetAttribute("ItemId")
+    elseif type(item) == "table" then
+        local d = type(item.data) == "table" and item.data or item
+        sId = d.SafeId or item.SafeId
+        itemId = d.ItemId or item.ItemId
     end
-    local name = tostring(item:GetAttribute("ItemName") or item:GetAttribute("Name") or item.Name):lower()
+    if not sId and itemId and ItemsData then
+        local conf = ItemsData[tostring(itemId)] or ItemsData[tonumber(itemId)]
+        if type(conf) == "table" and conf.SafeId ~= nil then
+            sId = conf.SafeId
+        end
+    end
+    if sId ~= nil and tostring(sId) ~= "" then
+        local sKey = tostring(sId)
+        -- Dynamic lookup against live ReplicatedStorage.Modules.Safes
+        local safesMod = _G._AHCachedSafesMod
+        if safesMod == nil then
+            local okS, modS = pcall(function()
+                local m = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Safes")
+                return m and require(m) or nil
+            end)
+            safesMod = (okS and type(modS) == "table") and modS or false
+            _G._AHCachedSafesMod = safesMod
+        end
+        if type(safesMod) == "table" then
+            local sDef = safesMod[sKey] or safesMod[tonumber(sKey)]
+            if type(sDef) == "table" and sDef.MinPickTier ~= nil then
+                return tonumber(sDef.MinPickTier) or 0
+            end
+        end
+        if sKey == "1" or sKey == "2" or sKey == "7" or sKey == "9" then return 0 end
+        if sKey == "3" then return 1 end
+        if sKey == "4" then return 2 end
+        if sKey == "5" then return 3 end
+        if sKey == "6" then return 4 end
+        return 0
+    end
+    local name = ""
+    if typeof and typeof(item) == "Instance" then
+        name = tostring(item:GetAttribute("ItemName") or item:GetAttribute("Name") or item.Name):lower()
+    elseif type(item) == "table" then
+        name = tostring(item.Name or item.name or ""):lower()
+    else
+        name = tostring(item):lower()
+    end
     if name:find("diamond vault") then return 4 end
     if name:find("diamond safe") then return 3 end
     if name:find("code safe") then return 2 end
     if name:find("metal safe") then return 1 end
-    if name:find("wooden safe") or name:find("junk safe") then return 0 end
+    if name:find("roasted turkey safe") or name:find("wooden safe") or name:find("junk safe") then return 0 end
     if name:find("safe") or name:find("vault") or name:find("lockbox") then return 0 end
     return nil
 end
+_G.getSafeTier = getSafeTier
 
-local function getPlayerBestLockpick()
+local function getPlayerBestLockpick(forceRefresh)
+    local cache = _G._AHBestLockpickCache
+    if not forceRefresh and cache and (os.clock() - (cache.t or 0) < 30) and cache.tier ~= nil then
+        return cache.tier, cache.toolId
+    end
     local bestTier = -1
     local bestToolId = nil
     pcall(function()
@@ -2355,10 +3096,12 @@ local function getPlayerBestLockpick()
             end
         end)
     end
+    _G._AHBestLockpickCache = { tier = bestTier, toolId = bestToolId, t = os.clock() }
     return bestTier, bestToolId
 end
+_G.getPlayerBestLockpick = getPlayerBestLockpick
 
-local function equipLockpickTool()
+local function equipLockpickTool(knownToolId)
     local lp = game:GetService("Players").LocalPlayer
     local char = lp.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2370,7 +3113,11 @@ local function equipLockpickTool()
     end
 
     -- 1. Try Hotbar module EquipToolId
-    local bestTier, bestToolId = getPlayerBestLockpick()
+    local bestToolId = knownToolId
+    if not bestToolId then
+        local _, cachedId = getPlayerBestLockpick()
+        bestToolId = cachedId
+    end
     pcall(function()
         local RS = game:GetService("ReplicatedStorage")
         local hotbar = require(RS.Modules.Screens.Hotbar)
@@ -2378,7 +3125,7 @@ local function equipLockpickTool()
             hotbar.EquipToolId(bestToolId)
         end
     end)
-    task.wait(0.12)
+    task.wait(0.08)
     for _, t in ipairs(char:GetChildren()) do
         if t:IsA("Tool") and (t.Name:lower():find("picklock") or t.Name:lower():find("lockpick")) then
             return true
@@ -2391,7 +3138,7 @@ local function equipLockpickTool()
         for _, t in ipairs(bp:GetChildren()) do
             if t:IsA("Tool") and (t.Name:lower():find("picklock") or t.Name:lower():find("lockpick")) then
                 hum:EquipTool(t)
-                task.wait(0.12)
+                task.wait(0.08)
                 return true
             end
         end
@@ -2400,15 +3147,15 @@ local function equipLockpickTool()
 end
 
 local function solvePicklockMinigame(timeoutSec)
-    timeoutSec = timeoutSec or 5.0
+    timeoutSec = timeoutSec or 8.0
     local startTime = os.clock()
     local lp = game:GetService("Players").LocalPlayer
     local vim = game:GetService("VirtualInputManager")
     local gui = nil
-    while os.clock() - startTime < 1.8 do
+    while os.clock() - startTime < 2.0 do
         gui = lp.PlayerGui:FindFirstChild("PicklockMinigame")
         if gui then break end
-        task.wait(0.05)
+        task.wait(0.04)
     end
     if not gui then return false end
     pcall(function() gui.Enabled = false end)
@@ -2416,35 +3163,71 @@ local function solvePicklockMinigame(timeoutSec)
     local target = ring and ring:FindFirstChild("Target")
     local indicator = ring and ring:FindFirstChild("Indicator")
     if not target or not indicator then return false end
+
+    local unlocked = false
     local solvedPins = 0
-    for pin = 1, 3 do
-        local pinStart = os.clock()
-        local pinHit = false
-        while os.clock() - pinStart < 2.5 and (os.clock() - startTime) < timeoutSec do
-            if not gui or not gui.Parent then break end
+    local lastHitAt = 0
+    while (os.clock() - startTime) < timeoutSec do
+        if not gui or not gui.Parent then
+            unlocked = unlocked or (solvedPins >= 3)
+            break
+        end
+        if ring:FindFirstChild("UnlockedText") then
+            unlocked = true
+            break
+        end
+        local popsLbl = ring:FindFirstChild("PopsCounter")
+        if popsLbl and tonumber(popsLbl.Text) == 0 then
+            unlocked = true
+            break
+        end
+        if (os.clock() - lastHitAt) >= 0.24 then
             local tRot = target.Rotation
             local iRot = indicator.Rotation
-            local diff = math.abs((iRot - tRot + 180) % 360 - 180)
-            if diff <= 12 then
-                vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-                task.wait(0.03)
-                vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                pinHit = true
+            local diff = math.abs(((iRot - tRot + 180) % 360) - 180)
+            if diff <= 11 then
+                lastHitAt = os.clock()
+                pcall(function()
+                    vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.wait(0.025)
+                    vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
                 solvedPins = solvedPins + 1
-                task.wait(0.35)
-                break
+                task.wait(0.06)
             end
-            task.wait(0.01)
         end
-        if not pinHit then break end
+        task.wait(0.01)
     end
+
+    -- Wait cleanly for PicklockMinigame GUI cleanup (game destroys after 1.4s delay)
     local waitClean = os.clock()
-    while os.clock() - waitClean < 1.5 do
+    while os.clock() - waitClean < 2.0 do
         if not lp.PlayerGui:FindFirstChild("PicklockMinigame") then break end
         task.wait(0.05)
     end
-    return solvedPins >= 3
+    -- Auto-dismiss SafeCrackReveal overlay if it pops up during automated cracking
+    task.delay(1.6, function()
+        pcall(function()
+            local pg = lp:FindFirstChild("PlayerGui")
+            if not pg then return end
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g.Name:lower():find("safecrack") then
+                    for _, b in ipairs(g:GetDescendants()) do
+                        if b:IsA("TextButton") and b.Visible then
+                            local txt = (b.Text or ""):lower()
+                            if txt:find("claim") or txt:find("close") or txt:find("continue") or txt:find("ok") then
+                                if firesignal then pcall(firesignal, b.MouseButton1Click) end
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+    return unlocked or (solvedPins >= 3)
 end
+_G.solvePicklockMinigame = solvePicklockMinigame
 
 local function fireHoldPrompt(targetPrompt)
     if not targetPrompt or not targetPrompt.Parent or not targetPrompt.Enabled then return end
@@ -2457,6 +3240,46 @@ local function fireHoldPrompt(targetPrompt)
             task.wait(holdTime + 0.08)
             targetPrompt:InputHoldEnd()
         end)
+    end
+end
+
+-- [Thanksgiving] Only-Feast-Food Pickup Helper (auto-pauses when Giant Turkey is full / Feast active!)
+do
+    local FEAST_FOOD_IDS_PICKUP = { ["1784"] = true, ["1785"] = true, ["1786"] = true, ["1787"] = true, ["1788"] = true }
+    local FEAST_FOOD_NAMES_PICKUP = {
+        ["steamed corn with butter"] = true,
+        ["whipped cream"] = true,
+        ["pumpkin tart"] = true,
+        ["roasted turkey"] = true,
+        ["turkey cookie"] = true,
+    }
+    _G.isOnlyFeastFoodPickupActive = function()
+        if not gConfig or gConfig.onlyPickupFeastFood ~= true then return false end
+        local lp = game:GetService("Players").LocalPlayer
+        if not lp then return false end
+        local meter = tonumber(lp:GetAttribute("TurkeyFeastMeter")) or 0
+        local endsAt = tonumber(lp:GetAttribute("TurkeyFeastEndsAt")) or 0
+        local now = workspace:GetServerTimeNow()
+        if meter >= 100 or endsAt > now then
+            return false
+        end
+        return true
+    end
+    _G.isCarryableFeastFood = function(item)
+        if not item then return false end
+        local idAttr = item:GetAttribute("ItemId")
+        if idAttr and FEAST_FOOD_IDS_PICKUP[tostring(idAttr)] then return true end
+        local rawName = tostring(item:GetAttribute("ItemName") or item:GetAttribute("Name") or item.Name or "")
+        local clean = rawName:gsub("%[.-%]%s*", ""):match("^%s*(.-)%s*$"):lower()
+        if FEAST_FOOD_NAMES_PICKUP[clean] then return true end
+        if _G.resolveGarageItemName then
+            local rName = _G.resolveGarageItemName(item)
+            if rName and rName ~= "" then
+                local rClean = tostring(rName):gsub("%[.-%]%s*", ""):match("^%s*(.-)%s*$"):lower()
+                if FEAST_FOOD_NAMES_PICKUP[rClean] then return true end
+            end
+        end
+        return false
     end
 end
 
@@ -2507,22 +3330,47 @@ runAutoPickupCycle = function(source, forceManual)
     local itemFails = {}
 
     -- Never move the character root while a seat weld can carry the car with it.
-    local function moveToPickupTarget(targetCF)
+    local function moveToPickupTarget(targetPosOrCF)
         local deadline = os.clock() + 1.5
         hum.Sit = false
         while hum.SeatPart and os.clock() < deadline do
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            task.wait(0.05)
+            task.wait(0.04)
             if LocalPlayer.Character ~= char or hum.Health <= 0 then return false end
         end
         if hum.SeatPart or LocalPlayer.Character ~= char or hum.Health <= 0 then return false end
-        hrp.CFrame = targetCF
+        local pos = (typeof(targetPosOrCF) == "CFrame") and targetPosOrCF.Position or targetPosOrCF
+        -- Always teleport UPRIGHT in world space (rotated/tilted items otherwise tip HRP sideways or under floor!)
+        local curDist = (hrp.Position - pos).Magnitude
+        hrp.CFrame = CFrame.new(pos)
         hrp.AssemblyLinearVelocity = Vector3.zero
-        return true
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        return true, curDist
+    end
+
+    local function waitPromptCleared(it, pr, maxSec, origActionLower)
+        local cap = math.max(0.12, tonumber(maxSec) or 0.25)
+        local t0 = os.clock()
+        while (os.clock() - t0) < cap do
+            if not it or not it.Parent or not pr or not pr.Parent or not pr.Enabled then
+                return true
+            end
+            if origActionLower and tostring(pr.ActionText or ""):lower() ~= origActionLower then
+                return true
+            end
+            if _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 1.5) then
+                return false
+            end
+            if AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 1.5) then
+                return false
+            end
+            task.wait(0.03)
+        end
+        return (not it or not it.Parent or not pr or not pr.Parent or not pr.Enabled)
     end
 
     ensureNotRagdolled(char, hum)
-    if not moveToPickupTarget(hrp.CFrame) then
+    if not moveToPickupTarget(hrp.Position) then
         abLog("Auto-Pickup: could not leave the seat; collection stopped.", C.red)
         _G.AHPickupCycleRunning = false
         AB.pickupPhase = false
@@ -2530,10 +3378,14 @@ runAutoPickupCycle = function(source, forceManual)
         return
     end
 
+    -- Cache lockpick tier ONCE per cycle (avoid InvokeServer inside per-item loop)
+    local cachedLockpickTier, cachedLockpickToolId = nil, nil
     local maxPasses = 50
     local pass = 0
     local consecutiveZeroChecks = 0
     local pickupStartTime = os.clock()
+    local anyPickedUpThisCycle = false
+    local lastPassOpenedBox = false
 
     while pass < maxPasses and (os.clock() - pickupStartTime < 60) do
         -- Instant user stop check
@@ -2551,164 +3403,309 @@ runAutoPickupCycle = function(source, forceManual)
         ensureNotRagdolled(char, hum)
 
         local itemsFound = 0
+        local openedAnyBox = false
+        local pickupCeiling = math.max(0.22, tonumber(gConfig.pickupDelay) or 0.25)
 
+        -- Gather eligible items and sort nearest-first for minimal travel & snappier sequential pickups
+        local candidates = {}
+        local hrpPos = hrp.Position
+        local onlyFoodNow = (not forceManual) and (_G.isOnlyFeastFoodPickupActive and _G.isOnlyFeastFoodPickupActive() or false)
         for _, folder in ipairs(itemFolders) do
             for _, item in ipairs(folder:GetChildren()) do
-                if not forceManual and gConfig.autoCollectWon ~= true and not AB.pickupPhase then
-                    break
-                end
-
                 if belongsToUs(item) then
                     local isSkipped = (_G.AHSkippedItems and _G.AHSkippedItems[item] and os.clock() < _G.AHSkippedItems[item]) or ((itemFails[item] or 0) >= 3)
-                    if not isSkipped then
+                    if not isSkipped and (not onlyFoodNow or (_G.isCarryableFeastFood and _G.isCarryableFeastFood(item))) then
                         local prompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
                         local targetCF = getItemTargetCFrame(prompt, item)
                         if prompt and prompt.Enabled and targetCF then
-                            local promptAction = tostring(prompt.ActionText or ""):lower()
-                            local promptName   = tostring(prompt.Name or ""):lower()
-                            local itemNameLower = tostring(item:GetAttribute("ItemName") or item:GetAttribute("Name") or item.Name):lower()
+                            table.insert(candidates, {
+                                item = item,
+                                prompt = prompt,
+                                targetCF = targetCF,
+                                dist = (targetCF.Position - hrpPos).Magnitude,
+                            })
+                        end
+                    end
+                end
+            end
+        end
+        if #candidates > 1 then
+            table.sort(candidates, function(a, b) return a.dist < b.dist end)
+        end
 
-                            local isRealOreBox = itemNameLower:find("ore box") or itemNameLower:find("orebox")
-                            local isBoxOpen = (not isRealOreBox) and (promptAction:find("open") or promptAction:find("unpack") or promptAction:find("search") 
-                                           or promptName:find("open") or promptName:find("unpack") or (itemNameLower:find("box") and not itemNameLower:find("parts") and not isRealOreBox) or itemNameLower:find("crate"))
-                            
-                            local isRepair = promptAction:find("repair") or promptAction:find("fix") or promptAction:find("restore")
-                                          or promptName:find("repair") or promptName:find("fix")
-                            
-                            local itemVal = (getPickupItemValue and getPickupItemValue(item)) or 1
-                            local isGavelTrophy = itemNameLower:find("gavel") or itemNameLower:find("trophy")
-                            local activeMinPickup = gConfig.minPickupValue or 0
-                            local safeTier = getSafeTier(item)
-                            local isSafe = (safeTier ~= nil)
+        for _, cand in ipairs(candidates) do
+            if not forceManual and gConfig.autoCollectWon ~= true and not AB.pickupPhase then
+                break
+            end
+            local item = cand.item
+            local prompt = cand.prompt
+            if item and item.Parent and prompt and prompt.Parent and prompt.Enabled then
+                local targetCF = getItemTargetCFrame(prompt, item) or cand.targetCF
+                if targetCF then
+                    local standPos = targetCF.Position + Vector3.new(0, 2.5, 0)
+                    if (not gConfig or gConfig.autoRecallVehicle ~= false) and AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 10) and _G.ensureVehicleNearby then
+                        AB.vehicleTooFarTriggered = false
+                        local gHint = AB.activeGarageInstance or _G.AHLastTargetLot
+                        local _, freshVeh = _G.ensureVehicleNearby(targetCF.Position, gHint, { force = true, waitForCooldown = true })
+                        vehicle = freshVeh or getMyVehicle() or vehicle
+                    elseif gConfig and gConfig.autoRecallVehicle == false then
+                        AB.vehicleTooFarTriggered = false
+                    end
 
-                            -- Auto unload vehicle if overweight
-                            if vehicle and isVehicleOverweight and isVehicleOverweight() then
-                                if instantUnloadVehicle then pcall(function() instantUnloadVehicle(vehicle) end) end
-                                task.wait(0.2)
+                    local promptAction = tostring(prompt.ActionText or ""):lower()
+                    local promptName   = tostring(prompt.Name or ""):lower()
+                    local itemNameLower = tostring(item:GetAttribute("ItemName") or item:GetAttribute("Name") or item.Name):lower()
+                    local itemIdAttr = item:GetAttribute("ItemId")
+
+                    local isRealOreBox = itemNameLower:find("ore box") or itemNameLower:find("orebox")
+                    -- Check prompt action/name ONLY (never misclassify Boombox / Toolbox / Lunchbox / Wooden Crate as containers!)
+                    local isBoxOpen = (not isRealOreBox) and (promptAction:find("open") or promptAction:find("unpack") or promptAction:find("search")
+                                   or promptName:find("open") or promptName:find("unpack"))
+
+                    local isRepair = promptAction:find("repair") or promptAction:find("fix") or promptAction:find("restore")
+                                  or promptName:find("repair") or promptName:find("fix")
+
+                    local itemVal = (getPickupItemValue and getPickupItemValue(item)) or 1
+                    local isGavelTrophy = itemNameLower:find("gavel") or itemNameLower:find("trophy")
+                    local activeMinPickup = gConfig.minPickupValue or 0
+                    local safeTier = getSafeTier(item)
+                    local isSafe = (safeTier ~= nil)
+
+                    -- Auto unload vehicle only if overweight trigger fired (avoid InvokeServer on every item!)
+                    if (gConfig.afAutoUnload or autoUnloadFull) and _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 4) then
+                        if instantUnloadVehicle then pcall(function() instantUnloadVehicle(vehicle) end) end
+                        _G._AHVehicleOverweightTriggered = false
+                        task.wait(0.12)
+                    end
+
+                    pcall(function()
+                        -- 1. BOX OPEN / UNPACK PROMPTS
+                        if isBoxOpen and not isSafe then
+                            local moved, distBefore = moveToPickupTarget(standPos)
+                            if not moved then error("Pickup movement blocked: character still seated or unavailable") end
+                            task.wait((distBefore and distBefore <= 10) and 0.03 or 0.06)
+                            abLog("[Freight] Opening container box: " .. item.Name .. "...", Color3.fromRGB(255, 200, 80))
+                            if fireproximityprompt then
+                                fireproximityprompt(prompt, 0)
+                            else
+                                fireHoldPrompt(prompt)
+                            end
+                            itemsFound = itemsFound + 1
+                            openedAnyBox = true
+                            waitPromptCleared(item, prompt, math.max((prompt.HoldDuration or 0.4) + 0.35, 0.7), promptAction)
+                            dismissDiscoveryPopups()
+
+                        -- 2. REPAIR PROMPTS
+                        elseif isRepair and not isSafe then
+                            equipWrenchTool()
+                            local moved, distBefore = moveToPickupTarget(standPos)
+                            if not moved then error("Pickup movement blocked: character still seated or unavailable") end
+                            task.wait((distBefore and distBefore <= 10) and 0.03 or 0.06)
+                            abLog("[Repair] Repairing item: " .. item.Name .. "...", Color3.fromRGB(150, 200, 255))
+                            if fireproximityprompt then
+                                fireproximityprompt(prompt, 0)
+                            else
+                                fireHoldPrompt(prompt)
+                            end
+                            waitPromptCleared(item, prompt, math.max((prompt.HoldDuration or 0.4) + 0.35, 0.7), promptAction)
+                            dismissDiscoveryPopups()
+
+                            -- Unequip wrench so hands are free
+                            if hum then hum:UnequipTools() end
+                            task.wait(0.06)
+
+                            -- Prompt may update to 'Add to Vehicle' or 'Pickup'
+                            local p2 = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if p2 and p2.Enabled then
+                                local a2 = tostring(p2.ActionText or ""):lower()
+                                if a2:find("vehicle") or a2:find("pickup") or a2:find("collect") or a2:find("add") or a2:find("take") then
+                                    abLog("[Freight] Loading repaired item: " .. item.Name .. " into vehicle...", C.green)
+                                    AB.vehicleTooFarTriggered = false
+                                    _G._AHVehicleOverweightTriggered = false
+                                    if fireproximityprompt then fireproximityprompt(p2, 0) else fireHoldPrompt(p2) end
+                                    local cleared2 = waitPromptCleared(item, p2, pickupCeiling)
+                                    if cleared2 then
+                                        anyPickedUpThisCycle = true
+                                        if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                                    elseif (gConfig.afAutoUnload or autoUnloadFull) and _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 3) then
+                                        dismissOverweightPrompt()
+                                        local unlOk = instantUnloadVehicle and instantUnloadVehicle(vehicle)
+                                        if unlOk and p2 and p2.Parent and p2.Enabled and moveToPickupTarget(standPos) then
+                                            task.wait(0.05)
+                                            if fireproximityprompt then fireproximityprompt(p2, 0) else fireHoldPrompt(p2) end
+                                            waitPromptCleared(item, p2, pickupCeiling)
+                                        end
+                                    elseif (not gConfig or gConfig.autoRecallVehicle ~= false) and AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 3) and _G.ensureVehicleNearby then
+                                        AB.vehicleTooFarTriggered = false
+                                        local recallOk, freshVeh = _G.ensureVehicleNearby(targetCF.Position, AB.activeGarageInstance or _G.AHLastTargetLot, { waitForCooldown = true, force = true })
+                                        vehicle = freshVeh or getMyVehicle() or vehicle
+                                        if recallOk and p2 and p2.Parent and p2.Enabled and moveToPickupTarget(standPos) then
+                                            task.wait(0.05)
+                                            if fireproximityprompt then fireproximityprompt(p2, 0) else fireHoldPrompt(p2) end
+                                            waitPromptCleared(item, p2, pickupCeiling)
+                                        end
+                                    end
+                                end
+                            end
+                            itemsFound = itemsFound + 1
+
+                            local stillPrompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if stillPrompt and stillPrompt.Enabled and tostring(stillPrompt.ActionText or ""):lower():find("repair") then
+                                itemFails[item] = (itemFails[item] or 0) + 1
+                                if itemFails[item] >= 3 then
+                                    abLog("[Warning] Could not repair " .. item.Name .. " (missing wrench or level). Skipping.", COLORS.Orange)
+                                    _G.AHSkippedItems = _G.AHSkippedItems or {}
+                                    _G.AHSkippedItems[item] = os.clock() + 25
+                                end
                             end
 
-                            pcall(function()
-                                -- 1. BOX OPEN / UNPACK PROMPTS
-                                if isBoxOpen and not isSafe then
-                                    if not moveToPickupTarget(targetCF * CFrame.new(0, 1.5, 0)) then error("Pickup movement blocked: character still seated or unavailable") end
-                                    task.wait(0.12)
-                                    abLog("[Freight] Opening container box: " .. item.Name .. "...", Color3.fromRGB(255, 200, 80))
-                                    if fireproximityprompt then
-                                        fireproximityprompt(prompt, 0)
-                                    else
-                                        fireHoldPrompt(prompt)
-                                    end
+                        -- 3. SAFES
+                        elseif isSafe then
+                            if cachedLockpickTier == nil then
+                                cachedLockpickTier, cachedLockpickToolId = getPlayerBestLockpick()
+                            end
+                            local canCrack = (cachedLockpickTier >= safeTier)
+                            local moved, distBefore = moveToPickupTarget(standPos)
+                            if not moved then error("Pickup movement blocked: character still seated or unavailable") end
+                            task.wait((distBefore and distBefore <= 10) and 0.03 or 0.06)
+
+                            if canCrack then
+                                abLog("Safecracker: Compatible lockpick found for " .. item.Name .. " (Tier " .. safeTier .. "). Cracking safe...", Color3.fromRGB(255, 215, 0))
+                                equipLockpickTool(cachedLockpickToolId)
+                                task.wait(0.06)
+                                fireHoldPrompt(prompt)
+                                local cracked = solvePicklockMinigame(8.0)
+                                if cracked then
                                     itemsFound = itemsFound + 1
-                                    dismissDiscoveryPopups()
-                                    task.wait(math.max((prompt.HoldDuration or 0.4) + 0.3, 0.7))
-                                    dismissDiscoveryPopups()
-
-                                -- 2. REPAIR PROMPTS
-                                elseif isRepair and not isSafe then
-                                    equipWrenchTool()
-                                    if not moveToPickupTarget(targetCF * CFrame.new(0, 1.5, 0)) then error("Pickup movement blocked: character still seated or unavailable") end
-                                    task.wait(0.12)
-                                    abLog("[Repair] Repairing item: " .. item.Name .. "...", Color3.fromRGB(150, 200, 255))
-                                    if fireproximityprompt then
-                                        fireproximityprompt(prompt, 0)
-                                    else
-                                        fireHoldPrompt(prompt)
-                                    end
-                                    task.wait(math.max((prompt.HoldDuration or 0.4) + 0.3, 0.7))
-                                    dismissDiscoveryPopups()
-
-                                    -- Unequip wrench so hands are free
+                                    anyPickedUpThisCycle = true
+                                    if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                                    abLog("Safecracker: " .. item.Name .. " unlocked! Rewards claimed.", C.green)
+                                    if showWorkshopPopup then showWorkshopPopup("Safe Unlocked! Rewards Claimed.", C.green) end
+                                else
+                                    abLog("[Warning] Safecracker: Lockpick attempt timed out for " .. item.Name .. ", stashing safe box.", COLORS.Orange)
                                     if hum then hum:UnequipTools() end
-                                    task.wait(0.12)
-
-                                    -- Prompt may update to 'Add to Vehicle' or 'Pickup'
-                                    local p2 = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                    if p2 and p2.Enabled then
-                                        local a2 = tostring(p2.ActionText or ""):lower()
-                                        if a2:find("vehicle") or a2:find("pickup") or a2:find("collect") or a2:find("add") or a2:find("take") then
-                                            abLog("[Freight] Loading repaired item: " .. item.Name .. " into vehicle...", C.green)
-                                            if fireproximityprompt then fireproximityprompt(p2, 0) else fireHoldPrompt(p2) end
-                                            task.wait(gConfig.pickupDelay or 0.3)
-                                        end
-                                    end
+                                    task.wait(0.08)
+                                    fireHoldPrompt(prompt)
+                                    waitPromptCleared(item, prompt, pickupCeiling)
                                     itemsFound = itemsFound + 1
-
-                                    local stillPrompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                    if stillPrompt and stillPrompt.Enabled and tostring(stillPrompt.ActionText or ""):lower():find("repair") then
-                                        itemFails[item] = (itemFails[item] or 0) + 1
-                                        if itemFails[item] >= 3 then
-                                            abLog("[Warning] Could not repair " .. item.Name .. " (missing wrench or level). Skipping.", COLORS.Orange)
-                                            _G.AHSkippedItems = _G.AHSkippedItems or {}
-                                            _G.AHSkippedItems[item] = os.clock() + 25
-                                        end
-                                    end
-
-                                -- 3. SAFES
-                                elseif isSafe then
-                                    local bestPlayerTier, bestToolId = getPlayerBestLockpick()
-                                    local canCrack = (bestPlayerTier >= safeTier)
-                                    if not moveToPickupTarget(targetCF * CFrame.new(0, 1.5, 0)) then error("Pickup movement blocked: character still seated or unavailable") end
-                                    task.wait(0.12)
-
-                                    if canCrack then
-                                        abLog("Safecracker: Compatible lockpick found for " .. item.Name .. " (Tier " .. safeTier .. "). Cracking safe...", Color3.fromRGB(255, 215, 0))
-                                        equipLockpickTool()
-                                        task.wait(0.1)
-                                        fireHoldPrompt(prompt)
-                                        local cracked = solvePicklockMinigame(5.0)
-                                        if cracked then
-                                            itemsFound = itemsFound + 1
-                                            abLog("Safecracker: " .. item.Name .. " unlocked! Rewards claimed.", C.green)
-                                            if showWorkshopPopup then showWorkshopPopup("Safe Unlocked! Rewards Claimed.", C.green) end
-                                        else
-                                            abLog("[Warning] Safecracker: Lockpick attempt timed out for " .. item.Name .. ", stashing safe box.", COLORS.Orange)
-                                            if hum then hum:UnequipTools() end
-                                            task.wait(0.15)
-                                            fireHoldPrompt(prompt)
-                                            itemsFound = itemsFound + 1
-                                        end
-                                        if hum then hum:UnequipTools() end
-                                        task.wait(gConfig.pickupDelay or 0.4)
-                                    else
-                                        if hum then hum:UnequipTools() end
-                                        task.wait(0.1)
-                                        abLog("[Freight] Stashing locked safe " .. item.Name .. " into vehicle (requires Tier " .. safeTier .. " lockpick).", Color3.fromRGB(255, 181, 61))
-                                        itemsFound = itemsFound + 1
+                                end
+                                if hum then hum:UnequipTools() end
+                            else
+                                if hum then hum:UnequipTools() end
+                                task.wait(0.05)
+                                abLog("[Freight] Stashing locked safe " .. item.Name .. " into vehicle (requires Tier " .. safeTier .. " lockpick).", Color3.fromRGB(255, 181, 61))
+                                itemsFound = itemsFound + 1
+                                AB.vehicleTooFarTriggered = false
+                                _G._AHVehicleOverweightTriggered = false
+                                if fireproximityprompt then fireproximityprompt(prompt, 0) else fireHoldPrompt(prompt) end
+                                local clearedSafe = waitPromptCleared(item, prompt, pickupCeiling)
+                                if clearedSafe then
+                                    anyPickedUpThisCycle = true
+                                    if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                                elseif (gConfig.afAutoUnload or autoUnloadFull) and _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 3) then
+                                    dismissOverweightPrompt()
+                                    local unlOk = instantUnloadVehicle and instantUnloadVehicle(vehicle)
+                                    if unlOk and prompt and prompt.Parent and prompt.Enabled and moveToPickupTarget(standPos) then
+                                        task.wait(0.05)
                                         if fireproximityprompt then fireproximityprompt(prompt, 0) else fireHoldPrompt(prompt) end
-                                        task.wait(gConfig.pickupDelay or 0.4)
+                                        waitPromptCleared(item, prompt, pickupCeiling)
                                     end
+                                elseif (not gConfig or gConfig.autoRecallVehicle ~= false) and AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 3) and _G.ensureVehicleNearby then
+                                    AB.vehicleTooFarTriggered = false
+                                    local recallOk, freshVeh = _G.ensureVehicleNearby(targetCF.Position, AB.activeGarageInstance or _G.AHLastTargetLot, { waitForCooldown = true, force = true })
+                                    vehicle = freshVeh or getMyVehicle() or vehicle
+                                    if recallOk and prompt and prompt.Parent and prompt.Enabled and moveToPickupTarget(standPos) then
+                                        task.wait(0.05)
+                                        if fireproximityprompt then fireproximityprompt(prompt, 0) else fireHoldPrompt(prompt) end
+                                        waitPromptCleared(item, prompt, pickupCeiling)
+                                    end
+                                end
+                            end
 
-                                -- 4. STANDARD LOOT (including Gavels & Item Rules)
-                                elseif (function()
-                                    local pickDec = evaluateItemRule and evaluateItemRule(item, "pickup")
-                                    if pickDec == "deny" then return false end
-                                    if pickDec == "allow" then return true end
-                                    return isGavelTrophy or activeMinPickup <= 0 or itemVal >= activeMinPickup
-                                end)() then
-                                    -- Free hands if holding a tool so prompt isn't blocked
-                                    for _, t in ipairs(char:GetChildren()) do
-                                        if t:IsA("Tool") then
-                                            hum:UnequipTools()
-                                            task.wait(0.08)
-                                            break
+                        -- 4. STANDARD LOOT (including Gavels)
+                        elseif isGavelTrophy or activeMinPickup <= 0 or itemVal >= activeMinPickup then
+                            -- Free hands if holding a tool so prompt isn't blocked
+                            for _, t in ipairs(char:GetChildren()) do
+                                if t:IsA("Tool") then
+                                    hum:UnequipTools()
+                                    task.wait(0.04)
+                                    break
+                                end
+                            end
+                            local moved, distBefore = moveToPickupTarget(standPos)
+                            if not moved then error("Pickup movement blocked: character still seated or unavailable") end
+                            task.wait((distBefore and distBefore <= 10) and 0.03 or 0.06)
+                            itemsFound = itemsFound + 1
+                            abLog("Picking up: " .. item.Name, C.green)
+                            AB.vehicleTooFarTriggered = false
+                            _G._AHVehicleOverweightTriggered = false
+                            if fireproximityprompt then
+                                fireproximityprompt(prompt, 0)
+                            else
+                                fireHoldPrompt(prompt)
+                            end
+                            local cleared = waitPromptCleared(item, prompt, pickupCeiling)
+                            dismissDiscoveryPopups()
+
+                            -- Fast single re-fire before invoking overweight server check (eliminates standing-still misfires)
+                            if not cleared and item.Parent then
+                                local spFast = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                local hasErrFlag = (_G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 2))
+                                    or (AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 2))
+                                if spFast and spFast.Enabled and not hasErrFlag then
+                                    if fireproximityprompt then fireproximityprompt(spFast, 0) else fireHoldPrompt(spFast) end
+                                    cleared = waitPromptCleared(item, spFast, 0.14)
+                                end
+                            end
+
+                            if cleared then
+                                anyPickedUpThisCycle = true
+                                if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                            else
+                                -- Check if item is still present and prompt enabled (pickup failed)
+                                local stillPrompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if stillPrompt and stillPrompt.Enabled then
+                                    local owHit = _G._AHVehicleOverweightTriggered and (os.clock() - (_G._AHVehicleOverweightAt or 0) < 3)
+                                    if not owHit and (gConfig.afAutoUnload or autoUnloadFull) and isVehicleOverweight then
+                                        owHit = isVehicleOverweight(true)
+                                    end
+                                    if owHit and (gConfig.afAutoUnload or autoUnloadFull) then
+                                        dismissOverweightPrompt()
+                                        local unlOk, _, unlReason = instantUnloadVehicle(vehicle)
+                                        if unlOk and stillPrompt and stillPrompt.Parent and stillPrompt.Enabled and moveToPickupTarget(standPos) then
+                                            task.wait(0.05)
+                                            if fireproximityprompt then fireproximityprompt(stillPrompt, 0) else fireHoldPrompt(stillPrompt) end
+                                            local c2 = waitPromptCleared(item, stillPrompt, pickupCeiling)
+                                            if c2 then
+                                                anyPickedUpThisCycle = true
+                                                if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                                            end
+                                            dismissDiscoveryPopups()
+                                        elseif unlReason == "inventory_full" then
+                                            itemFails[item] = 3
+                                            _G.AHSkippedItems = _G.AHSkippedItems or {}
+                                            _G.AHSkippedItems[item] = os.clock() + 15
+                                        else
+                                            itemFails[item] = (itemFails[item] or 0) + 1
                                         end
-                                    end
-                                    if not moveToPickupTarget(targetCF * CFrame.new(0, 1.5, 0)) then error("Pickup movement blocked: character still seated or unavailable") end
-                                    task.wait(0.1)
-                                    itemsFound = itemsFound + 1
-                                    abLog("Picking up: " .. item.Name, C.green)
-                                    if fireproximityprompt then
-                                        fireproximityprompt(prompt, 0)
+                                    elseif (not gConfig or gConfig.autoRecallVehicle ~= false) and AB.vehicleTooFarTriggered and (os.clock() - (AB.vehicleTooFarAt or 0) < 3) and _G.ensureVehicleNearby then
+                                        AB.vehicleTooFarTriggered = false
+                                        local recallOk, freshVeh = _G.ensureVehicleNearby(targetCF.Position, AB.activeGarageInstance or _G.AHLastTargetLot, { waitForCooldown = true, force = true })
+                                        vehicle = freshVeh or getMyVehicle() or vehicle
+                                        if recallOk and stillPrompt and stillPrompt.Parent and stillPrompt.Enabled and moveToPickupTarget(standPos) then
+                                            task.wait(0.05)
+                                            if fireproximityprompt then fireproximityprompt(stillPrompt, 0) else fireHoldPrompt(stillPrompt) end
+                                            local c2 = waitPromptCleared(item, stillPrompt, pickupCeiling)
+                                            if c2 then
+                                                anyPickedUpThisCycle = true
+                                                if itemIdAttr and _G.markIndexItemDiscovered then pcall(_G.markIndexItemDiscovered, itemIdAttr) end
+                                            end
+                                            dismissDiscoveryPopups()
+                                        elseif not recallOk then
+                                            itemFails[item] = (itemFails[item] or 0) + 1
+                                        end
                                     else
-                                        fireHoldPrompt(prompt)
-                                    end
-                                    dismissDiscoveryPopups()
-                                    task.wait(gConfig.pickupDelay or 0.3)
-                                    dismissDiscoveryPopups()
-
-                                    -- Check if item is still present and prompt enabled (pickup failed)
-                                    local stillPrompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                    if stillPrompt and stillPrompt.Enabled then
+                                        AB.vehicleTooFarTriggered = false
                                         itemFails[item] = (itemFails[item] or 0) + 1
                                         if itemFails[item] >= 3 then
                                             abLog("[Warning] Pickup failed for " .. item.Name .. " (inaccessible). Skipping.", COLORS.Orange)
@@ -2716,12 +3713,12 @@ runAutoPickupCycle = function(source, forceManual)
                                             _G.AHSkippedItems[item] = os.clock() + 25
                                         end
                                     end
-                                else
-                                    abLog("[Skip] Auto-Pickup: Skip cheap item " .. item.Name .. " ($" .. itemVal .. ")", C.textMuted)
                                 end
-                            end)
+                            end
+                        else
+                            abLog("[Skip] Auto-Pickup: Skip cheap item " .. item.Name .. " ($" .. itemVal .. ")", C.textMuted)
                         end
-                    end
+                    end)
                 end
             end
         end
@@ -2732,16 +3729,22 @@ runAutoPickupCycle = function(source, forceManual)
                 abLog("All items picked up! Loot secured.", C.green)
                 break
             else
-                task.wait(0.5) -- grace delay for crate unpack animations
+                local graceWait = lastPassOpenedBox and 0.45 or 0.18
+                lastPassOpenedBox = false
+                task.wait(graceWait)
             end
         else
             consecutiveZeroChecks = 0
-            task.wait(0.15)
+            lastPassOpenedBox = openedAnyBox
+            task.wait(0.06)
         end
         pass = pass + 1
     end
 
     dismissDiscoveryPopups()
+    if anyPickedUpThisCycle and _G.onAutoPickupFinished then
+        task.spawn(function() pcall(_G.onAutoPickupFinished) end)
+    end
 
     if gConfig.seatedAutofarm then
         local finishedGarage = _G.AHLastTargetLot or lastTargetLot
@@ -2786,16 +3789,17 @@ if _G.AHCollectorThread then
 end
 _G.AHCollectorThread = task.spawn(function()
     while true do
-        task.wait(1.5)
+        task.wait(0.4)
         if not _G.questTpInProgress and not _G.AHPickupCycleRunning and not AB.auctionOpen then
             if (gConfig.autoCollectWon == true) then
                 local carryables = workspace:FindFirstChild("_Carryables")
                 local hasOurItem = false
+                local onlyFoodNow = _G.isOnlyFeastFoodPickupActive and _G.isOnlyFeastFoodPickupActive() or false
                 if carryables then
                     for _, item in ipairs(carryables:GetChildren()) do
                         if belongsToUs(item) then
                             local isSkipped = _G.AHSkippedItems and _G.AHSkippedItems[item] and os.clock() < _G.AHSkippedItems[item]
-                            if not isSkipped then
+                            if not isSkipped and (not onlyFoodNow or (_G.isCarryableFeastFood and _G.isCarryableFeastFood(item))) then
                                 local prompt = item:FindFirstChild("PickupPrompt", true) or item:FindFirstChildWhichIsA("ProximityPrompt", true)
                                 if prompt and prompt.Enabled then
                                     hasOurItem = true
@@ -3005,31 +4009,6 @@ local function getMyLivePlotDrivewayCF()
     return cachedMyPlotCF
 end
 
-local function teleportToMyPlot()
-    pcall(function()
-        local player = game:GetService("Players").LocalPlayer
-        local targetCF = getMyLivePlotDrivewayCF()
-        if targetCF then
-            local char = player.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local seat = hum and hum.SeatPart
-            local vehicle = seat and seat.Parent
-            if vehicle and vehicle:IsA("Model") then
-                vehicle:PivotTo(targetCF + Vector3.new(0, 2, 0))
-                task.wait(0.2)
-                if hum and seat and hum.SeatPart ~= seat then
-                    seat:Sit(hum)
-                end
-            else
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    root.CFrame = targetCF + Vector3.new(0, 2, 0)
-                end
-            end
-        end
-    end)
-end
-
 -- [Target] TARGET ITEM & COW SCANNER HELPER
 -- MeshId lookup cache: built by preloading ALL items from ItemsData
 local gMeshIdToName = nil   -- set once ItemPreviewCache is populated
@@ -3146,69 +4125,9 @@ local function resolveGarageItemName(itemModel)
     
     return "Storage Item"
 end
+_G.isValidGarageItem = isValidGarageItem
+_G.resolveGarageItemName = resolveGarageItemName
 
-local function findAuctionTargetItem()
-    local targetList = gConfig.targetItemsList or { ["Cow"] = true }
-    
-    local debris = workspace:FindFirstChild("_Debris")
-    local garages = debris and debris:FindFirstChild("Garages")
-    local activeGarage = nil
-    
-    if garages then
-        for _, g in ipairs(garages:GetChildren()) do
-            if g:GetAttribute("InAuction") == true then
-                activeGarage = g
-                break
-            end
-        end
-    end
-    
-    if not activeGarage and garages then
-        local lp = Players.LocalPlayer
-        local char = lp and lp.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local closestDist = 70
-            for _, g in ipairs(garages:GetChildren()) do
-                local p = g.PrimaryPart or g:FindFirstChildWhichIsA("BasePart")
-                if p then
-                    local d = (p.Position - root.Position).Magnitude
-                    if d < closestDist then
-                        closestDist = d
-                        activeGarage = g
-                    end
-                end
-            end
-        end
-    end
-    
-    if activeGarage then
-        local floor = activeGarage:FindFirstChild("Floorspace")
-        local rawItems = floor and floor:GetChildren() or {}
-        for _, item in ipairs(rawItems) do
-            if isValidGarageItem(item) then
-                local itemId = item:GetAttribute("ItemId")
-                local resolvedName = resolveGarageItemName(item)
-                
-                -- Cow detection (ID 765 or name match)
-                if itemId == 765 or resolvedName:lower():find("cow") or (targetList["Cow"] and resolvedName:lower() == "cow") then
-                    return true, "Cow", item
-                end
-                
-                -- Custom targets
-                for targetName, isEn in pairs(targetList) do
-                    if isEn and targetName ~= "" and targetName ~= "Cow" then
-                        if resolvedName:lower():find(targetName:lower()) or (itemId and tostring(itemId) == tostring(targetName)) then
-                            return true, targetName, item
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return false, nil, nil
-end
 local function startBidLoop()
     if gConfig.quickWinAuction and AB.quickWinHandled ~= false then return end
     local isAllowedToBid = (AB.enabled == true and gConfig.autoBidEnabled == true)
@@ -3226,14 +4145,15 @@ local function startBidLoop()
     bidThread = task.spawn(function()
         local isExplicitlySelected = gConfig.afSelectedGarages and AB.activeLot and (gConfig.afSelectedGarages[AB.activeLot] == true)
         local isAirdrop = AB.activeLot and (string.find(AB.activeLot, "Airdrop") or AB.activeLot == "Camo Airdrop")
-        local bypassMinBid = isAirdrop and (gConfig.alwaysCollectAirdrop == true)
+        local bypassMinBid = (isAirdrop and (gConfig.alwaysCollectAirdrop == true)) or (_G.shouldBypassMinBidForGarage and _G.shouldBypassMinBidForGarage(AB.activeGarageInstance))
         if AB.minStartBid > 0 and not isExplicitlySelected and not bypassMinBid then
             local waited = 0
-            while AB.auctionJustOpened and waited < 1.0 do
+            while (AB.auctionJustOpened or (AB.activeGarageInstance and AB.activeGarageInstance:FindFirstChild("Floorspace") and #AB.activeGarageInstance.Floorspace:GetChildren() == 0)) and waited < 1.0 do
                 task.wait(0.05)
                 waited = waited + 0.05
             end
-            if AB.currentBid > 0 and AB.currentBid < AB.minStartBid then
+            bypassMinBid = (isAirdrop and (gConfig.alwaysCollectAirdrop == true)) or (_G.shouldBypassMinBidForGarage and _G.shouldBypassMinBidForGarage(AB.activeGarageInstance))
+            if not bypassMinBid and AB.currentBid > 0 and AB.currentBid < AB.minStartBid then
                 AB.minBidBlocked = true
                 AB.auctionOpen  = false
                 AB.biddingUIOpen = false
@@ -3628,7 +4548,6 @@ local function makeHoverable(card, defaultBg, hoverBg, defaultStrokeCol, hoverSt
 
     return cardStroke
 end
-local function fm(num) return num >= 1000 and string.format("$%.1fk", num/1000) or string.format("$%d", num) end
 
 -- Clean previous instances safely
 pcall(function()
@@ -3728,7 +4647,6 @@ local BrandIcon = make("ImageLabel", {
 }, BrandContainer)
 
 -- Auto-load custom NexWorks Crystal N asset if present in executor workspace
-do
 local crystalPaths = {
     "NexHub/nexworks_crystal_tight_v2.png",
     "nexworks_crystal_tight_v2.png",
@@ -3766,7 +4684,6 @@ local PillTitleLabel = make("TextLabel", {
     TextYAlignment = Enum.TextYAlignment.Center,
     ZIndex = 1000001,
 }, BrandContainer)
-end
 
 local MobileToggle = FloatingPill
 
@@ -3808,40 +4725,41 @@ local function animateNextButton(visible)
     end
 end
 
-do
-    local FloatingCollectBtn = make("TextButton", {
-        Name = "FloatingCollectBtn",
-        AnchorPoint = Vector2.new(0.5, 0),
-        Size = UDim2.new(0, 82, 0, 34),
-        Position = UDim2.new(0.5, 78, 0, 58),
-        BackgroundColor3 = COLORS.Sidebar,
-        Text = "Collect",
-        TextSize = 11,
-        Font = Enum.Font.MontserratBold,
-        TextColor3 = C.green,
-        ZIndex = 999999,
-        Active = true,
-        AutoButtonColor = false,
-        Visible = (gConfig.showFloatingCollect == true),
-    }, ScreenGui)
-    corner(17, FloatingCollectBtn); stroke(2, C.green, FloatingCollectBtn)
-    local FloatingCollectScale = Instance.new("UIScale", FloatingCollectBtn)
-    FloatingCollectScale.Scale = (gConfig.showFloatingCollect == true) and 1 or 0
+local FloatingCollectBtn = make("TextButton", {
+    Name = "FloatingCollectBtn",
+    AnchorPoint = Vector2.new(0.5, 0),
+    Size = UDim2.new(0, 82, 0, 34),
+    Position = UDim2.new(0.5, 78, 0, 58),
+    BackgroundColor3 = COLORS.Sidebar,
+    Text = "Collect",
+    TextSize = 11,
+    Font = Enum.Font.MontserratBold,
+    TextColor3 = C.green,
+    ZIndex = 999999,
+    Active = true,
+    AutoButtonColor = false,
+    Visible = (gConfig.showFloatingCollect == true),
+}, ScreenGui)
+corner(17, FloatingCollectBtn); stroke(2, C.green, FloatingCollectBtn)
+local FloatingCollectScale = Instance.new("UIScale", FloatingCollectBtn)
+FloatingCollectScale.Scale = (gConfig.showFloatingCollect == true) and 1 or 0
 
-    local function animateCollectButton(visible)
-        if visible then
-            FloatingCollectBtn.Visible = true
-            tw(FloatingCollectScale, 0.35, {Scale = 1}, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
-        else
-            tw(FloatingCollectScale, 0.3, {Scale = 0}, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
-            task.delay(0.3, function()
-                if gConfig.showFloatingCollect ~= true then
-                    FloatingCollectBtn.Visible = false
-                end
-            end)
-        end
+local function animateCollectButton(visible)
+    if visible then
+        FloatingCollectBtn.Visible = true
+        tw(FloatingCollectScale, 0.35, {Scale = 1}, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+    else
+        tw(FloatingCollectScale, 0.3, {Scale = 0}, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
+        task.delay(0.3, function()
+            if gConfig.showFloatingCollect ~= true then
+                FloatingCollectBtn.Visible = false
+            end
+        end)
     end
-    _G.animateCollectButton = animateCollectButton
+end
+_G.animateCollectButton = animateCollectButton
+
+do
     local UserInputService = game:GetService("UserInputService")
     local fcDragging, fcDragged, fcDragStart, fcStartPos = false, false, nil, nil
     FloatingCollectBtn.InputBegan:Connect(function(inp)
@@ -3857,7 +4775,7 @@ do
             end)
         end
     end)
-    UserInputService.InputChanged:Connect(function(inp)
+    table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
         if fcDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
             local delta = inp.Position - fcDragStart
             if delta.Magnitude > 5 then
@@ -3865,7 +4783,7 @@ do
                 FloatingCollectBtn.Position = UDim2.new(fcStartPos.X.Scale, fcStartPos.X.Offset + delta.X, fcStartPos.Y.Scale, fcStartPos.Y.Offset + delta.Y)
             end
         end
-    end)
+    end))
     FloatingCollectBtn.MouseButton1Click:Connect(function()
         if fcDragged then return end
         tw(FloatingCollectBtn, 0.1, {Size = UDim2.new(0, 90, 0, 30)}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -4153,7 +5071,7 @@ local TitleLabel = make("TextLabel", {
     Size = UDim2.new(0.5, 0, 1, 0),
     Position = UDim2.new(0, 14, 0, 0),
     BackgroundTransparency = 1,
-    Text = "NexWorks v16.1 Beta",
+    Text = "NexWorks v16.6",
     TextColor3 = C.text,
     TextSize = 13,
     Font = Enum.Font.MontserratBold,
@@ -4574,7 +5492,6 @@ local function setupUI()
 local tabMain       = createTab("Main", "", true)
 local tabChangelog  = createTab("Changelog", "")
 local tabFarming    = createTab("Farming", "", true)
-local tabItemRules  = createTab("Item Rules", "", true)
 local tabCharms     = createTab("Charms", "")
 local tabTeleports  = createTab("Teleports", "")
 local tabWorkshop   = createTab("Workshops", "")
@@ -5135,7 +6052,7 @@ local function deliverWarehouseOrder()
     end
 end
 
-local eventsSubtabs  = createSubTabs(tabEvents, {"Military Base", "Carnival", "Cargo Train", "The Mines", "Police & Heists", "Cargo Ship", "Power Plant", "Acid Rain", "Museum", "Time Capsule"}, "Military Base")
+local eventsSubtabs  = createSubTabs(tabEvents, {"Thanksgiving", "Mastery", "Military Base", "Carnival", "Cargo Train", "The Mines", "Fishing", "Pickle Rain", "Police & Heists", "Cargo Ship", "Power Plant", "Acid Rain", "Museum", "Time Capsule"}, "Thanksgiving")
 local tabCarnival    = eventsSubtabs["Carnival"]
 
 local triggerAuctionRush
@@ -5306,31 +6223,6 @@ pcall(function()
     end)
 end)
 
--- Loop F: Auto Claim Collection Rewards
-if _G.HallowLoopF_Thread then pcall(task.cancel, _G.HallowLoopF_Thread); _G.HallowLoopF_Thread = nil end
-_G.HallowLoopF_Thread = task.spawn(function()
-    while true do
-        task.wait(15.0)
-        if _G.AHScanner_RunID ~= myRunID then break end
-        if gConfig.autoClaimHalloweenIndex or gConfig.autoClaimCollectionRewards then
-            pcall(function()
-                local RS = game:GetService("ReplicatedStorage")
-                local colEvents = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Collections")
-                if colEvents then
-                    local claimMilestone = colEvents:FindFirstChild("ClaimMilestoneReward")
-                    local claimTier = colEvents:FindFirstChild("ClaimTierReward")
-                    if claimMilestone then
-                        for i = 1, 30 do pcall(function() claimMilestone:InvokeServer(i) end) end
-                    end
-                    if claimTier then
-                        for i = 1, 10 do pcall(function() claimTier:InvokeServer(i) end) end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
 local tabPoliceHeists = eventsSubtabs["Police & Heists"]
 
 -- POLICE & HEISTS SUBTAB
@@ -5388,7 +6280,7 @@ do
     end)
     
     -- Seized Areas Dropdown
-    local seizedAreasList = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+    local seizedAreasList = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
     local seizedAreaDropdownBtn = make("TextButton", {
         Size = UDim2.new(1, 0, 0, 26),
         BackgroundColor3 = Color3.fromRGB(26, 32, 46),
@@ -5525,7 +6417,7 @@ do
     _G.uiUpdaters["seizedGarages"] = updateSeizedGaragesDdText
     
     local seizedGaragesUpdaters = {}
-    local seizedAreaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+    local seizedAreaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
     local seizedAreaGarages = {}
     for _, a in ipairs(seizedAreaOrder) do seizedAreaGarages[a] = {} end
     for id, conf in pairs(GARAGE_CATALOG) do
@@ -6048,12 +6940,21 @@ do
         return CFrame.new(351.4, 1875.8, -5529.1), door
     end
 
-    local function tpToBunkerDoor()
+    local function tpToBunkerDoor(keepLock)
+        _G.bunkerTpInProgress = true
+        if not keepLock then
+            task.delay(3.0, function()
+                _G.bunkerTpInProgress = false
+            end)
+        end
         local lp = game:GetService("Players").LocalPlayer
         local char = lp.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not root or not hum then return nil end
+        if not root or not hum then
+            if not keepLock then _G.bunkerTpInProgress = false end
+            return nil
+        end
 
         local lockCF, doorModel = getBunkerPadlockCFrame()
         local lockPos = lockCF.Position
@@ -6081,11 +6982,20 @@ do
         platform.Transparency = 1
         platform.Position = Vector3.new(targetPos.X, floorY - 0.5, targetPos.Z)
         platform.Parent = workspace
-        task.delay(2.0, function() if platform then pcall(function() platform:Destroy() end) end end)
+        task.delay(2.5, function() if platform then pcall(function() platform:Destroy() end) end end)
 
-        if hum.SeatPart then
-            hum.Sit = false
-            task.wait(0.05)
+        if hum.SeatPart or hum.Sit then
+            local unseatStart = os.clock()
+            while (hum.SeatPart or hum.Sit) and (os.clock() - unseatStart < 0.8) do
+                local sp = hum.SeatPart
+                hum.Sit = false
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                if sp then
+                    local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                    if sw then pcall(function() sw:Destroy() end) end
+                end
+                task.wait(0.05)
+            end
         end
         if hum.PlatformStand then hum.PlatformStand = false end
         hum:ChangeState(Enum.HumanoidStateType.GettingUp)
@@ -6107,29 +7017,34 @@ do
             return false
         end
 
-        local lockPos = tpToBunkerDoor()
-        local char = game:GetService("Players").LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp and lockPos then
-            local waitStart = os.clock()
-            while (hrp.Position - lockPos).Magnitude > 18 and (os.clock() - waitStart < 0.7) do
-                tpToBunkerDoor()
-                task.wait(0.1)
+        _G.bunkerTpInProgress = true
+        local okExec, result = pcall(function()
+            local lockPos = tpToBunkerDoor(true)
+            local char = game:GetService("Players").LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and lockPos then
+                local waitStart = os.clock()
+                while (hrp.Position - lockPos).Magnitude > 18 and (os.clock() - waitStart < 0.7) do
+                    tpToBunkerDoor(true)
+                    task.wait(0.1)
+                end
             end
-        end
-        task.wait(0.25)
+            task.wait(0.25)
 
-        local ok, res = pcall(function() return blowRemote:InvokeServer() end)
-        if ok and type(res) == "table" and res.Ok then
-            showWorkshopPopup("Bunker padlock breached! Door is OPEN!", C.green)
-            abLog("[Bunker] Door breached with explosive charges!", C.green)
-            return true
-        else
-            local msg = (type(res) == "table" and res.Message) or "Failed to blow bunker (need all 3 charges!)"
-            showWorkshopPopup(tostring(msg), C.orange)
-            abLog("[Warning] Bunker: " .. tostring(msg), C.orange)
-            return false
-        end
+            local ok, res = pcall(function() return blowRemote:InvokeServer() end)
+            if ok and type(res) == "table" and res.Ok then
+                showWorkshopPopup("Bunker padlock breached! Door is OPEN!", C.green)
+                abLog("[Bunker] Door breached with explosive charges!", C.green)
+                return true
+            else
+                local msg = (type(res) == "table" and res.Message) or "Failed to blow bunker (need all 3 charges!)"
+                showWorkshopPopup(tostring(msg), C.orange)
+                abLog("[Warning] Bunker: " .. tostring(msg), C.orange)
+                return false
+            end
+        end)
+        _G.bunkerTpInProgress = false
+        return okExec and result == true
     end
     _G.blowOpenBunker = blowOpenBunker
 
@@ -6151,6 +7066,7 @@ do
     -- Background loop: check explosives & bunker status
     task.spawn(function()
         while task.wait(5) do
+            if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
             pcall(function()
                 local RS = game:GetService("ReplicatedStorage")
                 local evMisc = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Misc")
@@ -6370,6 +7286,10 @@ do
 
         local ok, res = pcall(function() return redeemRemote:InvokeServer(count) end)
         if ok and type(res) == "table" and res.ok then
+            task.delay(0.1, function()
+                local rc = pEvents:FindFirstChild("RevealClosed")
+                if rc then pcall(function() rc:FireServer() end) end
+            end)
             showWorkshopPopup(string.format("Rolled %dx Carnival Prizes! Won %s items!", count, tostring(#(res.items or {}))), C.green)
             abLog(string.format("[Carnival] Rolled %dx Carnival Prizes!", count), C.green)
             return true
@@ -6399,7 +7319,7 @@ do
         { label = "Token Drop (40 Max Tickets)",     key = "Token Drop",      machineId = "TokenDrop",     fallbackPos = Vector3.new(214.4, 1723.0, -1960.6) },
         { label = "Hook a Duck (30 Max Tickets)",    key = "Hook a Duck",     machineId = "LuckyDuck",     fallbackPos = Vector3.new(299.5, 1723.2, -1976.2) },
         { label = "Bowling (25 Max Tickets)",        key = "Bowling",         machineId = "Bowling",       fallbackPos = Vector3.new(239.4, 1723.2, -1984.7) },
-        { label = "Hoop Shot (20 Max Tickets)",      key = "Hoop Shot",       machineId = "HoopShot",      fallbackPos = Vector3.new(327.4, 1723.2, -1970.3) },
+        { label = "Hoop Shot (11-20 Tickets)",   key = "Hoop Shot",       machineId = "HoopShot",      fallbackPos = Vector3.new(327.4, 1723.2, -1970.3) },
         { label = "Shoot the Clown (20 Max, Gun)",   key = "Shoot the Clown", machineId = "ShootTheClown", fallbackPos = Vector3.new(268.4, 1723.2, -1975.8) },
         { label = "Rotate All 5 Games (Tour Quest)", key = "Rotate All 5" },
     }
@@ -6536,6 +7456,35 @@ do
             return nil
         end
 
+        local lastGunInvFetch = 0
+        local GUN_PRIORITY = {
+            ["227"] = 1000, -- P90
+            ["224"] = 950,  -- SMG
+            ["223"] = 900,  -- Uzi
+            ["1407"] = 850, -- Bone Rifle
+            ["226"] = 800,  -- Handgun
+            ["1049"] = 750, -- Revolver
+            ["1269"] = 700, -- Steampunk Gun
+            ["1588"] = 600, -- Crossbow
+            ["1633"] = 500, -- Railgun
+            ["1574"] = 350, -- Flintlock
+            ["225"] = 300,  -- Sniper Rifle
+            ["1587"] = 200, -- Blunderbuss
+            ["1610"] = 50,  -- Flame Thrower (short range)
+        }
+
+        local function scoreGunId(idStr, gunCfg, inChar)
+            local base = GUN_PRIORITY[idStr]
+            if not base then
+                local g = gunCfg[idStr]
+                local cap = tonumber(g and g.Capacity) or 1
+                local cd = tonumber(g and g.FireCooldown) or 0.5
+                local rng = tonumber(g and g.Range) or 200
+                base = math.min(cap, 40) * 15 - cd * 40 + ((g and g.Automatic) and 200 or 0) - (rng < 60 and 500 or 0)
+            end
+            return base + (inChar and 25 or 0)
+        end
+
         local function findValidGunTool(equipIfFound)
             local lp = LocalPlayer or Players.LocalPlayer
             local char = lp and lp.Character
@@ -6546,30 +7495,124 @@ do
             local excluded = (clownCfg and clownCfg.ExcludedGuns) or { ["1500"] = true }
             if not gunCfg or not char then return nil end
 
-            local function isValidGun(inst)
-                if not inst or not inst:IsA("Tool") then return false end
-                local id = tostring(inst:GetAttribute("ItemId") or "")
-                return gunCfg[id] ~= nil and not excluded[id]
+            local function isValidGunId(idStr)
+                return idStr ~= "" and gunCfg[idStr] ~= nil and not excluded[idStr]
             end
 
+            local candidates = {}
+            local seenGuids = {}
+
             for _, c in ipairs(char:GetChildren()) do
-                if isValidGun(c) then return c end
-            end
-            if bp then
-                for _, c in ipairs(bp:GetChildren()) do
-                    if isValidGun(c) then
-                        if equipIfFound and hum then
-                            pcall(function() hum:EquipTool(c) end)
-                            local deadline = os.clock() + 1.2
-                            while c.Parent ~= char and os.clock() < deadline do
-                                task.wait(0.05)
-                            end
+                if c:IsA("Tool") then
+                    local id = tostring(c:GetAttribute("ItemId") or "")
+                    if isValidGunId(id) then
+                        local cond = c:GetAttribute("Condition")
+                        if cond == nil or (tonumber(cond) or 0) > 0 then
+                            local g = tostring(c:GetAttribute("EquippedGuid") or "")
+                            if g ~= "" then seenGuids[g] = true end
+                            table.insert(candidates, { tool = c, guid = g, id = id, inChar = true, score = scoreGunId(id, gunCfg, true) })
                         end
-                        return c
                     end
                 end
             end
-            return nil
+
+            if bp then
+                for _, c in ipairs(bp:GetChildren()) do
+                    if c:IsA("Tool") then
+                        local id = tostring(c:GetAttribute("ItemId") or "")
+                        if isValidGunId(id) then
+                            local cond = c:GetAttribute("Condition")
+                            if cond == nil or (tonumber(cond) or 0) > 0 then
+                                local g = tostring(c:GetAttribute("EquippedGuid") or "")
+                                if g ~= "" then seenGuids[g] = true end
+                                table.insert(candidates, { tool = c, guid = g, id = id, inChar = false, score = scoreGunId(id, gunCfg, false) })
+                            end
+                        end
+                    end
+                end
+            end
+
+            local inv = _G.AHUserInventoryCache
+            local now = os.clock()
+            local invEmpty = (type(inv) ~= "table" or next(inv) == nil)
+            if invEmpty or (#candidates == 0 and (now - lastGunInvFetch >= 1.5)) or (now - lastGunInvFetch >= 5) then
+                local invEv = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Inventory")
+                local getInv = invEv and invEv:FindFirstChild("GetPlayerInventory")
+                if getInv then
+                    lastGunInvFetch = now
+                    local okInv, freshInv = pcall(function() return getInv:InvokeServer() end)
+                    if okInv and type(freshInv) == "table" then
+                        _G.AHUserInventoryCache = freshInv
+                        inv = freshInv
+                    end
+                end
+            end
+
+            if type(inv) == "table" then
+                for guid, entry in pairs(inv) do
+                    if type(entry) == "table" and entry.Placed ~= true then
+                        local cond = entry.Condition
+                        if cond == nil or (tonumber(cond) or 0) > 0 then
+                            local id = tostring(entry.ItemId or "")
+                            local gStr = tostring(guid)
+                            if isValidGunId(id) and not seenGuids[gStr] then
+                                seenGuids[gStr] = true
+                                table.insert(candidates, { tool = nil, guid = gStr, id = id, inChar = false, score = scoreGunId(id, gunCfg, false) })
+                            end
+                        end
+                    end
+                end
+            end
+
+            if #candidates == 0 then return nil end
+
+            local best = candidates[1]
+            for i = 2, #candidates do
+                if candidates[i].score > best.score then
+                    best = candidates[i]
+                end
+            end
+
+            if best.tool and best.tool.Parent == char then
+                return best.tool
+            end
+            if not equipIfFound then
+                return best.tool or best
+            end
+
+            if best.tool and best.tool.Parent == bp and hum then
+                pcall(function() hum:EquipTool(best.tool) end)
+                local deadline = os.clock() + 1.2
+                while best.tool.Parent ~= char and os.clock() < deadline do
+                    task.wait(0.05)
+                end
+                if best.tool.Parent == char then
+                    return best.tool
+                end
+            end
+
+            if best.guid ~= "" then
+                if hum and char:FindFirstChildOfClass("Tool") then
+                    pcall(function() hum:UnequipTools() end)
+                    task.wait(0.05)
+                end
+                local invEv = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Inventory")
+                local eqEv = invEv and invEv:FindFirstChild("EquipItem")
+                if eqEv then
+                    pcall(function() eqEv:FireServer(best.guid) end)
+                    local deadline = os.clock() + 1.5
+                    while os.clock() < deadline do
+                        for _, c in ipairs(char:GetChildren()) do
+                            if c:IsA("Tool") and (tostring(c:GetAttribute("EquippedGuid") or "") == best.guid or isValidGunId(tostring(c:GetAttribute("ItemId") or ""))) then
+                                return c
+                            end
+                        end
+                        task.wait(0.05)
+                    end
+                end
+            end
+
+            return best.tool
         end
 
         local activeRound = nil -- { game = string, id = any, startedAt = number }
@@ -6602,6 +7645,7 @@ do
                 HookDuckHook   = cEv:FindFirstChild("HookDuckHook"),
                 HookDuckFinish = cEv:FindFirstChild("HookDuckFinish"),
                 ClownStart     = cEv:FindFirstChild("ClownStart"),
+                ClownUpdate    = cEv:FindFirstChild("ClownUpdate"),
                 ClownEnd       = cEv:FindFirstChild("ClownEnd"),
                 OutOfTokens    = cEv:FindFirstChild("OutOfTokens"),
             }
@@ -6626,7 +7670,7 @@ do
                 HookDuckStart = true,
                 ClownStart = true,
             }
-            for _, rName in ipairs({ "TokenDropStart", "BowlingStart", "HoopShotStart", "HookDuckStart", "ClownStart", "OutOfTokens", "ClownEnd" }) do
+            for _, rName in ipairs({ "TokenDropStart", "BowlingStart", "HoopShotStart", "HookDuckStart", "ClownStart", "ClownUpdate", "OutOfTokens", "ClownEnd" }) do
                 local ev = remotes[rName]
                 if ev then
                     for _, conn in ipairs(getconnections(ev.OnClientEvent)) do
@@ -6748,6 +7792,23 @@ do
                 end)
             end
 
+            if remotes.ClownUpdate then
+                regConn(remotes.ClownUpdate, function(data)
+                    if type(data) ~= "table" then return end
+                    if activeClownRound and activeClownRound.id == data.Id then
+                        if tonumber(data.Hits) then
+                            activeClownRound.hits = tonumber(data.Hits)
+                        end
+                        if tonumber(data.Popped) then
+                            activeClownRound.popped = tonumber(data.Popped)
+                        end
+                        if data.Hit == true then
+                            activeClownRound.lastHitAt = os.clock()
+                        end
+                    end
+                end)
+            end
+
             if remotes.ClownEnd then
                 regConn(remotes.ClownEnd, function(data)
                     if type(data) ~= "table" then return end
@@ -6801,12 +7862,12 @@ do
                     end
 
                     local minAimDt = (cfg.AimPressAfter or 0.5) + 0.05
-                    local aimDt = solveSweepTime(aimPos, tonumber(data.AimPhase) or 0, cfg.AimSpeed or 2.4, minAimDt)
+                    local aimDt = solveSweepTime(aimPos, tonumber(data.AimPhase) or 0, cfg.AimSpeed or 1.6, minAimDt)
                     local aimTime = (cfg.AimDelay or 0.8) + aimDt
 
                     local zoneStart = tonumber(data.ZoneStart) or 0.4
                     local pTarget = zoneStart + (cfg.PowerZoneWidth or 0.23) / 2
-                    local pDt = solveSweepTime(pTarget, tonumber(data.PowerPhase) or 0, cfg.PowerSpeed or 1.3, 0.05)
+                    local pDt = solveSweepTime(pTarget, tonumber(data.PowerPhase) or 0, cfg.PowerSpeed or 0.95, 0.05)
                     local powerTime = aimTime + (cfg.PowerDelay or 0.45) + pDt
 
                     local totalRolls = tonumber(data.Rolls) or cfg.Rolls or 3
@@ -6886,84 +7947,95 @@ do
                 if not gConfig.autoPlayCarnival or type(data) ~= "table" then return end
                 activeRound = { game = "Hook a Duck", id = data.Id, startedAt = os.clock() }
                 task.spawn(function()
-                    local cfg = reqMod("CarnivalHookDuckConfig")
-                    if not cfg then finishRound(data.Id) return end
-                    local endsAt = tonumber(data.EndsAt) or (WS:GetServerTimeNow() + (cfg.StartDelay or 1) + (cfg.RoundTime or 25))
-                    local anchor = findMachineAnchor(data.MachineId or "LuckyDuck")
-                    local booth = anchor and anchor.Parent
-                    local ring = booth and booth:FindFirstChild(cfg.RingMarkerName or "DuckRing")
-                    local caught = {}
-                    local caughtCount = 0
-                    local duckCount = cfg.DuckCount or 12
-                    local lastX, lastZ = 0, 0
+                    local okRun, errRun = xpcall(function()
+                        local cfg = reqMod("CarnivalHookDuckConfig")
+                        if not cfg then return end
+                        local endsAt = tonumber(data.EndsAt) or (WS:GetServerTimeNow() + (cfg.StartDelay or 1) + (cfg.RoundTime or 25))
+                        local anchor = findMachineAnchor(data.MachineId or "LuckyDuck")
+                        local booth = anchor and anchor.Parent
+                        local ring = booth and booth:FindFirstChild(cfg.RingMarkerName or "DuckRing")
+                        local caught = {}
+                        local caughtCount = 0
+                        local duckCount = cfg.DuckCount or 12
+                        local lastX, lastZ = 0, 0
 
-                    setCarnivalStatus("Hook a Duck: waiting start...", C.accent)
-                    task.wait((cfg.StartDelay or 1) + (cfg.DipTime or 0.22) + 0.12)
+                        setCarnivalStatus("Hook a Duck: waiting start...", C.accent)
+                        task.wait((cfg.StartDelay or 1) + (cfg.DipTime or 0.22) + 0.12)
 
-                    while gConfig.autoPlayCarnival and caughtCount < duckCount do
-                        local now = WS:GetServerTimeNow()
-                        if now >= endsAt - 0.35 then break end
-                        local planStr = ring and ring:GetAttribute(cfg.PlanAttribute or "DuckPlan")
-                        local plan = type(planStr) == "string" and cfg.DecodePlan(planStr) or nil
-                        if plan then
-                            local poses = cfg.DuckPoses(plan, now)
-                            local bestIdx, bestX, bestZ, bestDipIdx, bestDist = nil, nil, nil, nil, math.huge
+                        while gConfig.autoPlayCarnival and caughtCount < duckCount do
+                            local now = WS:GetServerTimeNow()
+                            if now >= endsAt - 0.35 then break end
+                            local planStr = ring and ring:GetAttribute(cfg.PlanAttribute or "DuckPlan")
+                            local plan = type(planStr) == "string" and cfg.DecodePlan(planStr) or nil
+                            if plan and (not cfg.PlanCovers or cfg.PlanCovers(plan, now)) then
+                                local poses = cfg.DuckPoses(plan, now)
+                                local bestIdx, bestX, bestZ, bestDipIdx, bestDist = nil, nil, nil, nil, math.huge
 
-                            if not caught[7] and poses and poses[7] then
-                                local gx, gz = cfg.ClampReach(poses[7].X, poses[7].Z)
-                                local gKind, gDipIdx = cfg.DipResult(plan, now, gx, gz, caught)
-                                if gKind ~= "Miss" then
-                                    bestIdx, bestX, bestZ, bestDipIdx = 7, gx, gz, gDipIdx
-                                    bestDist = math.hypot(gx - lastX, gz - lastZ)
+                                if not caught[7] and poses and poses[7] then
+                                    local gx, gz = cfg.ClampReach(poses[7].X, poses[7].Z)
+                                    local gKind, gDipIdx = cfg.DipResult(plan, now, gx, gz, caught)
+                                    if gKind ~= "Miss" then
+                                        bestIdx, bestX, bestZ, bestDipIdx = 7, gx, gz, gDipIdx
+                                        bestDist = math.sqrt((gx - lastX) ^ 2 + (gz - lastZ) ^ 2)
+                                    end
                                 end
-                            end
 
-                            if not bestIdx and poses then
-                                for idx = 1, duckCount do
-                                    if not caught[idx] and poses[idx] then
-                                        local dx, dz = cfg.ClampReach(poses[idx].X, poses[idx].Z)
-                                        local d = math.hypot(dx - lastX, dz - lastZ)
-                                        if d < bestDist then
-                                            local kind, dipIdx = cfg.DipResult(plan, now, dx, dz, caught)
-                                            if kind ~= "Miss" then
-                                                bestIdx, bestX, bestZ, bestDipIdx, bestDist = idx, dx, dz, dipIdx, d
+                                if not bestIdx and poses then
+                                    for idx = 1, duckCount do
+                                        if not caught[idx] and poses[idx] then
+                                            local dx, dz = cfg.ClampReach(poses[idx].X, poses[idx].Z)
+                                            local d = math.sqrt((dx - lastX) ^ 2 + (dz - lastZ) ^ 2)
+                                            if d < bestDist then
+                                                local kind, dipIdx = cfg.DipResult(plan, now, dx, dz, caught)
+                                                if kind ~= "Miss" then
+                                                    bestIdx, bestX, bestZ, bestDipIdx, bestDist = idx, dx, dz, dipIdx, d
+                                                end
                                             end
                                         end
                                     end
                                 end
-                            end
 
-                            if bestIdx then
-                                setCarnivalStatus(string.format("Hook a Duck: catching #%d (%d/%d)...", bestIdx, caughtCount + 1, duckCount), C.accent)
-                                local ok, res = pcall(function()
-                                    return remotes.HookDuckHook:InvokeServer(data.Id, now, bestX, bestZ)
-                                end)
-                                local markIdx = bestDipIdx or bestIdx
-                                caught[markIdx] = true
-                                caughtCount = caughtCount + 1
-                                lastX, lastZ = bestX, bestZ
-                                if activeRound and activeRound.id == data.Id then
-                                    activeRound.startedAt = os.clock()
+                                if bestIdx then
+                                    setCarnivalStatus(string.format("Hook a Duck: catching #%d (%d/%d)...", bestIdx, caughtCount + 1, duckCount), C.accent)
+                                    local ok, res = pcall(function()
+                                        return remotes.HookDuckHook:InvokeServer(data.Id, now, bestX, bestZ)
+                                    end)
+                                    local markIdx = bestDipIdx or bestIdx
+                                    caught[markIdx] = true
+                                    caughtCount = caughtCount + 1
+                                    lastX, lastZ = bestX, bestZ
+                                    if activeRound and activeRound.id == data.Id then
+                                        activeRound.startedAt = os.clock()
+                                    end
+                                    if ok and type(res) == "table" then
+                                        endsAt = tonumber(res.EndsAt) or endsAt
+                                        if tonumber(res.Ducks) then
+                                            caughtCount = math.max(caughtCount, tonumber(res.Ducks))
+                                        end
+                                    end
+                                    local waitSec = math.max((cfg.DipTime or 0.22) + (cfg.CatchRecover or 0.6) + 0.08, bestDist / 28)
+                                    task.wait(waitSec)
+                                else
+                                    task.wait(0.05)
                                 end
-                                if ok and type(res) == "table" then
-                                    endsAt = tonumber(res.EndsAt) or endsAt
-                                end
-                                local waitSec = math.max((cfg.DipTime or 0.22) + (cfg.CatchRecover or 0.6) + 0.08, bestDist / 28)
-                                task.wait(waitSec)
                             else
                                 task.wait(0.05)
                             end
-                        else
-                            task.wait(0.05)
                         end
-                    end
 
-                    local okF, fRes = pcall(function()
-                        return remotes.HookDuckFinish:InvokeServer(data.Id)
+                        local okF, fRes = pcall(function()
+                            return remotes.HookDuckFinish:InvokeServer(data.Id)
+                        end)
+                        local tix = (okF and type(fRes) == "table" and tonumber(fRes.Tickets)) or 0
+                        setCarnivalStatus(string.format("Hook a Duck done (+%d tickets)", tix), C.green)
+                        abLog(string.format("[Carnival] Hook a Duck -> +%d tickets", tix), C.green)
+                    end, function(err)
+                        return tostring(err)
                     end)
-                    local tix = (okF and type(fRes) == "table" and tonumber(fRes.Tickets)) or 0
-                    setCarnivalStatus(string.format("Hook a Duck done (+%d tickets)", tix), C.green)
-                    abLog(string.format("[Carnival] Hook a Duck -> +%d tickets", tix), C.green)
+                    if not okRun then
+                        setCarnivalStatus("Hook a Duck error!", C.red)
+                        abLog("[Carnival] Hook a Duck err: " .. tostring(errRun), C.red)
+                    end
                     finishRound(data.Id)
                 end)
             end)
@@ -6971,71 +8043,167 @@ do
             -- 5. Shoot the Clown Solver (12 clowns -> 20 tickets, requires non-excluded Gun)
             regConn(remotes.ClownStart, function(data)
                 if not gConfig.autoPlayCarnival or type(data) ~= "table" then return end
-                local state = { id = data.Id, ended = false, tickets = 0, hits = 0 }
+                local state = { id = data.Id, ended = false, tickets = 0, hits = 0, popped = 0 }
                 activeClownRound = state
                 activeRound = { game = "Shoot the Clown", id = data.Id, startedAt = os.clock() }
                 task.spawn(function()
-                    local cfg = reqMod("CarnivalShootTheClownConfig")
-                    local gunCfg = reqMod("GunConfig")
-                    local anchor = findMachineAnchor(data.MachineId or "ShootTheClown")
-                    local booth = anchor and anchor.Parent
-                    local targetFolder = booth and booth:FindFirstChild((cfg and cfg.TargetFolder) or "Target")
-                    local evMisc = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Misc")
-                    local gunAction = evMisc and evMisc:FindFirstChild("GunAction")
-                    local gunTool = findValidGunTool(true)
-                    if not gunAction then
-                        gunAction = evMisc and evMisc:WaitForChild("GunAction", 2)
-                    end
-
-                    task.wait((tonumber(data.StartDelay) or (cfg and cfg.StartDelay) or 1.5) + 0.1)
-
-                    local firedAt = {}
-                    local deadline = os.clock() + 45
-                    while gConfig.autoPlayCarnival and not state.ended and os.clock() < deadline do
-                        if not gunTool or not gunTool.Parent then
-                            gunTool = findValidGunTool(true)
-                        end
-                        if not gunAction then
-                            gunAction = evMisc and evMisc:FindFirstChild("GunAction")
-                        end
-                        if gunTool and gunAction and targetFolder then
-                            local ammo = gunTool:GetAttribute("GunAmmo")
-                            if ammo == 0 and not gunTool:GetAttribute("GunReloading") then
-                                pcall(function() gunAction:FireServer(gunTool, "Reload") end)
-                                task.wait(0.35)
-                            elseif not gunTool:GetAttribute("GunReloading") then
-                                for _, clown in ipairs(targetFolder:GetChildren()) do
-                                    if clown:IsA("Model") and clown:GetAttribute("CarnivalClown") == true
-                                        and clown:GetAttribute("ClownUp") == true
-                                        and clown:GetAttribute("ClownHit") ~= true
-                                        and (not firedAt[clown] or os.clock() - firedAt[clown] > 0.45) then
-                                        local parts = clown:FindFirstChild("Parts")
-                                        local face = parts and parts:FindFirstChild("TargetFace")
-                                        local restPose = face and face:GetAttribute("ClownRestPose")
-                                        local hitPos = (typeof(restPose) == "CFrame" and restPose.Position)
-                                            or (face and face:IsA("BasePart") and face.Position)
-                                            or clown:GetPivot().Position
-                                        local lp = LocalPlayer or Players.LocalPlayer
-                                        local hrp = lp and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-                                        if hrp and (Vector3.new(hitPos.X - hrp.Position.X, 0, hitPos.Z - hrp.Position.Z)).Magnitude > 0.1 then
-                                            hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(hitPos.X, hrp.Position.Y, hitPos.Z))
-                                        end
-                                        firedAt[clown] = os.clock()
-                                        pcall(function() gunAction:FireServer(gunTool, "Fire", hitPos) end)
-                                        setCarnivalStatus(string.format("Shoot Clown: hitting %s...", clown.Name), C.accent)
-                                        local gData = gunCfg and gunCfg[tostring(gunTool:GetAttribute("ItemId") or "")]
-                                        task.wait(math.max((gData and gData.FireCooldown) or 0.25, 0.25) + 0.04)
+                    local okRun, errRun = xpcall(function()
+                        local cfg = reqMod("CarnivalShootTheClownConfig")
+                        local gunCfg = reqMod("GunConfig")
+                        local targetFolderName = (cfg and cfg.TargetFolder) or "Target"
+                        local anchor = findMachineAnchor(data.MachineId or "ShootTheClown")
+                        local booth = anchor and anchor.Parent
+                        local targetFolder = booth and booth:FindFirstChild(targetFolderName)
+                        if not targetFolder then
+                            for _, part in ipairs(CS:GetTagged("CarnivalMachine")) do
+                                if part:IsA("BasePart") and part:GetAttribute("CarnivalMachineId") == "ShootTheClown" then
+                                    local cand = part.Parent and part.Parent:FindFirstChild(targetFolderName)
+                                    if cand then
+                                        targetFolder = cand
                                         break
                                     end
                                 end
                             end
                         end
-                        task.wait(0.05)
-                    end
 
-                    if state.ended then
-                        setCarnivalStatus(string.format("Shoot the Clown done (%d hits, +%d tickets)", state.hits, state.tickets), C.green)
-                        abLog(string.format("[Carnival] Shoot the Clown -> %d hits (+%d tickets)", state.hits, state.tickets), C.green)
+                        local evMisc = RS:FindFirstChild("Events") and RS.Events:FindFirstChild("Misc")
+                        local gunAction = evMisc and evMisc:FindFirstChild("GunAction")
+                        if not gunAction and evMisc then
+                            gunAction = evMisc:WaitForChild("GunAction", 2)
+                        end
+
+                        setCarnivalStatus("Shoot Clown: readying gun...", C.accent)
+                        local gunTool = findValidGunTool(true)
+                        if gunTool and gunAction then
+                            local rawAmmo0 = gunTool:GetAttribute("GunAmmo")
+                            local ammoNum0 = tonumber(rawAmmo0)
+                            if rawAmmo0 ~= nil and (ammoNum0 == nil or ammoNum0 <= 0) and not gunTool:GetAttribute("GunReloading") then
+                                pcall(function() gunAction:FireServer(gunTool, "Reload") end)
+                            end
+                        end
+
+                        task.wait(math.max(0.05, (tonumber(data.StartDelay) or (cfg and cfg.StartDelay) or 1.5) + 0.08))
+
+                        if not targetFolder then
+                            setCarnivalStatus("Shoot Clown: Target folder missing", C.red)
+                            abLog("[Carnival] Shoot the Clown: Target folder missing", C.red)
+                            return
+                        end
+
+                        local popsTotal = tonumber(data.Pops) or (cfg and cfg.Pops) or 12
+                        local firedAt = {}
+                        local deadline = os.clock() + 45
+                        local statusTag = ""
+
+                        local function resolveClownAim(clown, char)
+                            local parts = clown:FindFirstChild("Parts")
+                            local face = parts and parts:FindFirstChild("TargetFace")
+                            local bullseye = parts and parts:FindFirstChild("Bullseye")
+                            local restPose = face and face:GetAttribute("ClownRestPose")
+                            local aimPt = (face and face:IsA("BasePart") and face.Position)
+                                or (bullseye and bullseye:IsA("BasePart") and bullseye.Position)
+                                or (typeof(restPose) == "CFrame" and restPose.Position)
+                                or clown:GetPivot().Position
+
+                            local head = char and char:FindFirstChild("Head")
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            local eye = (head and head:IsA("BasePart") and head.Position) or (hrp and (hrp.Position + Vector3.new(0, 2, 0)))
+                            if eye then
+                                local delta = aimPt - eye
+                                if delta.Magnitude > 0.25 then
+                                    local rp = RaycastParams.new()
+                                    rp.FilterType = Enum.RaycastFilterType.Exclude
+                                    local ex = { char }
+                                    local revFx = WS:FindFirstChild("_RevolverEffects")
+                                    if revFx then table.insert(ex, revFx) end
+                                    rp.FilterDescendantsInstances = ex
+                                    rp.IgnoreWater = true
+                                    local rayRes = WS:Raycast(eye, delta.Unit * (delta.Magnitude + 4), rp)
+                                    if rayRes and rayRes.Instance and rayRes.Instance:IsDescendantOf(clown) then
+                                        return rayRes.Position
+                                    end
+                                end
+                            end
+                            return aimPt
+                        end
+
+                        while gConfig.autoPlayCarnival and not state.ended and os.clock() < deadline do
+                            local lp = LocalPlayer or Players.LocalPlayer
+                            local char = lp and lp.Character
+                            if not gunTool or not gunTool.Parent or (char and gunTool.Parent ~= char) then
+                                gunTool = findValidGunTool(true)
+                            end
+                            if not gunAction then
+                                gunAction = evMisc and evMisc:FindFirstChild("GunAction")
+                            end
+
+                            if not gunTool or (char and gunTool.Parent ~= char) then
+                                if statusTag ~= "nogun" then
+                                    statusTag = "nogun"
+                                    setCarnivalStatus("Shoot Clown: waiting/equipping gun...", C.orange)
+                                end
+                                task.wait(0.15)
+                            elseif gunTool:GetAttribute("GunReloading") then
+                                if statusTag ~= "reload" then
+                                    statusTag = "reload"
+                                    setCarnivalStatus("Shoot Clown: reloading...", C.accent)
+                                end
+                                task.wait(0.08)
+                            elseif gunAction then
+                                local rawAmmo = gunTool:GetAttribute("GunAmmo")
+                                local ammoNum = tonumber(rawAmmo)
+                                if rawAmmo ~= nil and (ammoNum == nil or ammoNum <= 0) then
+                                    statusTag = "reload"
+                                    setCarnivalStatus("Shoot Clown: reloading...", C.accent)
+                                    pcall(function() gunAction:FireServer(gunTool, "Reload") end)
+                                    task.wait(0.25)
+                                else
+                                    local shotFired = false
+                                    for _, clown in ipairs(targetFolder:GetChildren()) do
+                                        if clown:IsA("Model") and clown:GetAttribute("CarnivalClown") == true
+                                            and clown:GetAttribute("ClownUp") == true
+                                            and clown:GetAttribute("ClownHit") ~= true
+                                            and (not firedAt[clown] or os.clock() - firedAt[clown] > 0.30) then
+                                            local hitPos = resolveClownAim(clown, char)
+                                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                            if hrp and (Vector3.new(hitPos.X - hrp.Position.X, 0, hitPos.Z - hrp.Position.Z)).Magnitude > 0.1 then
+                                                hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(hitPos.X, hrp.Position.Y, hitPos.Z))
+                                            end
+                                            firedAt[clown] = os.clock()
+                                            pcall(function() gunAction:FireServer(gunTool, "Fire", hitPos) end)
+                                            statusTag = "hit:" .. clown.Name .. ":" .. tostring(state.hits)
+                                            setCarnivalStatus(string.format("Shoot Clown: %s (%d/%d hits)", clown.Name, state.hits, popsTotal), C.accent)
+                                            local gData = gunCfg and gunCfg[tostring(gunTool:GetAttribute("ItemId") or "")]
+                                            local cd = (gData and tonumber(gData.FireCooldown)) or 0.2
+                                            task.wait(math.max(cd, 0.10) + 0.03)
+                                            shotFired = true
+                                            break
+                                        end
+                                    end
+                                    if not shotFired then
+                                        local waitKey = "wait:" .. tostring(state.hits) .. ":" .. tostring(state.popped)
+                                        if statusTag ~= waitKey then
+                                            statusTag = waitKey
+                                            setCarnivalStatus(string.format("Shoot Clown: active (%d/%d hits)...", state.hits, popsTotal), C.accent)
+                                        end
+                                    end
+                                end
+                            end
+                            task.wait(0.04)
+                        end
+
+                        if state.ended then
+                            setCarnivalStatus(string.format("Shoot the Clown done (%d hits, +%d tickets)", state.hits, state.tickets), C.green)
+                            abLog(string.format("[Carnival] Shoot the Clown -> %d hits (+%d tickets)", state.hits, state.tickets), C.green)
+                        else
+                            setCarnivalStatus("Shoot the Clown timeout", C.orange)
+                        end
+                    end, function(err)
+                        return tostring(err)
+                    end)
+                    if not okRun then
+                        setCarnivalStatus("Shoot Clown error!", C.red)
+                        abLog("[Carnival] Shoot the Clown err: " .. tostring(errRun), C.red)
                     end
                     if activeClownRound == state then activeClownRound = nil end
                     finishRound(data.Id)
@@ -7070,6 +8238,7 @@ do
         local rotateIdx = 1
         task.spawn(function()
             while task.wait(0.4) do
+                if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
                 pcall(function()
                     local lp = LocalPlayer or Players.LocalPlayer
                     if not lp then return end
@@ -7155,7 +8324,7 @@ do
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
                     if not hrp then return end
 
-                    if (hrp.Position - anchor.Position).Magnitude > 9 then
+                    if (hrp.Position - anchor.Position).Magnitude > 7.5 then
                         setCarnivalStatus("Moving to " .. chosen.key .. "...", C.accent)
                         safeTP(CFrame.new(anchor.Position + Vector3.new(0, 1.5, 0)))
                         task.wait(0.35)
@@ -7163,12 +8332,33 @@ do
 
                     local prompt = anchor:FindFirstChildWhichIsA("ProximityPrompt")
                     if prompt then
+                        if not prompt.Enabled then
+                            setCarnivalStatus("Waiting " .. chosen.key .. " ready...", C.text2)
+                            local waitEn = os.clock()
+                            while gConfig.autoPlayCarnival and not prompt.Enabled and os.clock() - waitEn < 2.5 do
+                                task.wait(0.1)
+                            end
+                            if not gConfig.autoPlayCarnival or not prompt.Enabled then
+                                return
+                            end
+                        end
                         syncCarnivalNativeHandlers()
                         setCarnivalStatus("Starting " .. chosen.key .. "...", C.accent)
                         firePrompt(prompt)
                         local waitStart = os.clock()
-                        while gConfig.autoPlayCarnival and not activeRound and os.clock() - waitStart < 3.5 do
+                        while gConfig.autoPlayCarnival and not activeRound and os.clock() - waitStart < 1.8 do
                             task.wait(0.1)
+                        end
+                        if gConfig.autoPlayCarnival and not activeRound and prompt.Enabled then
+                            pcall(function()
+                                prompt:InputHoldBegin()
+                                task.wait(math.min(prompt.HoldDuration or 0.3, 1.0) + 0.08)
+                                prompt:InputHoldEnd()
+                            end)
+                            local waitRetry = os.clock()
+                            while gConfig.autoPlayCarnival and not activeRound and os.clock() - waitRetry < 2.0 do
+                                task.wait(0.1)
+                            end
                         end
                         while gConfig.autoPlayCarnival and activeRound and os.clock() - activeRound.startedAt < 45 do
                             task.wait(0.15)
@@ -7506,10 +8696,12 @@ do
 
         local ownedParts = {}
         for _, it in pairs(inv) do
-            local itemConf = ItemsData and (ItemsData[tostring(it.ItemId)] or ItemsData[tonumber(it.ItemId)])
-            local name = itemConf and itemConf.Name
-            if name and name ~= "" then
-                ownedParts[name] = (ownedParts[name] or 0) + 1
+            if not (it.Favorited == true or it.Favorite == true or it.Locked == true or it.IsFavorited == true) then
+                local itemConf = ItemsData and (ItemsData[tostring(it.ItemId)] or ItemsData[tonumber(it.ItemId)])
+                local name = itemConf and itemConf.Name
+                if name and name ~= "" then
+                    ownedParts[name] = (ownedParts[name] or 0) + 1
+                end
             end
         end
 
@@ -7660,6 +8852,4180 @@ do
     createButton(tabAcidRain, "Teleport to Mad Scientist", function()
         safeTP(CFrame.new(-2085.58, 1724.85, -1105.5))
     end)
+
+    -- ═════════════════════════════════════════════════════════════════════
+    -- [Fishing] FISHING, BAIT, FISH TANK & LUCK POTION SUBTAB + SHARED HOOKS
+    -- ═════════════════════════════════════════════════════════════════════
+    do
+        local function mountFishingTab()
+            local tabFishing = eventsSubtabs["Fishing"]
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local Lighting = game:GetService("Lighting")
+            local ContextActionService = game:GetService("ContextActionService")
+            local lp = Players.LocalPlayer
+
+            local BAIT_ORDER = { "Squid", "Shrimp", "Minnow", "Worm" }
+            local BAIT_ITEM_IDS = {
+                ["1722"] = "Worm",
+                ["1723"] = "Minnow",
+                ["1724"] = "Shrimp",
+                ["1725"] = "Squid",
+            }
+            local BAIT_PREF_OPTIONS = { "Auto Best", "Squid", "Shrimp", "Minnow", "Worm" }
+            local ROD_ITEM_IDS = { ["330"] = true, ["374"] = true, ["375"] = true }
+            local ItemsMod = nil
+            pcall(function() ItemsMod = require(ReplicatedStorage.Modules.Items) end)
+            local MutatorMod = nil
+            pcall(function() MutatorMod = require(ReplicatedStorage.Modules.MutatorModule) end)
+            local FishTankCfg = nil
+            pcall(function() FishTankCfg = require(ReplicatedStorage.Modules.FishTankConfig) end)
+            _G._AHCachedFishTankConfig = _G._AHCachedFishTankConfig or FishTankCfg
+
+            -- Shared Garage Detection Helpers (used by Auto-Bid, Quick-Win, and Autofarm Priority)
+            local function isPickleMutName(m)
+                return m == "Pickled" or m == "Chamoy" or m == "Spicy" or m == "Pickle Jar"
+            end
+
+            _G.isFishingBaitGarage = function(garage)
+                if not garage then return false end
+                local floor = garage:FindFirstChild("Floorspace")
+                if not floor then return false end
+                local targets = gConfig.targetFishingBaitTypes or { Worm = true, Minnow = true, Shrimp = true, Squid = true }
+                for _, item in ipairs(floor:GetChildren()) do
+                    local idStr = tostring(item:GetAttribute("ItemId") or "")
+                    local tier = BAIT_ITEM_IDS[idStr]
+                    if tier and targets[tier] == true then
+                        return true, tier
+                    end
+                    local low = tostring(item.Name):lower()
+                    if low:find("bait") then
+                        for bKey, bOn in pairs(targets) do
+                            if bOn == true and low:find(bKey:lower()) then
+                                return true, bKey
+                            end
+                        end
+                    end
+                end
+                return false
+            end
+
+            _G.isPickleRainGarage = function(garage)
+                if not garage then return false end
+                local floor = garage:FindFirstChild("Floorspace")
+                if not floor then return false end
+                for _, item in ipairs(floor:GetChildren()) do
+                    local idStr = tostring(item:GetAttribute("ItemId") or "")
+                    if ItemsMod and idStr ~= "" then
+                        local conf = ItemsMod[idStr] or ItemsMod[tonumber(idStr)]
+                        if type(conf) == "table" and (conf.EventExclusive == "Pickle Rain" or conf.Event == "Pickle Rain") then
+                            return true, "Exclusive"
+                        end
+                    end
+                    if _G.getItemMutators then
+                        local muts = _G.getItemMutators(item, item.Name)
+                        if type(muts) == "table" then
+                            for m, on in pairs(muts) do
+                                local mutKey = type(m) == "number" and on or m
+                                if (type(m) == "number" or on == true) and isPickleMutName(mutKey) then
+                                    return true, mutKey
+                                end
+                            end
+                        end
+                    end
+                end
+                return false
+            end
+
+            local FEAST_FOOD_IDS = { ["1784"] = true, ["1785"] = true, ["1786"] = true, ["1787"] = true, ["1788"] = true }
+            local FEAST_FOOD_NAMES = {
+                ["steamed corn with butter"] = true,
+                ["whipped cream"] = true,
+                ["pumpkin tart"] = true,
+                ["roasted turkey"] = true,
+                ["turkey cookie"] = true,
+            }
+
+            _G.isTurkeySafeGarage = function(garage)
+                if not garage then return false end
+                local floor = garage:FindFirstChild("Floorspace")
+                if not floor then return false end
+                for _, item in ipairs(floor:GetChildren()) do
+                    if not _G.isValidGarageItem or _G.isValidGarageItem(item) then
+                        local idStr = tostring(item:GetAttribute("ItemId") or "")
+                        local sIdStr = tostring(item:GetAttribute("SafeId") or "")
+                        if idStr == "1848" or sIdStr == "9" then
+                            return true, "Roasted Turkey Safe"
+                        end
+                        local rName = _G.resolveGarageItemName and _G.resolveGarageItemName(item) or item.Name
+                        if tostring(rName or ""):lower():find("roasted turkey safe") then
+                            return true, "Roasted Turkey Safe"
+                        end
+                    end
+                end
+                return false
+            end
+
+            _G.isThanksgivingFoodGarage = function(garage)
+                if not garage then return false end
+                local floor = garage:FindFirstChild("Floorspace")
+                if not floor then return false end
+                for _, item in ipairs(floor:GetChildren()) do
+                    if not _G.isValidGarageItem or _G.isValidGarageItem(item) then
+                        local idStr = tostring(item:GetAttribute("ItemId") or "")
+                        if FEAST_FOOD_IDS[idStr] then
+                            return true, idStr
+                        end
+                        local rName = _G.resolveGarageItemName and _G.resolveGarageItemName(item) or item.Name
+                        local clean = tostring(rName or ""):gsub("%[.-%]%s*", ""):match("^%s*(.-)%s*$"):lower()
+                        if FEAST_FOOD_NAMES[clean] then
+                            return true, rName
+                        end
+                    end
+                end
+                return false
+            end
+
+            _G.shouldBypassMinBidForGarage = function(garage)
+                if not garage then return false end
+                if gConfig.autoIndexHunter == true and _G.isMissingIndexGarage and _G.isMissingIndexGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidTurkeySafe == true and _G.isTurkeySafeGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidThanksgivingFood == true and _G.isThanksgivingFoodGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidFishingBait == true and _G.isFishingBaitGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidPickleLots == true and _G.isPickleRainGarage(garage) then
+                    return true
+                end
+                return false
+            end
+
+            _G.isPriorityEventGarage = function(garage)
+                if not garage then return false end
+                if gConfig.autoIndexHunter == true and _G.isMissingIndexGarage and _G.isMissingIndexGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidTurkeySafe == true and _G.isTurkeySafeGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidThanksgivingFood == true and _G.isThanksgivingFoodGarage(garage) then
+                    return true
+                end
+                if gConfig.alwaysBidFishingBait == true and _G.isFishingBaitGarage(garage) then
+                    return true
+                end
+                if (gConfig.prioritizePickleLots == true or gConfig.alwaysBidPickleLots == true) and _G.isPickleRainGarage(garage) then
+                    return true
+                end
+                return false
+            end
+
+            _G.findPriorityEventGarage = function(garages)
+                if not garages then return nil, nil, nil end
+                local wantIndex = (gConfig.autoIndexHunter == true and _G.isMissingIndexGarage ~= nil)
+                local wantTurkeySafe = (gConfig.alwaysBidTurkeySafe == true)
+                local wantTgFood = (gConfig.alwaysBidThanksgivingFood == true)
+                local wantBait = (gConfig.alwaysBidFishingBait == true)
+                local wantPickle = (gConfig.prioritizePickleLots == true or gConfig.alwaysBidPickleLots == true)
+                if not wantIndex and not wantTurkeySafe and not wantTgFood and not wantBait and not wantPickle then
+                    return nil, nil, nil
+                end
+                _G.AHGarageCooldowns = _G.AHGarageCooldowns or {}
+                local bestGarage, bestLot, bestReason = nil, nil, nil
+                local bestPrio = 999
+                local bestDist = math.huge
+                local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+                local cmpPos = root and root.Position or Vector3.new(0, 0, 0)
+                local indexPoolOnly = wantIndex and (gConfig.indexHunterMode == "Thanksgiving Pool")
+                for _, garage in ipairs(garages:GetChildren()) do
+                    local gKey = garage:GetAttribute("GUID") or garage.Name
+                    local onCooldown = _G.AHGarageCooldowns[gKey] and (os.clock() < _G.AHGarageCooldowns[gKey])
+                    if not onCooldown then
+                        local lotName = garage:GetAttribute("GarageId") or garage.Name
+                        local promptPart = garage:FindFirstChild("EntrySquare") and garage.EntrySquare:FindFirstChild("PromptPart")
+                        local prompt = promptPart and promptPart:FindFirstChild("EnterAuction")
+                        local canStart = garage:GetAttribute("InAuction") ~= true and ((prompt and prompt.Enabled) or (promptPart == nil))
+                        if canStart and (not isGaragePrereqMet or isGaragePrereqMet(lotName)) then
+                            local matched, matchReason, prioRank = false, nil, 999
+                            if wantIndex then
+                                local cat = GARAGE_CATALOG and GARAGE_CATALOG[lotName]
+                                local gArea = (cat and cat.area) or garage:GetAttribute("AreaName") or ""
+                                local modeAllow = (not indexPoolOnly) or (gArea == "Thanksgiving") or string.find(lotName, "Thanksgiving")
+                                if modeAllow then
+                                    local okM, missItem, missArea = _G.isMissingIndexGarage(garage)
+                                    if okM then
+                                        matched = true
+                                        matchReason = "Index (" .. tostring(missItem or missArea or "Missing") .. ")"
+                                        prioRank = 1
+                                    end
+                                end
+                            end
+                            if not matched and wantTurkeySafe and _G.isTurkeySafeGarage(garage) then
+                                matched, matchReason, prioRank = true, "Roasted Turkey Safe", 2
+                            elseif not matched and wantTgFood and _G.isThanksgivingFoodGarage(garage) then
+                                matched, matchReason, prioRank = true, "Thanksgiving Food", 3
+                            elseif not matched and wantBait and _G.isFishingBaitGarage(garage) then
+                                matched, matchReason, prioRank = true, "Fishing Bait", 4
+                            elseif not matched and wantPickle and _G.isPickleRainGarage(garage) then
+                                matched, matchReason, prioRank = true, "Pickle Rain", 5
+                            end
+                            if matched then
+                                local p = garage.PrimaryPart or garage:FindFirstChildWhichIsA("BasePart")
+                                local dist = p and (p.Position - cmpPos).Magnitude or 999999
+                                if prioRank < bestPrio or (prioRank == bestPrio and dist < bestDist) then
+                                    bestPrio = prioRank
+                                    bestDist = dist
+                                    bestGarage = garage
+                                    bestLot = lotName
+                                    bestReason = matchReason
+                                end
+                            end
+                        end
+                    end
+                end
+                return bestGarage, bestLot, bestReason
+            end
+
+            -- 1. Live Fishing Status Card
+            local fishStatusCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, fishStatusCard); pad(8, fishStatusCard); list(nil, 4, fishStatusCard)
+
+            make("TextLabel", {
+                Text = "FISHING STATUS & SEASON TIMER",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, fishStatusCard)
+
+            local seasonStatusLbl = make("TextLabel", {
+                Text = "Fishing Season: Checking...",
+                TextSize = 11,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, fishStatusCard)
+
+            local LureCfgMod = nil
+            pcall(function() LureCfgMod = require(ReplicatedStorage.Modules.LureConfig) end)
+
+            local baitPotionStatusLbl = make("TextLabel", {
+                Text = "Bait: Checking... | Potion: Inactive",
+                TextSize = 10,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratMedium,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+            }, fishStatusCard)
+
+            local rodLureStatusLbl = make("TextLabel", {
+                Text = "Rod: None Equipped | Lure: None",
+                TextSize = 10,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratMedium,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 15),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+            }, fishStatusCard)
+
+            local autoFishRuntimeLbl = make("TextLabel", {
+                Text = "Auto-Fish: Idle",
+                TextSize = 10,
+                TextColor3 = C.gold,
+                Font = Enum.Font.Montserrat,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 15),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, fishStatusCard)
+
+            local fishCache = {
+                selected = "Worm",
+                stock = { Worm = 0, Minnow = 0, Shrimp = 0, Squid = 0 },
+                shop = {},
+                restockAt = 0,
+                shopNeedsBuy = false,
+                lastShopBuyAt = 0,
+                lastFetch = 0,
+                changedHooked = false,
+                restockedHooked = false,
+                waterPart = nil,
+                waterPos = nil,
+                playerPos = nil,
+                waterAt = 0,
+                lastMissAt = 0,
+                lastEquipAt = 0,
+                lastInvFetch = 0,
+                forceInvRefresh = false,
+                brokenRods = {},
+                ourFishingFns = {},
+                syncNativeConns = nil,
+                isNativeConn = nil,
+                restoreReelUI = nil,
+                lastSeasonText = "",
+                lastSeasonCol = nil,
+                lastBaitText = "",
+                lastRodText = "",
+                lastShopText = "",
+                lastRuntimeText = "",
+            }
+
+            local function applyBaitStateTable(st)
+                if type(st) ~= "table" then return end
+                if st.Selected then fishCache.selected = tostring(st.Selected) end
+                if type(st.Stock) == "table" then
+                    for k, v in pairs(st.Stock) do
+                        fishCache.stock[tostring(k)] = tonumber(v) or 0
+                    end
+                end
+                if type(st.Shop) == "table" then
+                    fishCache.shop = st.Shop
+                end
+                if tonumber(st.RestockSeconds) then
+                    fishCache.restockAt = os.clock() + math.max(0, tonumber(st.RestockSeconds))
+                end
+                fishCache.lastFetch = os.clock()
+            end
+
+            local function syncBaitChangedListener(fb)
+                if not fb then return end
+                if not fishCache.changedHooked then
+                    local chEv = fb:FindFirstChild("Changed")
+                    if chEv and chEv:IsA("RemoteEvent") then
+                        fishCache.changedHooked = true
+                        table.insert(cleanUpSignals, chEv.OnClientEvent:Connect(function(st)
+                            if _G.AHScanner_RunID ~= myRunID then return end
+                            applyBaitStateTable(st)
+                        end))
+                    end
+                end
+                if not fishCache.restockedHooked then
+                    local rsEv = fb:FindFirstChild("Restocked")
+                    if rsEv and rsEv:IsA("RemoteEvent") then
+                        fishCache.restockedHooked = true
+                        table.insert(cleanUpSignals, rsEv.OnClientEvent:Connect(function()
+                            if _G.AHScanner_RunID ~= myRunID then return end
+                            fishCache.lastFetch = 0
+                            fishCache.shopNeedsBuy = true
+                        end))
+                    end
+                end
+            end
+
+            local function readBaitState(forceFetch)
+                local fb = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("FishingBait")
+                syncBaitChangedListener(fb)
+                local now = os.clock()
+                local needFetch = forceFetch or fishCache.lastFetch == 0 or (not fishCache.changedHooked and (now - fishCache.lastFetch) >= 12) or ((now - fishCache.lastFetch) >= 30)
+                if needFetch then
+                    local getState = fb and fb:FindFirstChild("GetState")
+                    if getState then
+                        fishCache.lastFetch = now
+                        local ok, st = pcall(function() return getState:InvokeServer() end)
+                        if ok and type(st) == "table" then
+                            applyBaitStateTable(st)
+                        end
+                    end
+                end
+                for _, k in ipairs(BAIT_ORDER) do
+                    local attrVal = lp:GetAttribute("FishingBaitCount_" .. k)
+                    if attrVal ~= nil then
+                        fishCache.stock[k] = tonumber(attrVal) or 0
+                    end
+                end
+                return fishCache.selected, fishCache.stock
+            end
+
+            local tackleBuyBusy = false
+            local function buyTackleShopBait(isAuto)
+                if tackleBuyBusy then return 0 end
+                tackleBuyBusy = true
+                local totalBought, totalSpent = 0, 0
+                local lastErr = nil
+                pcall(function()
+                    local fb = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("FishingBait")
+                    local buyR = fb and fb:FindFirstChild("Buy")
+                    if not buyR then return end
+                    readBaitState(true)
+                    local shop = fishCache.shop
+                    if type(shop) ~= "table" then return end
+                    local cash = tonumber(lp:GetAttribute("Cash")) or 0
+                    local want = gConfig.tackleShopBaitTypes or { Worm = true, Minnow = true, Shrimp = true, Squid = true }
+                    for _, tier in ipairs({ "Squid", "Shrimp", "Minnow", "Worm" }) do
+                        if want[tier] == true then
+                            local info = shop[tier]
+                            if type(info) == "table" and not info.Lock then
+                                local left = math.floor(tonumber(info.Left) or 0)
+                                local price = tonumber(info.Price) or 0
+                                local canBuy = (price > 0) and math.min(left, math.floor(cash / price)) or left
+                                if canBuy >= 1 then
+                                    local okB, resB = pcall(function() return buyR:InvokeServer(tier, canBuy) end)
+                                    if okB and type(resB) == "table" and resB.success then
+                                        totalBought = totalBought + canBuy
+                                        totalSpent = totalSpent + (canBuy * price)
+                                        cash = math.max(0, cash - (canBuy * price))
+                                        info.Left = math.max(0, left - canBuy)
+                                    elseif okB and type(resB) == "table" and resB.error then
+                                        lastErr = tostring(resB.error)
+                                    end
+                                    task.wait(0.12)
+                                end
+                            end
+                        end
+                    end
+                    if totalBought > 0 then
+                        readBaitState(true)
+                        abLog(string.format("[Tackle] Bought %d bait from Tackle Shop ($%d)!", totalBought, math.floor(totalSpent)), C.green)
+                        if not isAuto then
+                            showWorkshopPopup(string.format("Bought %d Tackle Shop bait!", totalBought), C.green)
+                        end
+                    elseif not isAuto then
+                        showWorkshopPopup(lastErr or "No affordable selected bait in stock right now.", C.orange)
+                    end
+                end)
+                tackleBuyBusy = false
+                return totalBought
+            end
+
+            local function getBestAvailableBait(stock)
+                for _, tier in ipairs(BAIT_ORDER) do
+                    if (stock[tier] or 0) > 0 then
+                        return tier, stock[tier]
+                    end
+                end
+                return nil, 0
+            end
+
+            local function ensureSelectedBait()
+                local selected, stock = readBaitState(false)
+                local desired = nil
+                local pref = tostring(gConfig.preferredFishingBait or "Auto Best")
+                if gConfig.autoSelectBestBait == true or pref == "Auto Best" then
+                    desired = select(1, getBestAvailableBait(stock))
+                elseif (stock[pref] or 0) > 0 then
+                    desired = pref
+                else
+                    desired = select(1, getBestAvailableBait(stock))
+                end
+                if not desired then
+                    return nil, 0
+                end
+                if desired ~= selected then
+                    local fb = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("FishingBait")
+                    local selRemote = fb and fb:FindFirstChild("Select")
+                    if selRemote then
+                        pcall(function() selRemote:InvokeServer(desired) end)
+                        fishCache.selected = desired
+                        selected = desired
+                    end
+                end
+                return selected, stock[desired] or 0
+            end
+
+            local function isFishingRodMatch(idStr, itemName)
+                if ROD_ITEM_IDS[idStr] then return true end
+                local def = ItemsMod and (ItemsMod[idStr] or ItemsMod[tonumber(idStr)])
+                if type(def) == "table" and def.Interactive == "FishingRod" then return true end
+                if itemName and string.lower(tostring(itemName)):find("fishing rod") then return true end
+                return false
+            end
+
+            local function scoreFishingRod(idStr, entry, tool)
+                local def = ItemsMod and (ItemsMod[idStr] or ItemsMod[tonumber(idStr)])
+                local basePrice = tonumber(def and def.BasePrice) or (idStr == "375" and 1200 or (idStr == "330" and 600 or 200))
+                local maxUses = tonumber(def and def.MaxReelUses) or 5
+                local tierScore = basePrice * 100 + maxUses * 1000
+                local rollScore = 0
+                local mutScore = 0
+                local lureScore = 0
+                local cond = 100
+                if type(entry) == "table" then
+                    if entry.Condition ~= nil then cond = tonumber(entry.Condition) or 100 end
+                    local ra = entry.RolledAttributes
+                    if type(ra) == "table" then
+                        if type(ra.Buffs) == "table" then
+                            for _, b in ipairs(ra.Buffs) do
+                                local aid = tostring(b.AttrId or "")
+                                local mag = tonumber(b.Magnitude) or 0
+                                local wt = (aid == "RodLuck" and 40) or ((aid == "RodSteadiness" or aid == "RodResilience") and 15) or 10
+                                rollScore = rollScore + mag * wt
+                            end
+                        end
+                        if type(ra.Nerfs) == "table" then
+                            for _, n in ipairs(ra.Nerfs) do
+                                rollScore = rollScore - (tonumber(n.Magnitude) or 0) * 15
+                            end
+                        end
+                    end
+                    if type(entry.Mutators) == "table" then
+                        for _ in pairs(entry.Mutators) do
+                            mutScore = mutScore + 800
+                        end
+                    end
+                    if type(entry.Lure) == "table" then
+                        local lDef, lRoll = nil, tonumber(entry.Lure.Roll) or 0
+                        if LureCfgMod and type(LureCfgMod.Fitted) == "function" then
+                            local okF, dRes, rRes = pcall(LureCfgMod.Fitted, entry)
+                            if okF then lDef, lRoll = dRes, tonumber(rRes) or lRoll end
+                        end
+                        local tierBonus = (lDef and lDef.Tier == "Legendary" and 3000)
+                            or (lDef and lDef.Tier == "Epic" and 2000)
+                            or (lDef and lDef.Tier == "Rare" and 1000) or 500
+                        lureScore = 5000 + tierBonus + (lRoll * 20)
+                    end
+                elseif tool then
+                    local sig = tostring(tool:GetAttribute("EquipCacheSignature") or "")
+                    local sigCond = tonumber(sig:match("^[^|]*|[^|]*|([^|]*)"))
+                    if sigCond then cond = sigCond end
+                end
+                local name = (def and def.Name) or (tool and tool.Name) or "Fishing Rod"
+                return tierScore + rollScore + mutScore + lureScore + cond, name
+            end
+
+            local function findFishingRodTool()
+                local function isRodToolUsable(t)
+                    local g = tostring(t:GetAttribute("EquippedGuid") or "")
+                    if g ~= "" and fishCache.brokenRods[g] then return false end
+                    local cAttr = t:GetAttribute("Condition")
+                    if cAttr ~= nil and (tonumber(cAttr) or 0) <= 0 then return false end
+                    return true
+                end
+
+                local char = lp.Character
+                local charTool, charGuid = nil, ""
+                if char then
+                    for _, ch in ipairs(char:GetChildren()) do
+                        if ch:IsA("Tool") and isRodToolUsable(ch) then
+                            local idStr = tostring(ch:GetAttribute("ItemId") or "")
+                            if isFishingRodMatch(idStr, ch.Name) then
+                                charTool = ch
+                                charGuid = tostring(ch:GetAttribute("EquippedGuid") or "")
+                                break
+                            end
+                        end
+                    end
+                end
+
+                local bpByGuid = {}
+                local bpTools = {}
+                local bp = lp:FindFirstChild("Backpack")
+                if bp then
+                    for _, ch in ipairs(bp:GetChildren()) do
+                        if ch:IsA("Tool") and isRodToolUsable(ch) then
+                            local idStr = tostring(ch:GetAttribute("ItemId") or "")
+                            if isFishingRodMatch(idStr, ch.Name) then
+                                local g = tostring(ch:GetAttribute("EquippedGuid") or "")
+                                if g ~= "" then bpByGuid[g] = ch end
+                                table.insert(bpTools, ch)
+                            end
+                        end
+                    end
+                end
+
+                if gConfig.autoEquipFishingRod == false and charTool then
+                    return { tool = charTool, guid = charGuid, name = charTool.Name }, true
+                end
+
+                local inv = _G.AHUserInventoryCache
+                local now = os.clock()
+                local invEmpty = (type(inv) ~= "table" or next(inv) == nil)
+                local needRefresh = invEmpty
+                    or (fishCache.forceInvRefresh and (now - (fishCache.lastInvFetch or 0)) >= 1.2)
+                    or (not charTool and #bpTools == 0 and (now - (fishCache.lastInvFetch or 0)) >= 2.5)
+                if needRefresh then
+                    local getInv = ReplicatedStorage:FindFirstChild("Events")
+                        and ReplicatedStorage.Events:FindFirstChild("Inventory")
+                        and ReplicatedStorage.Events.Inventory:FindFirstChild("GetPlayerInventory")
+                    if getInv then
+                        fishCache.lastInvFetch = now
+                        fishCache.forceInvRefresh = false
+                        local okInv, freshInv = pcall(function() return getInv:InvokeServer() end)
+                        if okInv and type(freshInv) == "table" then
+                            _G.AHUserInventoryCache = freshInv
+                            inv = freshInv
+                        end
+                    end
+                end
+
+                local candidates = {}
+                local seenGuids = {}
+                if type(inv) == "table" then
+                    for guid, entry in pairs(inv) do
+                        if type(entry) == "table" and entry.Placed ~= true then
+                            local cond = entry.Condition
+                            local gStr = tostring(guid)
+                            if not fishCache.brokenRods[gStr] and (cond == nil or (tonumber(cond) or 0) > 0) then
+                                local idStr = tostring(entry.ItemId or "")
+                                if isFishingRodMatch(idStr, entry.DisplayName or entry.Name) then
+                                    local matchedTool = (charTool and charGuid == gStr and charTool) or bpByGuid[gStr]
+                                    local sc, rName = scoreFishingRod(idStr, entry, matchedTool)
+                                    seenGuids[gStr] = true
+                                    table.insert(candidates, {
+                                        guid = gStr,
+                                        idStr = idStr,
+                                        score = sc,
+                                        name = rName,
+                                        tool = matchedTool,
+                                    })
+                                end
+                            end
+                        end
+                    end
+                end
+
+                local function appendLooseTool(t)
+                    if not isRodToolUsable(t) then return end
+                    local g = tostring(t:GetAttribute("EquippedGuid") or "")
+                    if g ~= "" and seenGuids[g] then return end
+                    local idStr = tostring(t:GetAttribute("ItemId") or "")
+                    local sc, rName = scoreFishingRod(idStr, nil, t)
+                    if g ~= "" then seenGuids[g] = true end
+                    table.insert(candidates, {
+                        guid = g,
+                        idStr = idStr,
+                        score = sc,
+                        name = rName,
+                        tool = t,
+                    })
+                end
+                if charTool then appendLooseTool(charTool) end
+                for _, t in ipairs(bpTools) do appendLooseTool(t) end
+
+                if #candidates == 0 then
+                    return nil, false
+                end
+
+                local wantWorst = (gConfig.fishingRodPriority == "Worst First")
+                local chosen = candidates[1]
+                for i = 2, #candidates do
+                    local c = candidates[i]
+                    local better
+                    if wantWorst then
+                        better = (c.score < chosen.score) or (c.score == chosen.score and c.guid < chosen.guid)
+                    else
+                        better = (c.score > chosen.score) or (c.score == chosen.score and c.guid < chosen.guid)
+                    end
+                    if better then chosen = c end
+                end
+
+                local isEquipped = (charTool ~= nil) and (chosen.tool == charTool or (chosen.guid ~= "" and charGuid == chosen.guid))
+                return chosen, isEquipped
+            end
+
+            local waterCache = {}
+            local lastWaterScan = 0
+            local function getWaterParts()
+                if #waterCache == 0 or (os.clock() - lastWaterScan) > 30 then
+                    waterCache = {}
+                    local roots = {}
+                    local bbow = workspace:FindFirstChild("BBOW Builder Assets")
+                    if bbow then table.insert(roots, bbow) end
+                    local areas = workspace:FindFirstChild("Areas")
+                    if areas then table.insert(roots, areas) end
+                    for _, root in ipairs(roots) do
+                        for _, desc in ipairs(root:GetDescendants()) do
+                            if desc:IsA("BasePart") and string.lower(desc.Name) == "water" then
+                                table.insert(waterCache, desc)
+                            end
+                        end
+                    end
+                    if #waterCache == 0 then
+                        for _, desc in ipairs(workspace:GetDescendants()) do
+                            if desc:IsA("BasePart") and string.lower(desc.Name) == "water" then
+                                table.insert(waterCache, desc)
+                            end
+                        end
+                    end
+                    lastWaterScan = os.clock()
+                end
+                return waterCache
+            end
+
+            local function findExposedWaterNearPlayer(maxDist)
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return nil, nil, math.huge end
+                local limit = maxDist or 55
+                local rp = RaycastParams.new()
+                rp.FilterType = Enum.RaycastFilterType.Exclude
+                rp.FilterDescendantsInstances = { char }
+                rp.IgnoreWater = true
+
+                local eyeOrigin = hrp.Position + Vector3.new(0, 2.5, 0)
+                if fishCache.waterPart and fishCache.waterPart.Parent and fishCache.waterPos and fishCache.playerPos
+                    and (os.clock() - fishCache.waterAt) < 6 and (hrp.Position - fishCache.playerPos).Magnitude <= 3.5 then
+                    local cachedDist = (fishCache.waterPos - hrp.Position).Magnitude
+                    if cachedDist <= limit and math.abs(fishCache.waterPos.Y - hrp.Position.Y) <= 45 then
+                        local toCached = (fishCache.waterPos + Vector3.new(0, 0.35, 0)) - eyeOrigin
+                        local losCheck = workspace:Raycast(eyeOrigin, toCached, rp)
+                        if (not losCheck) or (losCheck.Instance == fishCache.waterPart) then
+                            return fishCache.waterPart, fishCache.waterPos, cachedDist
+                        end
+                    end
+                end
+
+                local fwd = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+                if fwd.Magnitude < 0.05 then fwd = Vector3.new(0, 0, -1) else fwd = fwd.Unit end
+                local bestPart, bestPos, bestDist = nil, nil, math.huge
+
+                local angles = { 0, 35, -35, 70, -70, 115, -115, 180 }
+                local radii = { 10, 18, 28, 40, 52 }
+                for _, r in ipairs(radii) do
+                    if r <= limit + 8 then
+                        for _, deg in ipairs(angles) do
+                            local rad = math.rad(deg)
+                            local cs, sn = math.cos(rad), math.sin(rad)
+                            local dir = Vector3.new(fwd.X * cs - fwd.Z * sn, 0, fwd.X * sn + fwd.Z * cs)
+                            local testXZ = hrp.Position + dir * r
+                            local downRay = workspace:Raycast(Vector3.new(testXZ.X, hrp.Position.Y + 28, testXZ.Z), Vector3.new(0, -120, 0), rp)
+                            if downRay and downRay.Instance and downRay.Instance:IsA("BasePart") and string.lower(downRay.Instance.Name) == "water" then
+                                local hitPos = downRay.Position
+                                local dist = (hitPos - hrp.Position).Magnitude
+                                if dist <= limit and math.abs(hitPos.Y - hrp.Position.Y) <= 45 then
+                                    local toHit = (hitPos + Vector3.new(0, 0.35, 0)) - eyeOrigin
+                                    local losRay = workspace:Raycast(eyeOrigin, toHit, rp)
+                                    local clear = (not losRay) or (losRay.Instance == downRay.Instance)
+                                    if clear and dist < bestDist then
+                                        bestDist = dist
+                                        bestPart = downRay.Instance
+                                        bestPos = hitPos
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if bestPart then break end
+                end
+                if bestPart then
+                    fishCache.waterPart = bestPart
+                    fishCache.waterPos = bestPos
+                    fishCache.playerPos = hrp.Position
+                    fishCache.waterAt = os.clock()
+                end
+                return bestPart, bestPos, bestDist
+            end
+
+            local function findNearestWaterHit(maxDist)
+                local limit = maxDist or 999999
+                if limit <= 120 then
+                    return findExposedWaterNearPlayer(limit)
+                end
+                local ePart, ePos, eDist = findExposedWaterNearPlayer(120)
+                if ePart and ePos then
+                    return ePart, ePos, eDist
+                end
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return nil, nil, math.huge end
+                local rp = RaycastParams.new()
+                rp.FilterType = Enum.RaycastFilterType.Exclude
+                rp.FilterDescendantsInstances = { char }
+                rp.IgnoreWater = true
+
+                local bestPart, bestPos, bestDist = nil, nil, limit
+                for _, wp in ipairs(getWaterParts()) do
+                    if wp and wp.Parent then
+                        local localPos = wp.CFrame:PointToObjectSpace(hrp.Position)
+                        local halfX = math.max(0.1, wp.Size.X * 0.5 - 2)
+                        local halfZ = math.max(0.1, wp.Size.Z * 0.5 - 2)
+                        local clamped = Vector3.new(
+                            math.clamp(localPos.X, -halfX, halfX),
+                            wp.Size.Y * 0.5,
+                            math.clamp(localPos.Z, -halfZ, halfZ)
+                        )
+                        local edgePt = wp.CFrame:PointToWorldSpace(clamped)
+                        local centerPt = wp.CFrame:PointToWorldSpace(Vector3.new(0, wp.Size.Y * 0.5, 0))
+                        for _, frac in ipairs({ 0, 0.15, 0.35, 0.65, 1 }) do
+                            local cand = edgePt:Lerp(centerPt, frac)
+                            local sky = workspace:Raycast(cand + Vector3.new(0, 45, 0), Vector3.new(0, -85, 0), rp)
+                            if sky and sky.Instance == wp then
+                                local horizDist = Vector2.new(sky.Position.X - hrp.Position.X, sky.Position.Z - hrp.Position.Z).Magnitude
+                                if horizDist < bestDist then
+                                    bestDist = horizDist
+                                    bestPart = wp
+                                    bestPos = sky.Position
+                                end
+                                break
+                            end
+                        end
+                    end
+                end
+                return bestPart, bestPos, bestDist
+            end
+
+            -- 2. Auto-Fish & Bait Selection Card
+            local autoFishCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, autoFishCard); pad(8, autoFishCard); list(nil, 6, autoFishCard)
+
+            make("TextLabel", {
+                Text = "AUTO-FISH & BAIT CONTROLS",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, autoFishCard)
+
+            local resetAutoFishState = nil
+            local _, updAutoFish = createToggle(autoFishCard, "Auto-Fish (Auto Cast + Instant Perfect Catch)", gConfig.autoFish or false, function(state)
+                gConfig.autoFish = state
+                saveConfig()
+                if fishCache.syncNativeConns then fishCache.syncNativeConns(state == true) end
+                if not state then
+                    if resetAutoFishState then resetAutoFishState() end
+                    local misc = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Misc")
+                    local fc = misc and misc:FindFirstChild("FishingCancel")
+                    if fc then pcall(function() fc:FireServer() end) end
+                    autoFishRuntimeLbl.Text = "Auto-Fish: Off"
+                end
+            end)
+            _G.uiToggles["autoFish"] = updAutoFish
+
+            local _, updAutoEquipRod = createToggle(autoFishCard, "Auto-Equip Fishing Rod", gConfig.autoEquipFishingRod ~= false, function(state)
+                gConfig.autoEquipFishingRod = state
+                saveConfig()
+            end)
+            _G.uiToggles["autoEquipFishingRod"] = updAutoEquipRod
+
+            local rodPriorityBtn = make("TextButton", {
+                Size = UDim2.new(1, 0, 0, 28),
+                BackgroundColor3 = COLORS.BG,
+                Text = "Rod Priority: " .. ((gConfig.fishingRodPriority == "Worst First") and "Worst First (Bad One)" or "Best First (Goodest)"),
+                TextColor3 = C.gold,
+                TextSize = 10,
+                Font = Enum.Font.MontserratBold,
+                BorderSizePixel = 0,
+            }, autoFishCard)
+            corner(5, rodPriorityBtn); stroke(1, C.border, rodPriorityBtn)
+            local function updateRodPriorityUI()
+                rodPriorityBtn.Text = "Rod Priority: " .. ((gConfig.fishingRodPriority == "Worst First") and "Worst First (Bad One)" or "Best First (Goodest)")
+            end
+            _G.uiUpdaters["fishingRodPriority"] = updateRodPriorityUI
+            rodPriorityBtn.MouseButton1Click:Connect(function()
+                gConfig.fishingRodPriority = (gConfig.fishingRodPriority == "Worst First") and "Best First" or "Worst First"
+                saveConfig()
+                updateRodPriorityUI()
+                fishCache.forceInvRefresh = true
+            end)
+
+            local _, updBestBait = createToggle(autoFishCard, "Auto-Select Best Available Bait Tier", gConfig.autoSelectBestBait ~= false, function(state)
+                gConfig.autoSelectBestBait = state
+                saveConfig()
+            end)
+            _G.uiToggles["autoSelectBestBait"] = updBestBait
+
+            local baitPrefBtn = make("TextButton", {
+                Size = UDim2.new(1, 0, 0, 28),
+                BackgroundColor3 = COLORS.BG,
+                Text = "Preferred Bait: " .. tostring(gConfig.preferredFishingBait or "Auto Best"),
+                TextColor3 = C.gold,
+                TextSize = 10,
+                Font = Enum.Font.MontserratBold,
+                BorderSizePixel = 0,
+            }, autoFishCard)
+            corner(5, baitPrefBtn); stroke(1, C.border, baitPrefBtn)
+            local function updateBaitPrefUI()
+                baitPrefBtn.Text = "Preferred Bait: " .. tostring(gConfig.preferredFishingBait or "Auto Best")
+            end
+            _G.uiUpdaters["preferredFishingBait"] = updateBaitPrefUI
+            baitPrefBtn.MouseButton1Click:Connect(function()
+                local cur = tostring(gConfig.preferredFishingBait or "Auto Best")
+                local idx = 1
+                for i, opt in ipairs(BAIT_PREF_OPTIONS) do
+                    if opt == cur then idx = i; break end
+                end
+                local nextOpt = BAIT_PREF_OPTIONS[(idx % #BAIT_PREF_OPTIONS) + 1]
+                gConfig.preferredFishingBait = nextOpt
+                saveConfig()
+                updateBaitPrefUI()
+                if nextOpt ~= "Auto Best" then
+                    local fb = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("FishingBait")
+                    local selR = fb and fb:FindFirstChild("Select")
+                    if selR then
+                        pcall(function() selR:InvokeServer(nextOpt) end)
+                        fishCache.selected = nextOpt
+                    end
+                else
+                    pcall(ensureSelectedBait)
+                end
+            end)
+
+            createButton(autoFishCard, "Teleport to Pond", function()
+                if _G.AHPondTpBusy or _G.AHVehicleRecallInProgress then return end
+                task.spawn(function()
+                    _G.AHPondTpBusy = true
+                    local ok, err = pcall(function()
+                        local POND_DOCK_POS = Vector3.new(513.05, 1722.8, -922.93)
+                        local POND_LOOK_TARGET = Vector3.new(542, 1722.8, -918)
+                        local POND_CAR_STAND_CF = CFrame.lookAt(Vector3.new(460, 1722.8, -934), Vector3.new(442, 1722.8, -934))
+                        local POND_CAR_TARGET = Vector3.new(442, 1720, -934)
+                        local POND_CAR_MAX_DIST = 85
+
+                        local char = lp.Character
+                        local hum = char and char:FindFirstChildOfClass("Humanoid")
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if not char or not hum or not hrp then return end
+
+                        if hum.SeatPart or hum.Sit then
+                            local sp = hum.SeatPart
+                            hum.Jump = true
+                            hum.Sit = false
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                            if sp then
+                                local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                                if sw then pcall(function() sw:Destroy() end) end
+                            end
+                            task.wait(0.12)
+                        end
+
+                        pcall(function() lp:RequestStreamAroundAsync(POND_DOCK_POS) end)
+                        pcall(function() lp:RequestStreamAroundAsync(POND_CAR_TARGET) end)
+
+                        safeTP(POND_DOCK_POS)
+                        if hrp and hrp.Parent then
+                            hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(POND_LOOK_TARGET.X, hrp.Position.Y, POND_LOOK_TARGET.Z))
+                        end
+
+                        task.wait(0.22)
+                        if not hrp or not hrp.Parent then return end
+                        local dockLookCF = CFrame.lookAt(hrp.Position, Vector3.new(POND_LOOK_TARGET.X, hrp.Position.Y, POND_LOOK_TARGET.Z))
+                        hrp.CFrame = dockLookCF
+
+                        local getVeh = _G.getMyVehicle
+                        local getPos = _G.getVehicleWorldPos
+                        local veh = getVeh and getVeh() or nil
+                        local vehPos = (veh and getPos) and getPos(veh) or nil
+                        local distToPond = vehPos and (vehPos - POND_DOCK_POS).Magnitude or math.huge
+                        local carOnDryGround = vehPos and (vehPos.Y >= 1716)
+
+                        if distToPond <= POND_CAR_MAX_DIST and carOnDryGround then
+                            showWorkshopPopup(string.format("Teleported to Pond! (Car %d studs away)", math.floor(distToPond)), C.green)
+                        elseif _G.ensureVehicleNearby then
+                            showWorkshopPopup("Teleported to Pond! Spawning car nearby...", C.accent)
+                            local okSpawn, spawnedVeh = _G.ensureVehicleNearby(POND_DOCK_POS, nil, {
+                                maxDist = POND_CAR_MAX_DIST,
+                                force = true,
+                                ignoreToggle = true,
+                                waitForCooldown = true,
+                                exactStandCF = POND_CAR_STAND_CF,
+                                skipGarageSearch = true,
+                                returnCF = dockLookCF,
+                                spawnLabel = "near Pond",
+                            })
+                            local finalPos = (spawnedVeh and getPos) and getPos(spawnedVeh) or nil
+                            if okSpawn and finalPos then
+                                showWorkshopPopup(string.format("Car spawned near Pond (%d studs)!", math.floor((finalPos - POND_DOCK_POS).Magnitude)), C.green)
+                            else
+                                showWorkshopPopup("At Pond, but car spawn timed out!", C.orange)
+                            end
+                        else
+                            showWorkshopPopup("Teleported to Pond!", C.green)
+                        end
+                    end)
+                    _G.AHPondTpBusy = false
+                    if not ok and err then
+                        warn("[PondTP] " .. tostring(err))
+                    end
+                end)
+            end)
+
+            createButton(autoFishCard, "Teleport to Tackle Shop", function()
+                task.spawn(function()
+                    local mall = workspace:FindFirstChild("Mall - Shop NPCs")
+                    local npc = mall and mall:FindFirstChild("Tackle Shop")
+                    local pos = Vector3.new(482.00, 1722.68, -926.00)
+                    local look = Vector3.new(-0.60, 0, -0.80)
+                    if npc then
+                        local okP, cf = pcall(function() return npc:GetPivot() end)
+                        if okP and typeof(cf) == "CFrame" then
+                            pos = cf.Position
+                            local lv = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+                            if lv.Magnitude > 0.05 then look = lv.Unit end
+                        end
+                    end
+                    safeTP(CFrame.lookAt(pos + look * 5 + Vector3.new(0, 1.0, 0), pos))
+                    showWorkshopPopup("Teleported to Tackle Shop!", C.green)
+                end)
+            end)
+
+            -- 2B. Tackle Shop Hourly Cash Bait Card
+            local tackleShopCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, tackleShopCard); pad(8, tackleShopCard); list(nil, 6, tackleShopCard)
+
+            make("TextLabel", {
+                Text = "TACKLE SHOP BAIT (CASH · HOURLY RESTOCK)",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, tackleShopCard)
+
+            local tackleShopStatusLbl = make("TextLabel", {
+                Text = "Shop Stock: Checking...",
+                TextSize = 10,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratMedium,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+            }, tackleShopCard)
+
+            local _, updAutoBuyTackle = createToggle(tackleShopCard, "Auto-Buy Tackle Shop Bait (Cash, Hourly Restock)", gConfig.autoBuyTackleBait or false, function(state)
+                gConfig.autoBuyTackleBait = state
+                saveConfig()
+                if state then
+                    fishCache.shopNeedsBuy = true
+                end
+            end)
+            _G.uiToggles["autoBuyTackleBait"] = updAutoBuyTackle
+
+            local shopChipsRow = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 24),
+                BackgroundTransparency = 1,
+            }, tackleShopCard)
+            list(nil, 4, shopChipsRow).FillDirection = Enum.FillDirection.Horizontal
+
+            local shopChipBtns = {}
+            local function refreshShopChipsUI()
+                local t = gConfig.tackleShopBaitTypes or {}
+                for tier, btn in pairs(shopChipBtns) do
+                    local on = (t[tier] == true)
+                    btn.BackgroundColor3 = on and C.accent or COLORS.BG
+                    btn.TextColor3 = on and Color3.fromRGB(255, 255, 255) or C.text2
+                end
+            end
+            _G.uiUpdaters["tackleShopBaitTypes"] = refreshShopChipsUI
+            for _, tier in ipairs({ "Worm", "Minnow", "Shrimp", "Squid" }) do
+                local chip = make("TextButton", {
+                    Size = UDim2.new(0.25, -3, 1, 0),
+                    BackgroundColor3 = COLORS.BG,
+                    Text = tier,
+                    TextColor3 = C.text2,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, shopChipsRow)
+                corner(4, chip); stroke(1, C.border, chip)
+                shopChipBtns[tier] = chip
+                chip.MouseButton1Click:Connect(function()
+                    gConfig.tackleShopBaitTypes = gConfig.tackleShopBaitTypes or {}
+                    gConfig.tackleShopBaitTypes[tier] = not (gConfig.tackleShopBaitTypes[tier] == true)
+                    refreshShopChipsUI()
+                    saveConfig()
+                end)
+            end
+            refreshShopChipsUI()
+
+            createButton(tackleShopCard, "Buy Available Tackle Shop Bait Now (Cash)", function()
+                task.spawn(function() buyTackleShopBait(false) end)
+            end)
+
+            -- 3. Bait Auction Sniping & Protection Card
+            local baitAuctionCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, baitAuctionCard); pad(8, baitAuctionCard); list(nil, 6, baitAuctionCard)
+
+            make("TextLabel", {
+                Text = "FISHING BAIT AUCTION SNIPE & PROTECTION",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, baitAuctionCard)
+
+            local _, updAlwaysBidBait = createToggle(baitAuctionCard, "Always Bid on Fishing Bait Lots (Bypass Min Bid)", gConfig.alwaysBidFishingBait or false, function(state)
+                gConfig.alwaysBidFishingBait = state
+                saveConfig()
+            end)
+            _G.uiToggles["alwaysBidFishingBait"] = updAlwaysBidBait
+
+            local _, updProtectBait = createToggle(baitAuctionCard, "Protect Fishing Bait (No Auto-Pawn / Auto-Place)", gConfig.protectFishingBait ~= false, function(state)
+                gConfig.protectFishingBait = state
+                saveConfig()
+            end)
+            _G.uiToggles["protectFishingBait"] = updProtectBait
+
+            local _, updProtectLures = createToggle(baitAuctionCard, "Protect Fishing Lures (No Auto-Pawn / Auto-Place)", gConfig.protectFishingLures ~= false, function(state)
+                gConfig.protectFishingLures = state
+                saveConfig()
+            end)
+            _G.uiToggles["protectFishingLures"] = updProtectLures
+
+            local baitChipsRow = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 26),
+                BackgroundTransparency = 1,
+            }, baitAuctionCard)
+            local baitChipsLayout = list(nil, 4, baitChipsRow)
+            baitChipsLayout.FillDirection = Enum.FillDirection.Horizontal
+
+            local baitChipBtns = {}
+            local function refreshBaitChipsUI()
+                local t = gConfig.targetFishingBaitTypes or {}
+                for tier, btn in pairs(baitChipBtns) do
+                    local on = (t[tier] == true)
+                    btn.BackgroundColor3 = on and C.accent or COLORS.BG
+                    btn.TextColor3 = on and Color3.fromRGB(255, 255, 255) or C.text2
+                end
+            end
+            _G.uiUpdaters["targetFishingBaitTypes"] = refreshBaitChipsUI
+            for _, tier in ipairs({ "Worm", "Minnow", "Shrimp", "Squid" }) do
+                local chip = make("TextButton", {
+                    Size = UDim2.new(0.25, -3, 1, 0),
+                    BackgroundColor3 = COLORS.BG,
+                    Text = tier,
+                    TextColor3 = C.text2,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, baitChipsRow)
+                corner(4, chip); stroke(1, C.border, chip)
+                baitChipBtns[tier] = chip
+                chip.MouseButton1Click:Connect(function()
+                    gConfig.targetFishingBaitTypes = gConfig.targetFishingBaitTypes or {}
+                    gConfig.targetFishingBaitTypes[tier] = not (gConfig.targetFishingBaitTypes[tier] == true)
+                    refreshBaitChipsUI()
+                    saveConfig()
+                end)
+            end
+            refreshBaitChipsUI()
+
+            -- 4. High-Luck Fish Protection & Auto Plot Fish Tank Card
+            local tankCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, tankCard); pad(8, tankCard); list(nil, 6, tankCard)
+
+            make("TextLabel", {
+                Text = "HIGH-LUCK FISH & PLOT FISH TANK (ID 1726)",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, tankCard)
+
+            local _, updProtectFish = createToggle(tankCard, "Protect High-Luck Fish (No Auto-Pawn / Auto-Place)", gConfig.protectHighLuckFish or false, function(state)
+                gConfig.protectHighLuckFish = state
+                saveConfig()
+            end)
+            _G.uiToggles["protectHighLuckFish"] = updProtectFish
+
+            local minLuckRow = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 32),
+                BackgroundColor3 = COLORS.BG,
+                BorderSizePixel = 0,
+            }, tankCard)
+            corner(5, minLuckRow); stroke(1, C.border, minLuckRow)
+            make("TextLabel", {
+                Size = UDim2.new(0.62, 0, 1, 0),
+                Position = UDim2.new(0, 8, 0, 0),
+                BackgroundTransparency = 1,
+                Text = "Min Protected Fish Luck (%):",
+                TextColor3 = C.text,
+                TextSize = 10,
+                Font = Enum.Font.MontserratBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, minLuckRow)
+            local minFishLuckBox = make("TextBox", {
+                Size = UDim2.new(0, 72, 0, 22),
+                Position = UDim2.new(1, -80, 0.5, -11),
+                BackgroundColor3 = C.card,
+                Text = tostring(gConfig.protectFishMinLuckPct or 5),
+                TextColor3 = C.gold,
+                TextSize = 10,
+                Font = Enum.Font.MontserratBold,
+                ClearTextOnFocus = false,
+            }, minLuckRow)
+            corner(4, minFishLuckBox); stroke(1, C.border, minFishLuckBox)
+            _G.uiUpdaters["protectFishMinLuckPct"] = function(v)
+                local n = math.max(0, tonumber(v) or gConfig.protectFishMinLuckPct or 5)
+                gConfig.protectFishMinLuckPct = n
+                minFishLuckBox.Text = tostring(n)
+            end
+            minFishLuckBox.FocusLost:Connect(function()
+                local n = tonumber(minFishLuckBox.Text)
+                if n then
+                    gConfig.protectFishMinLuckPct = math.max(0, math.floor(n * 10 + 0.5) / 10)
+                    minFishLuckBox.Text = tostring(gConfig.protectFishMinLuckPct)
+                    saveConfig()
+                else
+                    minFishLuckBox.Text = tostring(gConfig.protectFishMinLuckPct or 5)
+                end
+            end)
+            _G.inputFlushers["minFishLuckBox"] = function()
+                local n = tonumber(minFishLuckBox.Text)
+                if n then gConfig.protectFishMinLuckPct = math.max(0, math.floor(n * 10 + 0.5) / 10) end
+            end
+
+            local tankModeBtn = make("TextButton", {
+                Size = UDim2.new(1, 0, 0, 28),
+                BackgroundColor3 = COLORS.BG,
+                Text = "Tank Priority: " .. tostring(gConfig.fishTankMode or "Highest Luck First"),
+                TextColor3 = C.gold,
+                TextSize = 10,
+                Font = Enum.Font.MontserratBold,
+                BorderSizePixel = 0,
+            }, tankCard)
+            corner(5, tankModeBtn); stroke(1, C.border, tankModeBtn)
+            _G.uiUpdaters["fishTankMode"] = function()
+                tankModeBtn.Text = "Tank Priority: " .. tostring(gConfig.fishTankMode or "Highest Luck First")
+            end
+            tankModeBtn.MouseButton1Click:Connect(function()
+                gConfig.fishTankMode = (gConfig.fishTankMode == "Highest Value First") and "Highest Luck First" or "Highest Value First"
+                tankModeBtn.Text = "Tank Priority: " .. gConfig.fishTankMode
+                saveConfig()
+            end)
+
+            local function getFishMetrics(entry)
+                if type(entry) ~= "table" or not entry.ItemId then return false, 0, 0 end
+                local idStr = tostring(entry.ItemId)
+                if not (FishTankCfg and FishTankCfg.IsFishItem) then return false, 0, 0 end
+                local okIs, isFish = pcall(FishTankCfg.IsFishItem, idStr, entry)
+                if not (okIs and isFish) then return false, 0, 0 end
+                local luck = 0
+                if FishTankCfg.LuckForFish then
+                    local okL, lVal = pcall(FishTankCfg.LuckForFish, entry)
+                    if okL then luck = tonumber(lVal) or 0 end
+                end
+                local price = 0
+                local conf = ItemsMod and (ItemsMod[idStr] or ItemsMod[tonumber(idStr)])
+                if MutatorMod and conf and conf.BasePrice then
+                    local okP, pVal = pcall(function() return MutatorMod:CalculatePriceForEntry(conf.BasePrice, entry) end)
+                    if okP then price = tonumber(pVal) or 0 end
+                end
+                return true, luck, price
+            end
+
+            local function fillPlotFishTanks(isAuto)
+                local plots = workspace:FindFirstChild("_Plots") or workspace:FindFirstChild("Plots")
+                local myPlot = nil
+                if plots then
+                    for _, pl in ipairs(plots:GetChildren()) do
+                        if pl:GetAttribute("OwnerUserId") == lp.UserId then
+                            myPlot = pl
+                            break
+                        end
+                    end
+                end
+                if not myPlot then
+                    if not isAuto then showWorkshopPopup("Your plot was not found!", C.orange) end
+                    return 0
+                end
+                local furn = myPlot:FindFirstChild("Furniture") or myPlot
+                local tanks = {}
+                local seenCrate = {}
+                for _, obj in ipairs(furn:GetDescendants()) do
+                    if tostring(obj:GetAttribute("ItemId") or "") == "1726" then
+                        local crateId = obj:GetAttribute("CrateId")
+                        if crateId and not seenCrate[crateId] then
+                            seenCrate[crateId] = true
+                            table.insert(tanks, crateId)
+                        end
+                    end
+                end
+                if #tanks == 0 then
+                    if not isAuto then showWorkshopPopup("No placed Fish Tank found on your plot!", C.orange) end
+                    return 0
+                end
+
+                local events = ReplicatedStorage:FindFirstChild("Events")
+                local getInv = events and events:FindFirstChild("Inventory") and events.Inventory:FindFirstChild("GetPlayerInventory")
+                local stEv = events and events:FindFirstChild("Storage")
+                local getCrate = stEv and stEv:FindFirstChild("GetCrate")
+                local deposit = stEv and stEv:FindFirstChild("Deposit")
+                local withdraw = stEv and stEv:FindFirstChild("Withdraw")
+                if not (getInv and getCrate and deposit) then return 0 end
+
+                local okInv, inv = pcall(function() return getInv:InvokeServer() end)
+                if not okInv or type(inv) ~= "table" then return 0 end
+
+                local candidates = {}
+                for guid, entry in pairs(inv) do
+                    if type(entry) == "table" and not (entry.Favorited == true or entry.Favorite == true or entry.Locked == true or entry.IsFavorited == true) then
+                        local isFish, luck, price = getFishMetrics(entry)
+                        if isFish then
+                            table.insert(candidates, { guid = guid, luck = luck, price = price })
+                        end
+                    end
+                end
+                if #candidates == 0 then
+                    if not isAuto then showWorkshopPopup("No un-favorited fish in inventory!", C.text2) end
+                    return 0
+                end
+
+                local modeVal = (gConfig.fishTankMode == "Highest Value First")
+                table.sort(candidates, function(a, b)
+                    if modeVal then
+                        if a.price ~= b.price then return a.price > b.price end
+                        return a.luck > b.luck
+                    else
+                        if a.luck ~= b.luck then return a.luck > b.luck end
+                        return a.price > b.price
+                    end
+                end)
+
+                local moved, idx = 0, 1
+                for _, crateId in ipairs(tanks) do
+                    if idx > #candidates then break end
+                    local okC, crateData = pcall(function() return getCrate:InvokeServer(crateId) end)
+                    if okC and type(crateData) == "table" and not crateData.Error then
+                        local cap = tonumber(crateData.Capacity) or 0
+                        local contents = type(crateData.Contents) == "table" and crateData.Contents or {}
+                        local count = tonumber(crateData.Count) or #contents
+                        while count < cap and idx <= #candidates do
+                            pcall(function() deposit:FireServer(crateId, candidates[idx].guid, true) end)
+                            idx = idx + 1
+                            count = count + 1
+                            moved = moved + 1
+                            task.wait(0.14)
+                        end
+                        -- Smart upgrade swap if tank full and candidate beats weakest slotted fish
+                        if idx <= #candidates and withdraw then
+                            local slotted = {}
+                            for _, f in ipairs(contents) do
+                                if type(f) == "table" and f.Guid then
+                                    local _, fluck, fprice = getFishMetrics(f)
+                                    table.insert(slotted, { guid = f.Guid, luck = fluck, price = fprice })
+                                end
+                            end
+                            table.sort(slotted, function(a, b)
+                                if modeVal then
+                                    if a.price ~= b.price then return a.price < b.price end
+                                    return a.luck < b.luck
+                                else
+                                    if a.luck ~= b.luck then return a.luck < b.luck end
+                                    return a.price < b.price
+                                end
+                            end)
+                            for _, weak in ipairs(slotted) do
+                                local cand = candidates[idx]
+                                if not cand then break end
+                                local better = modeVal and (cand.price > weak.price) or (cand.luck > weak.luck)
+                                if not better then break end
+                                pcall(function() withdraw:FireServer(crateId, weak.guid, true) end)
+                                task.wait(0.16)
+                                pcall(function() deposit:FireServer(crateId, cand.guid, true) end)
+                                task.wait(0.16)
+                                idx = idx + 1
+                                moved = moved + 1
+                            end
+                        end
+                    end
+                end
+                if moved > 0 then
+                    abLog(string.format("[Fishing] Placed/upgraded %d fish in plot Fish Tank(s)!", moved), C.green)
+                    if not isAuto then showWorkshopPopup(string.format("Placed %d fish in Fish Tank(s)!", moved), C.green) end
+                elseif not isAuto then
+                    showWorkshopPopup("Fish Tank(s) already full with equal/better fish!", C.text2)
+                end
+                return moved
+            end
+
+            local _, updAutoTank = createToggle(tankCard, "Auto Put Best Fish into Plot Fish Tank(s)", gConfig.autoFillFishTank or false, function(state)
+                gConfig.autoFillFishTank = state
+                saveConfig()
+            end)
+            _G.uiToggles["autoFillFishTank"] = updAutoTank
+
+            createButton(tankCard, "Fill Plot Fish Tanks Now", function()
+                task.spawn(function() fillPlotFishTanks(false) end)
+            end)
+
+            -- 5. Fishing Luck Potion & Tackle Shop Card
+            local potionCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabFishing)
+            corner(6, potionCard); pad(8, potionCard); list(nil, 6, potionCard)
+
+            make("TextLabel", {
+                Text = "FISHING LUCK POTION & TACKLE SHOP (50 DIAMONDS)",
+                TextSize = 10,
+                TextColor3 = C.accent,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, potionCard)
+
+            local _, updAutoBuyPot = createToggle(potionCard, "Auto Buy Fishing Luck Potion (50 Diamonds)", gConfig.autoBuyFishingPotion or false, function(state)
+                gConfig.autoBuyFishingPotion = state
+                saveConfig()
+            end)
+            _G.uiToggles["autoBuyFishingPotion"] = updAutoBuyPot
+
+            local _, updAutoUsePot = createToggle(potionCard, "Auto Drink Fishing Luck Potion (While Auto-Fishing)", gConfig.autoUseFishingPotion or false, function(state)
+                gConfig.autoUseFishingPotion = state
+                saveConfig()
+            end)
+            _G.uiToggles["autoUseFishingPotion"] = updAutoUsePot
+
+            local function buyFishingPotion(isAuto)
+                local diams = tonumber(lp:GetAttribute("Diamonds")) or 0
+                if diams < 50 then
+                    if not isAuto then showWorkshopPopup("Need 50 Diamonds to buy Fishing Luck Potion!", C.orange) end
+                    return false
+                end
+                local ev = ReplicatedStorage:FindFirstChild("Events")
+                local buyRemote = ev and ev:FindFirstChild("EnergyShop") and ev.EnergyShop:FindFirstChild("BuyDrink")
+                if not buyRemote then return false end
+                local ok, res = pcall(function() return buyRemote:InvokeServer("27") end)
+                if ok and type(res) == "table" and res.success then
+                    abLog("[Fishing] Bought Fishing Luck Potion (50 Diamonds)!", C.green)
+                    if not isAuto then showWorkshopPopup("Bought Fishing Luck Potion!", C.green) end
+                    return true
+                elseif not isAuto then
+                    showWorkshopPopup((type(res) == "table" and tostring(res.error or res.message)) or "Purchase failed!", C.orange)
+                end
+                return false
+            end
+
+            local function useFishingPotion(isAuto)
+                local inv = _G.AHUserInventoryCache
+                if not inv then
+                    local getInv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Inventory") and ReplicatedStorage.Events.Inventory:FindFirstChild("GetPlayerInventory")
+                    if getInv then pcall(function() inv = getInv:InvokeServer() end) end
+                end
+                local targetGuid = nil
+                if type(inv) == "table" then
+                    for guid, entry in pairs(inv) do
+                        if type(entry) == "table" and tostring(entry.ItemId) == "1721"
+                            and (gConfig.allowFavoritedLuckDrinks == true or not (entry.Favorited == true or entry.Favorite == true or entry.Locked == true or entry.IsFavorited == true)) then
+                            targetGuid = guid
+                            break
+                        end
+                    end
+                end
+                if targetGuid then
+                    local useEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI") and ReplicatedStorage.Events.UI:FindFirstChild("UseEnergyDrink")
+                    if useEv then
+                        pcall(function() useEv:FireServer(targetGuid) end)
+                        abLog("[Fishing] Drank Fishing Luck Potion (+50% Fishing Luck)!", C.green)
+                        if not isAuto then showWorkshopPopup("Used Fishing Luck Potion!", C.green) end
+                        return true
+                    end
+                elseif not isAuto then
+                    showWorkshopPopup("No un-favorited Fishing Luck Potion in inventory!", C.orange)
+                end
+                return false
+            end
+
+            createButton(potionCard, "Buy Fishing Luck Potion (50 Diamonds)", function()
+                task.spawn(function() buyFishingPotion(false) end)
+            end)
+            createButton(potionCard, "Drink Fishing Luck Potion (Inventory)", function()
+                task.spawn(function() useFishingPotion(false) end)
+            end)
+            createButton(potionCard, "Teleport to Tackle Shop (Mall)", function()
+                local ts = workspace:FindFirstChild("Tackle Shop", true)
+                if ts then
+                    local p = ts:GetPivot().Position
+                    safeTP(CFrame.lookAt(p + (ts:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+                else
+                    safeTP(CFrame.new(482.0, 1722.7, -926.0))
+                end
+            end)
+
+            -- Runtime State & FishingState Instant-Catch Hook
+            local fishPhase = "idle"
+            local lastCastClock = 0
+            local reelToken = 0
+            fishCache.hideReelGui = function()
+                pcall(function()
+                    local pg = lp:FindFirstChild("PlayerGui")
+                    local gui = pg and pg:FindFirstChild("FishingReelGui")
+                    if gui then
+                        gui.Enabled = false
+                        for _, d in ipairs(gui:GetDescendants()) do
+                            if d:IsA("Sound") then
+                                d.Volume = 0
+                                pcall(function() d:Stop() end)
+                            end
+                        end
+                    end
+                end)
+            end
+            fishCache.setRuntimeStatus = function(txt, col)
+                if fishCache.lastRuntimeText ~= txt then
+                    fishCache.lastRuntimeText = txt
+                    autoFishRuntimeLbl.Text = txt
+                end
+                if col and autoFishRuntimeLbl.TextColor3 ~= col then
+                    autoFishRuntimeLbl.TextColor3 = col
+                end
+            end
+            resetAutoFishState = function()
+                reelToken = reelToken + 1
+                fishPhase = "idle"
+                fishCache.waterPart = nil
+                fishCache.waterPos = nil
+                fishCache.playerPos = nil
+                fishCache.waterAt = 0
+                fishCache.lastMissAt = 0
+                fishCache.lastEquipAt = 0
+                fishCache.lastRuntimeText = ""
+                fishCache.hideReelGui()
+            end
+            local miscEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Misc")
+            local fishingStateEv = miscEvents and miscEvents:FindFirstChild("FishingState")
+            local fishingResultEv = miscEvents and miscEvents:FindFirstChild("FishingResult")
+            local fishingCastEv = miscEvents and miscEvents:FindFirstChild("FishingCast")
+
+            fishCache.restoreReelUI = function()
+                fishCache.hideReelGui()
+                pcall(function()
+                    local hb = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Screens") and ReplicatedStorage.Modules.Screens:FindFirstChild("Hotbar")
+                    if hb then
+                        local okHb, modHb = pcall(require, hb)
+                        if okHb and modHb and modHb.SetSuppressed then modHb.SetSuppressed("FishingReel", false) end
+                    end
+                    pcall(function() ContextActionService:UnbindAction("FishingReelHold") end)
+                end)
+            end
+
+            fishCache.isNativeConn = function(conn)
+                local fn = conn and conn.Function
+                if not fn or fishCache.ourFishingFns[fn] then return false end
+                local ok, env = pcall(getfenv, fn)
+                local scr = ok and type(env) == "table" and rawget(env, "script") or nil
+                return typeof(scr) == "Instance" and scr:IsDescendantOf(game)
+            end
+
+            fishCache.syncNativeConns = function(disableNative)
+                if not getconnections or not fishingStateEv then return end
+                for _, conn in ipairs(getconnections(fishingStateEv.OnClientEvent)) do
+                    if conn.Function and fishCache.ourFishingFns[conn.Function] then
+                        pcall(function() conn:Enable() end)
+                    elseif fishCache.isNativeConn(conn) then
+                        if disableNative then
+                            pcall(function() conn:Disable() end)
+                        else
+                            pcall(function() conn:Enable() end)
+                        end
+                    else
+                        pcall(function() conn:Disable() end)
+                        pcall(function() conn:Disconnect() end)
+                    end
+                end
+            end
+
+            table.insert(cleanUpSignals, {
+                Disconnect = function()
+                    if fishCache.syncNativeConns then fishCache.syncNativeConns(false) end
+                    if fishCache.restoreReelUI then fishCache.restoreReelUI() end
+                end
+            })
+
+            if miscEvents and miscEvents:FindFirstChild("FishingFX") then
+                table.insert(cleanUpSignals, miscEvents.FishingFX.OnClientEvent:Connect(function(kind, plr)
+                    if _G.AHScanner_RunID ~= myRunID or plr ~= lp then return end
+                    if kind == "break" then
+                        fishCache.forceInvRefresh = true
+                        local char = lp.Character
+                        local tool = char and char:FindFirstChildOfClass("Tool")
+                        local gStr = tool and tostring(tool:GetAttribute("EquippedGuid") or "") or ""
+                        if gStr ~= "" then
+                            fishCache.brokenRods[gStr] = true
+                        end
+                        local hum = char and char:FindFirstChildOfClass("Humanoid")
+                        if hum then pcall(function() hum:UnequipTools() end) end
+                    end
+                end))
+            end
+
+            if fishingStateEv then
+                local fishStateFn = function(state, data)
+                    if _G.AHScanner_RunID ~= myRunID or gConfig.autoFish ~= true then return end
+                    fishCache.syncNativeConns(true)
+                    if state == "cast" then
+                        fishPhase = "waiting"
+                        lastCastClock = os.clock()
+                        fishCache.setRuntimeStatus("Auto-Fish: Line cast, waiting for bite...", C.green)
+                    elseif state == "reel" then
+                        fishPhase = "reeling"
+                        lastCastClock = os.clock()
+                        reelToken = reelToken + 1
+                        local myToken = reelToken
+                        fishCache.setRuntimeStatus("Auto-Fish: Hooked! Catching (Perfect)...", C.accent)
+                        fishCache.restoreReelUI()
+                        task.spawn(function()
+                            for _ = 1, 10 do
+                                if _G.AHScanner_RunID ~= myRunID or gConfig.autoFish ~= true or reelToken ~= myToken or fishPhase ~= "reeling" then
+                                    break
+                                end
+                                fishCache.hideReelGui()
+                                task.wait()
+                            end
+                        end)
+                        task.spawn(function()
+                            task.wait(2.25)
+                            for attempt = 1, 3 do
+                                if _G.AHScanner_RunID ~= myRunID or gConfig.autoFish ~= true then return end
+                                if reelToken ~= myToken or fishPhase ~= "reeling" then return end
+                                if fishingResultEv then
+                                    pcall(function() fishingResultEv:FireServer("caught", true) end)
+                                end
+                                if attempt < 3 then
+                                    task.wait(1.1)
+                                end
+                            end
+                        end)
+                    elseif state == "done" then
+                        reelToken = reelToken + 1
+                        fishPhase = "resetting"
+                        lastCastClock = os.clock()
+                        fishCache.forceInvRefresh = true
+                        fishCache.restoreReelUI()
+                        if type(data) == "table" and data.noBait then
+                            fishCache.setRuntimeStatus("Auto-Fish: Out of bait!", C.orange)
+                        elseif type(data) == "table" and data.itemName then
+                            fishCache.setRuntimeStatus("Auto-Fish: Caught " .. tostring(data.itemName) .. "!", C.green)
+                        else
+                            fishCache.setRuntimeStatus("Auto-Fish: Ready for next cast...", C.text2)
+                        end
+                        task.delay(0.32, function()
+                            if _G.AHScanner_RunID ~= myRunID then return end
+                            fishCache.restoreReelUI()
+                            if fishPhase == "resetting" then
+                                fishPhase = "idle"
+                            end
+                        end)
+                    end
+                end
+                fishCache.ourFishingFns[fishStateFn] = true
+                table.insert(cleanUpSignals, fishingStateEv.OnClientEvent:Connect(fishStateFn))
+                fishCache.syncNativeConns(gConfig.autoFish == true)
+            end
+
+            -- Background Status / Potion / Tank / Auto-Fish Loops
+            task.spawn(function()
+                local lastTankCheck = 0
+                local lastPotBuy = 0
+                while task.wait(0.35) do
+                    if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
+                    pcall(function()
+                        local now = workspace:GetServerTimeNow()
+                        local seasonActive = Lighting:GetAttribute("ActiveFishingSeason") ~= nil
+                        local seasonEnds = tonumber(Lighting:GetAttribute("FishingSeasonEndsAt")) or 0
+                        local sRem = math.max(0, math.floor(seasonEnds - now))
+                        local sText, sCol
+                        if seasonActive and sRem > 0 then
+                            sText = string.format("Fishing Season: ACTIVE (%d:%02d left)", sRem // 60, sRem % 60)
+                            sCol = C.green
+                        else
+                            sText = "Fishing Season: Inactive"
+                            sCol = C.text2
+                        end
+                        if fishCache.lastSeasonText ~= sText then
+                            fishCache.lastSeasonText = sText
+                            seasonStatusLbl.Text = sText
+                        end
+                        if fishCache.lastSeasonCol ~= sCol then
+                            fishCache.lastSeasonCol = sCol
+                            seasonStatusLbl.TextColor3 = sCol
+                        end
+
+                        local pEnds = tonumber(lp:GetAttribute("ActiveLuckDrinkExpireAt_27")) or 0
+                        local pRem = math.max(0, math.floor(pEnds - now))
+                        local pText = pRem > 0 and string.format("%d:%02d", pRem // 60, pRem % 60) or "Inactive"
+                        local selected, stock = readBaitState(false)
+                        local bText = string.format(
+                            "Bait: %s (W:%d M:%d S:%d Sq:%d) | Pot: %s",
+                            tostring(selected), stock.Worm or 0, stock.Minnow or 0, stock.Shrimp or 0, stock.Squid or 0, pText
+                        )
+                        if fishCache.lastBaitText ~= bText then
+                            fishCache.lastBaitText = bText
+                            baitPotionStatusLbl.Text = bText
+                        end
+
+                        -- Equipped Rod & Attached Lure readout
+                        local rodTxt = "Rod: None Equipped | Lure: None"
+                        local curChar = lp.Character
+                        if curChar then
+                            for _, ch in ipairs(curChar:GetChildren()) do
+                                if ch:IsA("Tool") and isFishingRodMatch(tostring(ch:GetAttribute("ItemId") or ""), ch.Name) then
+                                    local rGuid = tostring(ch:GetAttribute("EquippedGuid") or "")
+                                    local invEntry = (type(_G.AHUserInventoryCache) == "table" and rGuid ~= "") and _G.AHUserInventoryCache[rGuid] or nil
+                                    local lureStr = "None"
+                                    if type(invEntry) == "table" and type(invEntry.Lure) == "table" then
+                                        local lDef, lRoll = nil, tonumber(invEntry.Lure.Roll)
+                                        if LureCfgMod and type(LureCfgMod.Fitted) == "function" then
+                                            local okL, dL, rL = pcall(LureCfgMod.Fitted, invEntry)
+                                            if okL then lDef, lRoll = dL, tonumber(rL) or lRoll end
+                                        end
+                                        if lDef then
+                                            local valTxt = (lDef.Format and lRoll) and string.format(lDef.Format, lRoll) or ""
+                                            lureStr = string.format("%s (%s %s)", tostring(lDef.Name), valTxt, tostring(lDef.Short or "")):gsub("  +", " "):gsub("%(%s*%)", "")
+                                        else
+                                            lureStr = "Lure #" .. tostring(invEntry.Lure.Id or "?")
+                                        end
+                                    end
+                                    rodTxt = string.format("Rod: %s | Lure: %s", tostring(ch.Name), lureStr)
+                                    break
+                                end
+                            end
+                        end
+                        if fishCache.lastRodText ~= rodTxt then
+                            fishCache.lastRodText = rodTxt
+                            rodLureStatusLbl.Text = rodTxt
+                        end
+
+                        -- Tackle Shop Hourly Cash Bait stock status & auto-buy
+                        local shop = fishCache.shop
+                        local shopTxt = "Shop Stock: Checking..."
+                        local hasBuyableStock = false
+                        if type(shop) == "table" and next(shop) ~= nil then
+                            local cashNow = tonumber(lp:GetAttribute("Cash")) or 0
+                            local wantShop = gConfig.tackleShopBaitTypes or {}
+                            local function fmtShopCell(key, abbr)
+                                local it = shop[key]
+                                if type(it) ~= "table" then return abbr .. ":--" end
+                                if it.Lock then return abbr .. ":Lock" end
+                                local left = math.floor(tonumber(it.Left) or 0)
+                                local mx = math.floor(tonumber(it.Max) or left)
+                                local pr = tonumber(it.Price) or 0
+                                if wantShop[key] == true and left > 0 and cashNow >= pr then
+                                    hasBuyableStock = true
+                                end
+                                return string.format("%s:%d/%d", abbr, left, mx)
+                            end
+                            local remR = math.max(0, math.floor((fishCache.restockAt or 0) - os.clock()))
+                            local remStr = string.format("%d:%02d", remR // 60, remR % 60)
+                            shopTxt = string.format(
+                                "Shop: %s %s %s %s | Restock %s",
+                                fmtShopCell("Worm", "W"), fmtShopCell("Minnow", "M"), fmtShopCell("Shrimp", "S"), fmtShopCell("Squid", "Sq"), remStr
+                            )
+                        end
+                        if fishCache.lastShopText ~= shopTxt then
+                            fishCache.lastShopText = shopTxt
+                            tackleShopStatusLbl.Text = shopTxt
+                        end
+                        if gConfig.autoBuyTackleBait == true and (not tackleBuyBusy) and (os.clock() - (fishCache.lastShopBuyAt or 0)) >= 15 then
+                            local restockReady = (fishCache.restockAt or 0) > 0 and os.clock() >= (fishCache.restockAt + 1)
+                            if fishCache.shopNeedsBuy or restockReady or hasBuyableStock then
+                                fishCache.lastShopBuyAt = os.clock()
+                                fishCache.shopNeedsBuy = false
+                                task.spawn(function() buyTackleShopBait(true) end)
+                            end
+                        end
+
+                        -- Auto Buy / Use Fishing Luck Potion
+                        if gConfig.autoBuyFishingPotion == true and (os.clock() - lastPotBuy) >= 10 then
+                            if (tonumber(lp:GetAttribute("Diamonds")) or 0) >= 50 then
+                                -- Stockpile when <= 1 kept if auto-use enabled or buy when explicitly requested
+                                local hasInInv = false
+                                if type(_G.AHUserInventoryCache) == "table" then
+                                    for _, it in pairs(_G.AHUserInventoryCache) do
+                                        if type(it) == "table" and tostring(it.ItemId) == "1721" then hasInInv = true; break end
+                                    end
+                                end
+                                if not hasInInv or pRem <= 10 then
+                                    lastPotBuy = os.clock()
+                                    buyFishingPotion(true)
+                                end
+                            end
+                        end
+                        if gConfig.autoUseFishingPotion == true and gConfig.autoFish == true and pRem <= 10 then
+                            local used = useFishingPotion(true)
+                            if not used and gConfig.autoBuyFishingPotion == true and (os.clock() - lastPotBuy) >= 5 then
+                                lastPotBuy = os.clock()
+                                if buyFishingPotion(true) then
+                                    task.wait(0.4)
+                                    useFishingPotion(true)
+                                end
+                            end
+                        end
+
+                        -- Auto Fill Plot Fish Tanks every 8s
+                        if gConfig.autoFillFishTank == true and (os.clock() - lastTankCheck) >= 8 then
+                            lastTankCheck = os.clock()
+                            fillPlotFishTanks(true)
+                        end
+
+                        -- Auto-Fish Casting Loop
+                        if gConfig.autoFish == true and fishingCastEv then
+                            if fishCache.syncNativeConns then fishCache.syncNativeConns(true) end
+                            local phaseAge = os.clock() - lastCastClock
+                            if (fishPhase == "casting" and phaseAge > 4.5)
+                                or (fishPhase == "reeling" and phaseAge > 8.5)
+                                or (fishPhase == "resetting" and phaseAge > 4.0)
+                                or (fishPhase ~= "idle" and phaseAge > 22) then
+                                local fcEv = miscEvents and miscEvents:FindFirstChild("FishingCancel")
+                                if fishPhase == "reeling" and fishingResultEv then
+                                    pcall(function() fishingResultEv:FireServer("caught", true) end)
+                                    task.wait(0.2)
+                                end
+                                if fcEv and fishPhase ~= "idle" then
+                                    pcall(function() fcEv:FireServer() end)
+                                end
+                                reelToken = reelToken + 1
+                                fishPhase = "idle"
+                                fishCache.forceInvRefresh = true
+                                if fishCache.restoreReelUI then fishCache.restoreReelUI() end
+                            end
+                            if fishPhase == "idle" then
+                                local _, baitCount = ensureSelectedBait()
+                                if not baitCount or baitCount <= 0 then
+                                    fishCache.setRuntimeStatus("Auto-Fish: Out of bait!", C.orange)
+                                else
+                                    local rodTarget, equipped = findFishingRodTool()
+                                    if not rodTarget then
+                                        fishCache.setRuntimeStatus("Auto-Fish: No Fishing Rod found!", C.red)
+                                    elseif not equipped then
+                                        if gConfig.autoEquipFishingRod == false then
+                                            fishCache.setRuntimeStatus("Auto-Fish: Equip a Fishing Rod! (Auto-Equip Off)", C.orange)
+                                        elseif (os.clock() - fishCache.lastEquipAt) >= 0.45 then
+                                            local char = lp.Character
+                                            local hum = char and char:FindFirstChildOfClass("Humanoid")
+                                            if hum then
+                                                fishCache.lastEquipAt = os.clock()
+                                                fishCache.setRuntimeStatus("Auto-Fish: Equipping " .. tostring(rodTarget.name or "Fishing Rod") .. "...", C.accent)
+                                                if rodTarget.tool and rodTarget.tool.Parent == lp:FindFirstChild("Backpack") then
+                                                    pcall(function() hum:EquipTool(rodTarget.tool) end)
+                                                elseif rodTarget.guid and rodTarget.guid ~= "" then
+                                                    if char:FindFirstChildOfClass("Tool") ~= nil then
+                                                        pcall(function() hum:UnequipTools() end)
+                                                    end
+                                                    local invEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Inventory")
+                                                    local eqEv = invEv and invEv:FindFirstChild("EquipItem")
+                                                    if eqEv then pcall(function() eqEv:FireServer(rodTarget.guid) end) end
+                                                elseif rodTarget.tool then
+                                                    pcall(function() hum:EquipTool(rodTarget.tool) end)
+                                                end
+                                            end
+                                        end
+                                    elseif (os.clock() - fishCache.lastEquipAt) >= 0.45 then
+                                        if (os.clock() - fishCache.lastMissAt) >= 1.25 then
+                                            local wp, surfPt, dist = findNearestWaterHit(55)
+                                            if wp and surfPt and dist <= 55 then
+                                                fishPhase = "casting"
+                                                lastCastClock = os.clock()
+                                                if fishCache.syncNativeConns then fishCache.syncNativeConns(true) end
+                                                fishCache.setRuntimeStatus("Auto-Fish: Casting to open water...", C.green)
+                                                pcall(function() fishingCastEv:FireServer(wp, surfPt) end)
+                                            else
+                                                fishCache.lastMissAt = os.clock()
+                                                fishCache.setRuntimeStatus("Auto-Fish: Move near exposed water (<=55 studs)!", C.orange)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+        mountFishingTab()
+    end
+
+    -- ═════════════════════════════════════════════════════════════════════
+    -- [Pickle] PICKLE RAIN EVENT TRACKER & AUCTION PRIORITY SUBTAB
+    -- ═════════════════════════════════════════════════════════════════════
+    do
+        local function mountPickleRainTab()
+            local tabPickleRain = eventsSubtabs["Pickle Rain"]
+            local Lighting = game:GetService("Lighting")
+            local Players = game:GetService("Players")
+
+            local prCard = make("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = C.card,
+                BorderSizePixel = 0,
+            }, tabPickleRain)
+            corner(6, prCard); pad(8, prCard); list(nil, 6, prCard)
+
+            make("TextLabel", {
+                Text = "PICKLE RAIN EVENT & MUTATOR PRIORITY",
+                TextSize = 10,
+                TextColor3 = C.mutPickled or C.green,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, prCard)
+
+            local prStatusLbl = make("TextLabel", {
+                Text = "Pickle Rain: Checking...",
+                TextSize = 11,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratBold,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, prCard)
+
+            local prLotsLbl = make("TextLabel", {
+                Text = "Detected Pickle Lots in Map: 0",
+                TextSize = 10,
+                TextColor3 = C.text2,
+                Font = Enum.Font.MontserratMedium,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 15),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            }, prCard)
+
+            local _, updAlertPR = createToggle(prCard, "Notify When Pickle Rain Starts", gConfig.alertPickleRain ~= false, function(state)
+                gConfig.alertPickleRain = state
+                saveConfig()
+            end)
+            _G.uiToggles["alertPickleRain"] = updAlertPR
+
+            local _, updPrioPR = createToggle(prCard, "Prioritize Pickle Lots (Exclusives/Muts)", gConfig.prioritizePickleLots or false, function(state)
+                gConfig.prioritizePickleLots = state
+                saveConfig()
+            end)
+            _G.uiToggles["prioritizePickleLots"] = updPrioPR
+
+            local _, updBidPR = createToggle(prCard, "Always Bid on Pickle Lots (Bypass Min Bid)", gConfig.alwaysBidPickleLots or false, function(state)
+                gConfig.alwaysBidPickleLots = state
+                saveConfig()
+            end)
+            _G.uiToggles["alwaysBidPickleLots"] = updBidPR
+
+            createButton(prCard, "Scan & Teleport to Nearest Pickle Rain Lot", function()
+                local garages = workspace:FindFirstChild("_Debris") and workspace._Debris:FindFirstChild("Garages")
+                if not garages or not _G.isPickleRainGarage then
+                    showWorkshopPopup("No Pickle Rain lots scanned!", C.orange)
+                    return
+                end
+                local root = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local cmp = root and root.Position or Vector3.new(0, 0, 0)
+                local bestG, bestDist, bestReason = nil, math.huge, nil
+                for _, g in ipairs(garages:GetChildren()) do
+                    local matched, reason = _G.isPickleRainGarage(g)
+                    if matched then
+                        local p = g.PrimaryPart or g:FindFirstChildWhichIsA("BasePart")
+                        local d = p and (p.Position - cmp).Magnitude or 999999
+                        if d < bestDist then
+                            bestDist = d
+                            bestG = g
+                            bestReason = reason
+                        end
+                    end
+                end
+                if bestG then
+                    local p = bestG.PrimaryPart or bestG:FindFirstChildWhichIsA("BasePart")
+                    if p then
+                        safeTP(CFrame.new(p.Position + Vector3.new(0, 3, 0)))
+                        showWorkshopPopup("Teleported to Pickle Lot (" .. tostring(bestReason) .. ")!", C.green)
+                    end
+                else
+                    showWorkshopPopup("No active Pickle Rain items/mutators found in open lots!", C.orange)
+                end
+            end)
+
+            make("TextLabel", {
+                Text = "Pickle Rain Multipliers: Pickled (2x) | Chamoy (5x) | Spicy (11x) | Pickle Jar (20x)",
+                TextSize = 9,
+                TextColor3 = C.textMuted,
+                Font = Enum.Font.Montserrat,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+            }, prCard)
+
+            task.spawn(function()
+                local wasActive = false
+                while task.wait(1) do
+                    if _G.AHScanner_RunID ~= myRunID then break end
+                    pcall(function()
+                        local now = workspace:GetServerTimeNow()
+                        local isActive = Lighting:GetAttribute("ActivePickleRain") ~= nil
+                        local endsAt = tonumber(Lighting:GetAttribute("PickleRainEndsAt")) or 0
+                        local rem = math.max(0, math.floor(endsAt - now))
+                        if isActive and rem > 0 then
+                            prStatusLbl.Text = string.format("Pickle Rain: ACTIVE (%d:%02d remaining)", rem // 60, rem % 60)
+                            prStatusLbl.TextColor3 = C.mutPickled or C.green
+                            if not wasActive and gConfig.alertPickleRain ~= false then
+                                showWorkshopPopup("Pickle Rain Event STARTED!", C.green)
+                                abLog("[Pickle Rain] Admin event started!", C.green)
+                            end
+                            wasActive = true
+                        else
+                            prStatusLbl.Text = "Pickle Rain: Inactive (Waiting for event)"
+                            prStatusLbl.TextColor3 = C.text2
+                            wasActive = false
+                        end
+
+                        local count = 0
+                        local garages = workspace:FindFirstChild("_Debris") and workspace._Debris:FindFirstChild("Garages")
+                        if garages and _G.isPickleRainGarage then
+                            for _, g in ipairs(garages:GetChildren()) do
+                                if _G.isPickleRainGarage(g) then count = count + 1 end
+                            end
+                        end
+                        prLotsLbl.Text = "Detected Pickle Lots in Map: " .. tostring(count)
+                        prLotsLbl.TextColor3 = count > 0 and C.gold or C.text2
+                    end)
+                end
+            end)
+        end
+        mountPickleRainTab()
+    end
+
+    -- ═════════════════════════════════════════════════════════════════════
+    -- [Thanksgiving] THANKSGIVING EVENT SUBTAB (POOL, FEAST, SAFES, MARKET, TROT)
+    -- ═════════════════════════════════════════════════════════════════════
+    do
+        local function mountThanksgivingTab()
+            local tabTG = eventsSubtabs["Thanksgiving"]
+            if not tabTG then return end
+
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local RunService = game:GetService("RunService")
+            local CollectionService = game:GetService("CollectionService")
+            local lp = Players.LocalPlayer
+
+            local TG_ACCENT = Color3.fromRGB(245, 165, 60)
+            local FEAST_FOODS = {
+                ["1784"] = 10, -- Steamed Corn with Butter
+                ["1785"] = 10, -- Whipped Cream
+                ["1786"] = 20, -- Pumpkin Tart
+                ["1787"] = 35, -- Roasted Turkey
+                ["1788"] = 10, -- Turkey Cookie
+            }
+            local POOL_ORDER = {
+                "", "Junk Yard", "Back Alley", "Farmyard", "Shipyard",
+                "Lucky Beach", "Business Bay", "Military Base", "Power Plant", "The Mines"
+            }
+
+            local tgState = {
+                poolState = nil,
+                poolButtons = {},
+                poolLockMap = {},
+                lastPoolFetch = 0,
+                tgCollected = 0,
+                tgTotal = 49,
+                lastColFetch = 0,
+                bagFoodCount = 0,
+                bagFoodFill = 0,
+                bagSafeCount = 0,
+                bagLuckDrinks = 0,
+                lastInvScan = 0,
+                feedBusy = false,
+                lockpickBusy = false,
+                rollBusy = false,
+                failedSafeGuids = {},
+                racePhase = nil,
+                raceNextIndex = nil,
+                lastJumpIndex = -1,
+                lastJumpAt = 0,
+                lastAlertedRaceAt = 0,
+                lastAutoJoinRaceAt = 0,
+                horseRaceCfg = nil,
+                tgEventCfg = nil,
+            }
+            pcall(function() tgState.tgEventCfg = require(ReplicatedStorage.Modules.ThanksgivingEventConfig) end)
+            pcall(function() tgState.horseRaceCfg = require(ReplicatedStorage.Modules.HorseRaceConfig) end)
+
+            local function fmtMMSS(sec)
+                sec = math.max(0, math.floor(tonumber(sec) or 0))
+                return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+            end
+
+            local function makeCard(titleTxt, titleCol)
+                local card = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundColor3 = C.card,
+                    BorderSizePixel = 0,
+                }, tabTG)
+                corner(6, card); pad(8, card); list(nil, 5, card)
+                make("TextLabel", {
+                    Text = titleTxt,
+                    TextSize = 10,
+                    TextColor3 = titleCol or TG_ACCENT,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                return card
+            end
+
+            local function makeRow2(parent, leftTxt, leftFn, rightTxt, rightFn, leftCol, rightCol)
+                local row = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 26),
+                    BackgroundTransparency = 1,
+                }, parent)
+                local b1 = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    Position = UDim2.new(0, 0, 0, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = leftTxt,
+                    TextColor3 = leftCol or C.text,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, row)
+                corner(5, b1); stroke(1, C.border, b1)
+                b1.MouseButton1Click:Connect(leftFn)
+
+                local b2 = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    Position = UDim2.new(0.5, 3, 0, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = rightTxt,
+                    TextColor3 = rightCol or C.text,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, row)
+                corner(5, b2); stroke(1, C.border, b2)
+                b2.MouseButton1Click:Connect(rightFn)
+                return b1, b2
+            end
+
+            local function getFeastTurkeyModelAndPrompt()
+                local tagged = CollectionService:GetTagged("FeastTurkey")
+                local turkey = (tagged and tagged[1])
+                    or (workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Turkey"))
+                local prompt = turkey and (turkey:FindFirstChild("FeedTurkeyPrompt", true) or turkey:FindFirstChildWhichIsA("ProximityPrompt", true))
+                return turkey, prompt
+            end
+
+            local function getPlayerInventoryLive()
+                local inv = nil
+                pcall(function()
+                    local ev = ReplicatedStorage:FindFirstChild("Events")
+                    local getInv = ev and ev:FindFirstChild("Inventory") and ev.Inventory:FindFirstChild("GetPlayerInventory")
+                    if getInv then inv = getInv:InvokeServer() end
+                end)
+                if type(inv) ~= "table" then
+                    inv = _G.AHUserInventoryCache
+                end
+                return type(inv) == "table" and inv or nil
+            end
+
+            local function isEntryLocked(entry)
+                if type(entry) ~= "table" then return false end
+                local d = type(entry.data) == "table" and entry.data or entry
+                return entry.Favorited == true or entry.Favorite == true or entry.Locked == true or entry.IsFavorited == true
+                    or d.Favorited == true or d.Favorite == true or d.Locked == true or d.IsFavorited == true
+            end
+
+            local function isEntryUnavailable(entry)
+                if type(entry) ~= "table" then return true end
+                local d = type(entry.data) == "table" and entry.data or entry
+                return entry.Placed == true or d.Placed == true or entry.StartTime ~= nil or d.StartTime ~= nil
+            end
+
+            local function refreshBagThanksgivingCounts(inv)
+                inv = inv or getPlayerInventoryLive()
+                if type(inv) ~= "table" then return end
+                local fCnt, fFill, sCnt, lCnt = 0, 0, 0, 0
+                for _, entry in pairs(inv) do
+                    if type(entry) == "table" and not isEntryUnavailable(entry) then
+                        local idStr = tostring(entry.ItemId or (type(entry.data) == "table" and entry.data.ItemId) or "")
+                        local locked = isEntryLocked(entry)
+                        if FEAST_FOODS[idStr] and not locked then
+                            fCnt = fCnt + 1
+                            fFill = fFill + FEAST_FOODS[idStr]
+                        elseif idStr == "1848" and not locked then
+                            sCnt = sCnt + 1
+                        elseif idStr == "1841" and (gConfig.allowFavoritedLuckDrinks == true or not locked) then
+                            lCnt = lCnt + 1
+                        end
+                    end
+                end
+                tgState.bagFoodCount = fCnt
+                tgState.bagFoodFill = fFill
+                tgState.bagSafeCount = sCnt
+                tgState.bagLuckDrinks = lCnt
+                tgState.lastInvScan = os.clock()
+            end
+
+            -- Shared Pool State API (used by Thanksgiving tab + Auto Index Hunter)
+            local poolStatusLbl = nil
+            local function updatePoolButtonsVisual()
+                local curPick = tostring((tgState.poolState and tgState.poolState.Current) or lp:GetAttribute("ThanksgivingPoolArea") or "")
+                local resolved = tostring((tgState.poolState and tgState.poolState.Resolved) or (curPick ~= "" and curPick) or "Auto")
+                if poolStatusLbl then
+                    poolStatusLbl.Text = string.format("Active Pool: %s (Pick: %s)", resolved, curPick == "" and "Automatic" or curPick)
+                    poolStatusLbl.TextColor3 = curPick ~= "" and C.gold or C.accent
+                end
+                for areaKey, btn in pairs(tgState.poolButtons) do
+                    local isUnlocked = (areaKey == "") or (tgState.poolLockMap[areaKey] ~= false)
+                    local isSel = (areaKey == curPick)
+                    if isSel then
+                        btn.BackgroundColor3 = Color3.fromRGB(52, 38, 18)
+                        btn.TextColor3 = C.gold
+                    elseif not isUnlocked then
+                        btn.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+                        btn.TextColor3 = C.textMuted
+                    else
+                        btn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+                        btn.TextColor3 = C.text2
+                    end
+                    local labelBase = areaKey == "" and "Automatic" or areaKey
+                    btn.Text = isUnlocked and labelBase or (labelBase .. " (Lock)")
+                end
+            end
+
+            local function fetchThanksgivingPoolState(forceRefresh)
+                if not forceRefresh and tgState.poolState and (os.clock() - tgState.lastPoolFetch) < 5 then
+                    return tgState.poolState
+                end
+                local res = nil
+                pcall(function()
+                    local uiEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI")
+                    local getSt = uiEv and uiEv:FindFirstChild("GetThanksgivingAreaState")
+                    if getSt then res = getSt:InvokeServer() end
+                end)
+                if type(res) == "table" then
+                    tgState.poolState = res
+                    tgState.lastPoolFetch = os.clock()
+                    tgState.poolLockMap = {}
+                    if type(res.Areas) == "table" then
+                        for _, a in ipairs(res.Areas) do
+                            if type(a) == "table" and a.Name then
+                                tgState.poolLockMap[a.Name] = (a.Unlocked == true)
+                            end
+                        end
+                    end
+                    updatePoolButtonsVisual()
+                end
+                return tgState.poolState
+            end
+            _G.getThanksgivingPoolState = fetchThanksgivingPoolState
+
+            local function setThanksgivingPoolArea(areaStr, silent)
+                areaStr = tostring(areaStr or "")
+                if tgState.poolSwitchBusy then return false, "busy" end
+                local curAttr = tostring(lp:GetAttribute("ThanksgivingPoolArea") or "")
+                if curAttr == areaStr and tgState.poolState and tostring(tgState.poolState.Current or "") == areaStr then
+                    return true, tgState.poolState
+                end
+                if lp:GetAttribute("InAuction") == true or (AB and (AB.auctionOpen or AB.pickupPhase)) then
+                    if not silent then
+                        showWorkshopPopup("Finish current auction before switching Pilgrim Pete pool!", C.orange)
+                    end
+                    return false, "in_auction"
+                end
+
+                tgState.poolSwitchBusy = true
+                local okCall, res = false, nil
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local pete = workspace:FindFirstChild("Areas")
+                    and workspace.Areas:FindFirstChild("Thanksgiving")
+                    and workspace.Areas.Thanksgiving:FindFirstChild("Pilgrim Pete")
+                local petePos = (pete and pete:GetPivot().Position) or Vector3.new(-57.5, 1720.13, -811.5)
+                local didTP, oldCF, veh, oldVehCF = false, nil, nil, nil
+
+                pcall(function()
+                    if hrp and petePos and (hrp.Position - petePos).Magnitude > 15 then
+                        local seat = hum and hum.SeatPart
+                        veh = seat and seat:FindFirstAncestorOfClass("Model")
+                        if veh then
+                            oldVehCF = veh:GetPivot()
+                            veh:PivotTo(CFrame.new(petePos + Vector3.new(0, 4, 6)))
+                        else
+                            oldCF = hrp.CFrame
+                            hrp.CFrame = CFrame.new(petePos + Vector3.new(0, 3, 4))
+                        end
+                        didTP = true
+                        task.wait(0.25)
+                    end
+                    local uiEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI")
+                    local setSt = uiEv and uiEv:FindFirstChild("SetThanksgivingArea")
+                    if setSt then
+                        okCall, res = pcall(function() return setSt:InvokeServer(areaStr) end)
+                    end
+                    if didTP then
+                        if veh and veh.Parent and oldVehCF then
+                            veh:PivotTo(oldVehCF)
+                        elseif hrp and hrp.Parent and oldCF then
+                            hrp.CFrame = oldCF
+                        end
+                    end
+                end)
+                tgState.poolSwitchBusy = false
+
+                local switchedOk = okCall and (
+                    (type(res) == "table" and res.ok == true)
+                    or (tostring(lp:GetAttribute("ThanksgivingPoolArea") or "") == areaStr)
+                )
+                if type(res) == "table" and type(res.Areas) == "table" then
+                    tgState.poolState = res
+                    tgState.lastPoolFetch = os.clock()
+                    tgState.poolLockMap = {}
+                    for _, a in ipairs(res.Areas) do
+                        if type(a) == "table" and a.Name then
+                            tgState.poolLockMap[a.Name] = (a.Unlocked == true)
+                        end
+                    end
+                    updatePoolButtonsVisual()
+                else
+                    task.delay(0.15, function() fetchThanksgivingPoolState(true) end)
+                end
+
+                if switchedOk then
+                    if not silent then
+                        local lbl = areaStr == "" and "Automatic (Best Area)" or areaStr
+                        showWorkshopPopup("Thanksgiving Pool -> " .. lbl, C.gold)
+                        abLog("[Thanksgiving] Switched Pilgrim Pete pool to: " .. lbl, TG_ACCENT)
+                    end
+                    return true, res
+                end
+                local errMsg = (type(res) == "table" and type(res.msg) == "string" and res.msg ~= "") and res.msg or "Failed to switch pool"
+                if not silent then
+                    showWorkshopPopup("Pool Switch: " .. errMsg, C.orange)
+                end
+                return false, errMsg
+            end
+            _G.setThanksgivingPoolArea = setThanksgivingPoolArea
+
+            -- 1. LIVE OVERVIEW & TELEPORTS CARD
+            local overviewLbl, feastOverviewLbl, collectionLbl
+            do
+                local card = makeCard("THANKSGIVING EVENT OVERVIEW", TG_ACCENT)
+                overviewLbl = make("TextLabel", {
+                    Text = "Turkey Coins: 0  |  Luck Drink: Inactive",
+                    TextSize = 11,
+                    TextColor3 = C.gold,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 16),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                feastOverviewLbl = make("TextLabel", {
+                    Text = "Feast Meter: 0/100  |  Gobbler's Gold: Inactive",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                collectionLbl = make("TextLabel", {
+                    Text = "Thanksgiving Collection: 0/49  |  Cornelius Auto-Quest Ready",
+                    TextSize = 9,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                makeRow2(card,
+                    "TP Thanksgiving Hub", function()
+                        local pete = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Pilgrim Pete")
+                        safeTP(pete and CFrame.new(pete:GetPivot().Position + Vector3.new(0, 3, 6)) or CFrame.new(-57.5, 1723.1, -811.5))
+                    end,
+                    "TP Giant Turkey", function()
+                        local tModel, tPrompt = getFeastTurkeyModelAndPrompt()
+                        local p = (tPrompt and tPrompt.Parent and tPrompt.Parent:IsA("Attachment") and tPrompt.Parent.WorldPosition)
+                            or (tPrompt and tPrompt.Parent and tPrompt.Parent:IsA("BasePart") and tPrompt.Parent.Position)
+                            or (tModel and tModel:GetPivot().Position)
+                        safeTP(p and CFrame.new(p + Vector3.new(0, 3, 10)) or CFrame.new(6.1, 1725.8, -800.2))
+                    end,
+                    TG_ACCENT, C.gold
+                )
+                makeRow2(card,
+                    "TP Pilgrim Pete", function()
+                        local npc = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Pilgrim Pete")
+                        safeTP(npc and CFrame.lookAt(npc:GetPivot().Position + (npc:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), npc:GetPivot().Position) or CFrame.new(-57.5, 1720.1, -811.5))
+                    end,
+                    "TP Cornelius (Quest)", function()
+                        local npc = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Cornelius")
+                        safeTP(npc and CFrame.lookAt(npc:GetPivot().Position + (npc:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), npc:GetPivot().Position) or CFrame.new(-25.0, 1723.1, -811.5))
+                    end
+                )
+                makeRow2(card,
+                    "TP Market Stall", function()
+                        local st = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Stall")
+                        safeTP(st and CFrame.new(st:GetPivot().Position + Vector3.new(0, 2.5, 6)) or CFrame.new(-48.4, 1726.2, -768.8))
+                    end,
+                    "TP Turkey Trot", function()
+                        local ent = workspace:FindFirstChild("HorseRaceEntry")
+                        safeTP(ent and CFrame.new(ent:GetPivot().Position + Vector3.new(0, 3, 0)) or CFrame.new(-30.0, 1720.2, -889.0))
+                    end
+                )
+            end
+
+            -- 2. PILGRIM PETE 9-AREA POOL SWITCHER CARD
+            do
+                local card = makeCard("PILGRIM PETE — POOL AREA SWITCHER", C.accent)
+                poolStatusLbl = make("TextLabel", {
+                    Text = "Active Pool: Checking...",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                for i = 1, #POOL_ORDER, 2 do
+                    local a1 = POOL_ORDER[i]
+                    local a2 = POOL_ORDER[i + 1]
+                    local row = make("Frame", {
+                        Size = UDim2.new(1, 0, 0, 24),
+                        BackgroundTransparency = 1,
+                    }, card)
+                    local function makePoolBtn(areaKey, posX, sizeOff)
+                        local b = make("TextButton", {
+                            Size = UDim2.new(0.5, sizeOff, 1, 0),
+                            Position = UDim2.new(posX, posX > 0 and 3 or 0, 0, 0),
+                            BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                            Text = areaKey == "" and "Automatic" or areaKey,
+                            TextColor3 = C.text2,
+                            TextSize = 9,
+                            Font = Enum.Font.MontserratBold,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            TextTruncate = Enum.TextTruncate.AtEnd,
+                        }, row)
+                        corner(5, b); stroke(1, C.border, b)
+                        tgState.poolButtons[areaKey] = b
+                        b.MouseButton1Click:Connect(function()
+                            if areaKey ~= "" and tgState.poolLockMap[areaKey] == false then
+                                showWorkshopPopup(areaKey .. " is locked!", C.orange)
+                                return
+                            end
+                            task.spawn(function() setThanksgivingPoolArea(areaKey, false) end)
+                        end)
+                    end
+                    makePoolBtn(a1, 0, -3)
+                    if a2 then makePoolBtn(a2, 0.5, -3) end
+                end
+            end
+
+            -- 3. GIANT TURKEY FEAST CARD
+            local feastBagLbl
+            local function feedGiantTurkeyOnce(isAuto)
+                if tgState.feedBusy then return false end
+                local now = workspace:GetServerTimeNow()
+                local feastEndsAt = tonumber(lp:GetAttribute("TurkeyFeastEndsAt")) or 0
+                if isAuto and gConfig.saveFoodWhileFeastActive == true and feastEndsAt > now then
+                    return false
+                end
+                local inv = getPlayerInventoryLive()
+                refreshBagThanksgivingCounts(inv)
+                if tgState.bagFoodCount <= 0 then
+                    if not isAuto then showWorkshopPopup("No un-favorited Feast Food in bag!", C.orange) end
+                    return false
+                end
+                local tModel, tPrompt = getFeastTurkeyModelAndPrompt()
+                if not tPrompt or not tPrompt.Parent then
+                    if not isAuto then showWorkshopPopup("Giant Turkey prompt not found!", C.orange) end
+                    return false
+                end
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if not hrp or not hum then return false end
+
+                tgState.feedBusy = true
+                local fedCount = 0
+                pcall(function()
+                    local oldCF = hrp.CFrame
+                    if hum.Sit then hum.Sit = false; task.wait(0.15) end
+                    local anchorPos = (tPrompt.Parent:IsA("Attachment") and tPrompt.Parent.WorldPosition)
+                        or (tPrompt.Parent:IsA("BasePart") and tPrompt.Parent.Position)
+                        or (tModel and tModel:GetPivot().Position)
+                        or Vector3.new(6.1, 1725.8, -800.2)
+                    safeTP(CFrame.new(anchorPos + Vector3.new(0, 2.5, 9)))
+                    task.wait(0.22)
+                    local maxBursts = isAuto and 5 or 1
+                    for _ = 1, maxBursts do
+                        if isAuto and gConfig.autoFeedGiantTurkey ~= true then break end
+                        if isAuto and gConfig.saveFoodWhileFeastActive == true and (tonumber(lp:GetAttribute("TurkeyFeastEndsAt")) or 0) > workspace:GetServerTimeNow() then
+                            break
+                        end
+                        if not tPrompt or not tPrompt.Parent or not tPrompt.Enabled then break end
+                        if fireproximityprompt then
+                            pcall(fireproximityprompt, tPrompt, 0)
+                        else
+                            pcall(function()
+                                tPrompt:InputHoldBegin()
+                                task.wait((tPrompt.HoldDuration or 0.3) + 0.08)
+                                tPrompt:InputHoldEnd()
+                            end)
+                        end
+                        fedCount = fedCount + 1
+                        task.wait(1.65)
+                        refreshBagThanksgivingCounts()
+                        if tgState.bagFoodCount <= 0 then break end
+                    end
+                    if hrp and hrp.Parent and oldCF then
+                        safeTP(oldCF)
+                    end
+                end)
+                tgState.feedBusy = false
+                if fedCount > 0 then
+                    abLog(string.format("[Thanksgiving] Fed Giant Turkey (%dx)! Meter: %d/100", fedCount, tonumber(lp:GetAttribute("TurkeyFeastMeter")) or 0), C.green)
+                    if not isAuto then showWorkshopPopup("Fed Giant Turkey!", C.green) end
+                end
+                return fedCount > 0
+            end
+
+            do
+                local card = makeCard("GIANT TURKEY FEAST (30M [GOBBLER'S GOLD] 50x)", C.gold)
+                feastBagLbl = make("TextLabel", {
+                    Text = "Bag Feast Food: 0 items (+0 fill)",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                local _, updProtFood = createToggle(card, "Protect Thanksgiving Food", gConfig.protectThanksgivingFood ~= false, function(state)
+                    gConfig.protectThanksgivingFood = state
+                    saveConfig()
+                end)
+                _G.uiToggles["protectThanksgivingFood"] = updProtFood
+
+                local _, updAutoFeed = createToggle(card, "Auto-Feed Giant Turkey", gConfig.autoFeedGiantTurkey == true, function(state)
+                    gConfig.autoFeedGiantTurkey = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoFeedGiantTurkey"] = updAutoFeed
+
+                local _, updSaveFood = createToggle(card, "Save Food While Feast Active", gConfig.saveFoodWhileFeastActive ~= false, function(state)
+                    gConfig.saveFoodWhileFeastActive = state
+                    saveConfig()
+                end)
+                _G.uiToggles["saveFoodWhileFeastActive"] = updSaveFood
+
+                local onlyFoodCard, updOnlyFood = createToggle(card, "Only Take Feast Food (Until Full)", gConfig.onlyPickupFeastFood == true, function(state)
+                    gConfig.onlyPickupFeastFood = state
+                    saveConfig()
+                end)
+                tgState.onlyFoodLbl = onlyFoodCard and onlyFoodCard:FindFirstChildOfClass("TextLabel")
+                _G.uiToggles["onlyPickupFeastFood"] = updOnlyFood
+
+                createButton(card, "Feed Giant Turkey Now", function()
+                    task.spawn(function() feedGiantTurkeyOnce(false) end)
+                end)
+            end
+
+            -- 4. ROASTED TURKEY SAFE (SafeId="9") & SNIPER CARD
+            local safeBagLbl
+            local function lockpickOneTurkeySafeFromBag(isAuto)
+                if tgState.lockpickBusy then return false end
+                local inv = getPlayerInventoryLive()
+                refreshBagThanksgivingCounts(inv)
+                if type(inv) ~= "table" then return false end
+
+                local targetGuid = nil
+                local targetEntry = nil
+                local nowClk = os.clock()
+                for guid, entry in pairs(inv) do
+                    if type(entry) == "table" and not isEntryUnavailable(entry) then
+                        local idStr = tostring(entry.ItemId or (type(entry.data) == "table" and entry.data.ItemId) or "")
+                        if idStr == "1848" and not isEntryLocked(entry) then
+                            local failUntil = tgState.failedSafeGuids[guid] or 0
+                            if nowClk >= failUntil then
+                                targetGuid = guid
+                                targetEntry = entry
+                                break
+                            end
+                        end
+                    end
+                end
+                if not targetGuid then
+                    if not isAuto then showWorkshopPopup("No unlocked Roasted Turkey Safes in bag!", C.orange) end
+                    return false
+                end
+
+                tgState.lockpickBusy = true
+                local crackedOk = false
+                pcall(function()
+                    local bestTier, bestToolId = -1, nil
+                    if _G.getPlayerBestLockpick then
+                        bestTier, bestToolId = _G.getPlayerBestLockpick()
+                    end
+                    local isJammed = type(targetEntry) == "table" and (targetEntry.Jammed == true or targetEntry.PicklockJammed == true or targetEntry.LockedOut == true)
+                    local gameG = (getrenv and getrenv()._G) or _G
+                    local invPickFn = (type(gameG) == "table" and gameG.__BBOWRunInventoryPicklock) or _G.__BBOWRunInventoryPicklock
+
+                    if (not isJammed) and bestTier >= 0 and bestToolId and type(invPickFn) == "function" then
+                        abLog("[Thanksgiving] Lockpicking Roasted Turkey Safe from bag (" .. tostring(bestToolId) .. ")...", C.gold)
+                        task.spawn(function()
+                            pcall(invPickFn, targetGuid, bestToolId)
+                        end)
+                        if _G.solvePicklockMinigame then
+                            crackedOk = _G.solvePicklockMinigame(8.5)
+                        end
+                        if crackedOk then
+                            abLog("[Thanksgiving] Roasted Turkey Safe unlocked from bag!", C.green)
+                            if not isAuto then showWorkshopPopup("Roasted Turkey Safe Unlocked!", C.green) end
+                        else
+                            tgState.failedSafeGuids[targetGuid] = os.clock() + 45
+                        end
+                    else
+                        -- Fallback to Locksmith Desk free slot (180s unlock): resolve exact source/vehicleGUID via GetLockableItems
+                        local ev = ReplicatedStorage:FindFirstChild("Events")
+                        local ls = ev and ev:FindFirstChild("Locksmith")
+                        local getSt = ls and ls:FindFirstChild("GetSlotState")
+                        local getLockable = ls and ls:FindFirstChild("GetLockableItems")
+                        local startLs = ls and ls:FindFirstChild("StartLocksmith")
+                        if getSt and startLs then
+                            local lsSrc, lsVeh = "inventory", nil
+                            if getLockable then
+                                local okL, lockRes = pcall(function() return getLockable:InvokeServer() end)
+                                local lItems = (okL and type(lockRes) == "table" and type(lockRes.items) == "table") and lockRes.items or nil
+                                if lItems then
+                                    for _, li in ipairs(lItems) do
+                                        if type(li) == "table" and li.guid == targetGuid then
+                                            lsSrc = li.source or lsSrc
+                                            lsVeh = li.vehicleGUID
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            local st = getSt:InvokeServer()
+                            local unlocked = (st and tonumber(st.unlockedCount)) or 1
+                            local slots = st and st.slots or {}
+                            for idx = 1, math.min(3, unlocked) do
+                                if not slots[tostring(idx)] then
+                                    local okS, resS = pcall(function() return startLs:InvokeServer(idx, targetGuid, lsSrc, lsVeh) end)
+                                    local lsStarted = okS and (resS == true or (type(resS) == "table" and resS.success ~= false and resS.error == nil))
+                                    if lsStarted then
+                                        crackedOk = true
+                                        tgState.failedSafeGuids[targetGuid] = os.clock() + 185
+                                        abLog("[Thanksgiving] Sent Roasted Turkey Safe to Locksmith slot " .. idx .. " (fallback).", C.accent)
+                                        if not isAuto then showWorkshopPopup("Sent Turkey Safe to Locksmith Slot " .. idx, C.accent) end
+                                    else
+                                        tgState.failedSafeGuids[targetGuid] = os.clock() + 30
+                                        if not isAuto then
+                                            showWorkshopPopup((type(resS) == "table" and tostring(resS.error or "Locksmith rejected safe")) or "Locksmith slot failed!", C.orange)
+                                        end
+                                    end
+                                    break
+                                end
+                            end
+                        elseif not isAuto then
+                            showWorkshopPopup("Need Picklock tool (or free Locksmith slot)!", C.orange)
+                        end
+                    end
+                end)
+                tgState.lockpickBusy = false
+                task.delay(0.6, function() pcall(refreshBagThanksgivingCounts) end)
+                return crackedOk
+            end
+
+            do
+                local card = makeCard("ROASTED TURKEY SAFE (SAFE #9) & AUCTION SNIPER", TG_ACCENT)
+                safeBagLbl = make("TextLabel", {
+                    Text = "Bag Roasted Turkey Safes: 0  |  MinPickTier: 0",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                local _, updBidSafe = createToggle(card, "Always Bid Turkey Safe (No Min)", gConfig.alwaysBidTurkeySafe == true, function(state)
+                    gConfig.alwaysBidTurkeySafe = state
+                    saveConfig()
+                end)
+                _G.uiToggles["alwaysBidTurkeySafe"] = updBidSafe
+
+                local _, updBidFood = createToggle(card, "Always Bid Feast Food (No Min)", gConfig.alwaysBidThanksgivingFood == true, function(state)
+                    gConfig.alwaysBidThanksgivingFood = state
+                    saveConfig()
+                end)
+                _G.uiToggles["alwaysBidThanksgivingFood"] = updBidFood
+
+                local _, updAutoLP = createToggle(card, "Auto-Lockpick Turkey Safes (Bag)", gConfig.autoLockpickTurkeySafes == true, function(state)
+                    gConfig.autoLockpickTurkeySafes = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoLockpickTurkeySafes"] = updAutoLP
+
+                createButton(card, "Lockpick Bag Turkey Safe Now", function()
+                    task.spawn(function() lockpickOneTurkeySafeFromBag(false) end)
+                end)
+            end
+
+            -- 5. THANKSGIVING MARKET ROLLER & TURKEY LUCK DRINK CARD
+            local marketCoinsLbl, marketStockLbl, rollModeBtn
+            local function rollThanksgivingMarket(count, isAuto)
+                if tgState.rollBusy then return false end
+                count = (count == 5) and 5 or 1
+                local cost = count * 200
+                local coins = tonumber(lp:GetAttribute("TurkeyCoins")) or 0
+                if coins < cost then
+                    if not isAuto then showWorkshopPopup("Need " .. cost .. " Turkey Coins!", C.orange) end
+                    return false
+                end
+                tgState.rollBusy = true
+                local okRoll = false
+                pcall(function()
+                    local ev = ReplicatedStorage:FindFirstChild("Events")
+                    local rollRf = ev and ev:FindFirstChild("ThanksgivingMarket") and ev.ThanksgivingMarket:FindFirstChild("Roll")
+                    if rollRf then
+                        local res = rollRf:InvokeServer(count)
+                        if type(res) == "table" and res.success then
+                            okRoll = true
+                            local nGot = (type(res.itemIds) == "table" and #res.itemIds) or count
+                            abLog(string.format("[Thanksgiving] Market Rolled x%d (-%d Turkey Coins)!", nGot, cost), C.gold)
+                            if not isAuto then showWorkshopPopup("Rolled Thanksgiving Market x" .. tostring(nGot) .. "!", C.green) end
+                        elseif not isAuto then
+                            showWorkshopPopup((type(res) == "table" and tostring(res.error or "Roll failed")) or "Roll failed!", C.orange)
+                        end
+                    end
+                end)
+                tgState.rollBusy = false
+                return okRoll
+            end
+
+            local function useTurkeyLuckDrink(isAuto)
+                local inv = getPlayerInventoryLive()
+                if type(inv) ~= "table" then return false end
+                local targetGuid = nil
+                for guid, entry in pairs(inv) do
+                    if type(entry) == "table" and not isEntryUnavailable(entry) then
+                        local idStr = tostring(entry.ItemId or (type(entry.data) == "table" and entry.data.ItemId) or "")
+                        if idStr == "1841" and (gConfig.allowFavoritedLuckDrinks == true or not isEntryLocked(entry)) then
+                            targetGuid = guid
+                            break
+                        end
+                    end
+                end
+                if targetGuid then
+                    local useEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI") and ReplicatedStorage.Events.UI:FindFirstChild("UseEnergyDrink")
+                    if useEv then
+                        pcall(function() useEv:FireServer(targetGuid) end)
+                        abLog("[Thanksgiving] Drank Turkey Luck Drink (+50% Thanksgiving mut chance, 10m)!", C.green)
+                        if not isAuto then showWorkshopPopup("Drank Turkey Luck Drink!", C.green) end
+                        return true
+                    end
+                elseif not isAuto then
+                    showWorkshopPopup("No Turkey Luck Drink (1841) in bag!", C.orange)
+                end
+                return false
+            end
+
+            do
+                local card = makeCard("THANKSGIVING MARKET & TURKEY LUCK DRINK", C.gold)
+                marketCoinsLbl = make("TextLabel", {
+                    Text = "Turkey Coins: 0  |  Roll x1: 200  |  Roll x5: 1000",
+                    TextSize = 10,
+                    TextColor3 = C.gold,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                marketStockLbl = make("TextLabel", {
+                    Text = "Limited Rolls Left: Checking...",
+                    TextSize = 9,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.Montserrat,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                makeRow2(card,
+                    "Roll x1 (200 Coins)", function() task.spawn(function() rollThanksgivingMarket(1, false) end) end,
+                    "Roll x5 (1000 Coins)", function() task.spawn(function() rollThanksgivingMarket(5, false) end) end,
+                    C.accent, C.gold
+                )
+
+                local _, updAutoRoll = createToggle(card, "Auto-Roll Thanksgiving Market", gConfig.autoRollThanksgivingMarket == true, function(state)
+                    gConfig.autoRollThanksgivingMarket = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoRollThanksgivingMarket"] = updAutoRoll
+
+                rollModeBtn = createButton(card, "Auto-Roll Mode: x5 (1000 Coins)", function()
+                    gConfig.thanksgivingRollMode = (gConfig.thanksgivingRollMode == "x5") and "x1" or "x5"
+                    rollModeBtn.Text = gConfig.thanksgivingRollMode == "x5" and "Auto-Roll Mode: x5 (1000 Coins)" or "Auto-Roll Mode: x1 (200 Coins)"
+                    saveConfig()
+                end)
+                local function updateRollModeUI()
+                    rollModeBtn.Text = (gConfig.thanksgivingRollMode == "x1") and "Auto-Roll Mode: x1 (200 Coins)" or "Auto-Roll Mode: x5 (1000 Coins)"
+                end
+                updateRollModeUI()
+                _G.uiUpdaters["thanksgivingRollMode"] = updateRollModeUI
+
+                local _, updTurkeyDrink = createToggle(card, "Auto-Use Turkey Luck Drink", gConfig.autoUseTurkeyLuckDrink == true, function(state)
+                    gConfig.autoUseTurkeyLuckDrink = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoUseTurkeyLuckDrink"] = updTurkeyDrink
+
+                createButton(card, "Drink Turkey Luck Drink Now", function()
+                    task.spawn(function() useTurkeyLuckDrink(false) end)
+                end)
+            end
+
+            -- 6. TURKEY TROT RACE (HorseRace) CARD
+            local raceStatusLbl, raceEligLbl
+            do
+                local card = makeCard("TURKEY TROT RACE (15-MIN EVENT)", C.green)
+                raceStatusLbl = make("TextLabel", {
+                    Text = "Next Race: Checking...  |  Lobby: 0",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                raceEligLbl = make("TextLabel", {
+                    Text = "Eligibility: Checking...  |  Mount: Not Riding",
+                    TextSize = 9,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                local _, updAlertRace = createToggle(card, "Alert When Turkey Trot Starts", gConfig.alertTurkeyTrot ~= false, function(state)
+                    gConfig.alertTurkeyTrot = state
+                    saveConfig()
+                end)
+                _G.uiToggles["alertTurkeyTrot"] = updAlertRace
+
+                local _, updJoinRace = createToggle(card, "Auto-TP Lobby (When Riding)", gConfig.autoJoinTurkeyTrot == true, function(state)
+                    gConfig.autoJoinTurkeyTrot = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoJoinTurkeyTrot"] = updJoinRace
+
+                local _, updAutoRace = createToggle(card, "Auto-Race & Jump Hurdles", gConfig.autoRaceTurkeyTrot == true, function(state)
+                    gConfig.autoRaceTurkeyTrot = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoRaceTurkeyTrot"] = updAutoRace
+
+                makeRow2(card,
+                    "TP Race Lobby", function()
+                        local ent = workspace:FindFirstChild("HorseRaceEntry")
+                        safeTP(ent and CFrame.new(ent:GetPivot().Position + Vector3.new(0, 3, 0)) or CFrame.new(-30.0, 1720.2, -889.0))
+                    end,
+                    "TP Turkey Wrangler", function()
+                        local npc = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Turkey Wrangler")
+                        safeTP(npc and CFrame.lookAt(npc:GetPivot().Position + (npc:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), npc:GetPivot().Position) or CFrame.new(-54.0, 1723.1, -889.0))
+                    end,
+                    C.green, TG_ACCENT
+                )
+            end
+
+            -- Listen to HorseRace.Update for Auto-Race natural steering + hurdle jumps
+            pcall(function()
+                local hrEv = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("HorseRace")
+                local updEv = hrEv and hrEv:FindFirstChild("Update")
+                if updEv and updEv:IsA("RemoteEvent") then
+                    table.insert(cleanUpSignals, updEv.OnClientEvent:Connect(function(payload)
+                        if _G.AHScanner_RunID ~= myRunID then return end
+                        if type(payload) == "table" then
+                            tgState.racePhase = payload.phase
+                            tgState.raceNextIndex = tonumber(payload.nextIndex)
+                            if payload.phase ~= "Racing" then
+                                tgState.lastJumpIndex = -1
+                            end
+                        end
+                    end))
+                end
+            end)
+
+            table.insert(cleanUpSignals, RunService.Heartbeat:Connect(function()
+                if _G.AHScanner_RunID ~= myRunID then return end
+                if gConfig.autoRaceTurkeyTrot ~= true then return end
+                if tgState.racePhase ~= "Racing" or not tgState.raceNextIndex then return end
+                local char = lp.Character
+                if not char or char:GetAttribute("HorseRiding") ~= true then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then return end
+                local cfg = tgState.horseRaceCfg
+                local cps = cfg and cfg.Checkpoints
+                if type(cps) ~= "table" then return end
+                local cp = cps[tgState.raceNextIndex]
+                if type(cp) ~= "table" or typeof(cp.Position) ~= "Vector3" then return end
+
+                hum:MoveTo(cp.Position)
+                if cp.Kind == "Hurdle" then
+                    local dx = cp.Position.X - hrp.Position.X
+                    local dz = cp.Position.Z - hrp.Position.Z
+                    local hDist = math.sqrt(dx * dx + dz * dz)
+                    local nowClk = os.clock()
+                    if hDist >= 10 and hDist <= 17 and (tgState.lastJumpIndex ~= tgState.raceNextIndex or (nowClk - tgState.lastJumpAt) >= 0.55) then
+                        hum.Jump = true
+                        tgState.lastJumpIndex = tgState.raceNextIndex
+                        tgState.lastJumpAt = nowClk
+                    end
+                end
+            end))
+
+            -- Background Live Sync + Automation Loop
+            task.spawn(function()
+                task.wait(0.8)
+                pcall(fetchThanksgivingPoolState, true)
+                local lastAutoDrinkAt = 0
+                local lastAutoRollAt = 0
+                local lastAutoFeedAt = 0
+                local lastAutoLockpickAt = 0
+
+                while task.wait(1) do
+                    if _G.AHScanner_RunID ~= myRunID then break end
+                    pcall(function()
+                        local now = workspace:GetServerTimeNow()
+                        local clk = os.clock()
+
+                        -- 1. Turkey Coins, Feast Meter & Drink Timer
+                        local coins = tonumber(lp:GetAttribute("TurkeyCoins")) or 0
+                        local feastMeter = tonumber(lp:GetAttribute("TurkeyFeastMeter")) or 0
+                        local feastEndsAt = tonumber(lp:GetAttribute("TurkeyFeastEndsAt")) or 0
+                        local feastRem = math.max(0, math.floor(feastEndsAt - now))
+                        local drinkExpire = tonumber(lp:GetAttribute("ActiveLuckDrinkExpireAt_30")) or 0
+                        local drinkRem = math.max(0, math.floor(drinkExpire - now))
+
+                        overviewLbl.Text = string.format("Turkey Coins: %d  |  Luck Drink: %s", coins, drinkRem > 0 and fmtMMSS(drinkRem) or "Inactive")
+                        feastOverviewLbl.Text = string.format("Feast Meter: %d/100  |  Gobbler's Gold: %s", feastMeter, feastRem > 0 and ("ACTIVE " .. fmtMMSS(feastRem)) or "Inactive")
+                        feastOverviewLbl.TextColor3 = feastRem > 0 and C.gold or C.text2
+                        marketCoinsLbl.Text = string.format("Turkey Coins: %d  |  x1: 200  |  x5: 1000", coins)
+
+                        -- Limited market stock summary
+                        local leftDia = math.max(0, 3 - (tonumber(lp:GetAttribute("ThanksgivingDoubleDiamondsRolls")) or 0))
+                        local leftExt = math.max(0, 3 - (tonumber(lp:GetAttribute("ThanksgivingMutatorExtractorRolls")) or 0))
+                        local leftGrd = math.max(0, 3 - (tonumber(lp:GetAttribute("ThanksgivingGradeRemovalRolls")) or 0))
+                        local leftFnd = math.max(0, 3 - (tonumber(lp:GetAttribute("ThanksgivingFinderDrinkRolls")) or 0))
+                        local leftCar = math.max(0, 1 - (tonumber(lp:GetAttribute("ThanksgivingCornCarRolls")) or 0))
+                        marketStockLbl.Text = string.format("Stock Left: 2xDia %d | Extr %d | Grade %d | Seek %d | Car %d", leftDia, leftExt, leftGrd, leftFnd, leftCar)
+
+                        -- 2. Periodic Inventory & Pool & Collection Refresh
+                        if (clk - tgState.lastInvScan) >= 6 then
+                            refreshBagThanksgivingCounts()
+                        end
+                        feastBagLbl.Text = string.format("Bag Feast Food: %d items (+%d fill) | Safe Mode: %s",
+                            tgState.bagFoodCount, tgState.bagFoodFill, (feastRem > 0 and gConfig.saveFoodWhileFeastActive ~= false) and "Saving" or "Ready")
+                        if tgState.onlyFoodLbl then
+                            local onlyFoodPaused = (gConfig.onlyPickupFeastFood == true) and (feastRem > 0 or feastMeter >= 100)
+                            tgState.onlyFoodLbl.Text = onlyFoodPaused and "Only Take Feast Food (Paused: Full)" or "Only Take Feast Food (Until Full)"
+                            tgState.onlyFoodLbl.TextColor3 = onlyFoodPaused and Color3.fromRGB(130, 140, 160) or C.text
+                        end
+                        safeBagLbl.Text = string.format("Bag Roasted Turkey Safes: %d  |  MinPickTier: 0", tgState.bagSafeCount)
+
+                        if (clk - tgState.lastPoolFetch) >= 15 then
+                            fetchThanksgivingPoolState(false)
+                        else
+                            updatePoolButtonsVisual()
+                        end
+
+                        if (clk - tgState.lastColFetch) >= 20 then
+                            tgState.lastColFetch = clk
+                            local ev = ReplicatedStorage:FindFirstChild("Events")
+                            local getDisc = ev and ev:FindFirstChild("Collections") and ev.Collections:FindFirstChild("GetDiscoveredItems")
+                            local tgIds = tgState.tgEventCfg and tgState.tgEventCfg.ItemIds
+                            if getDisc and type(tgIds) == "table" then
+                                local disc = getDisc:InvokeServer()
+                                if type(disc) == "table" then
+                                    local foundCnt = 0
+                                    for _, idVal in ipairs(tgIds) do
+                                        if disc[idVal] or disc[tostring(idVal)] then
+                                            foundCnt = foundCnt + 1
+                                        end
+                                    end
+                                    tgState.tgCollected = foundCnt
+                                    tgState.tgTotal = #tgIds
+                                end
+                            end
+                        end
+                        collectionLbl.Text = string.format("Thanksgiving Collection: %d/%d  |  Cornelius Auto-Quest Ready", tgState.tgCollected, tgState.tgTotal)
+
+                        -- 3. Turkey Trot Countdown & Eligibility
+                        local raceEntry = workspace:FindFirstChild("HorseRaceEntry")
+                        local nextRaceAt = raceEntry and tonumber(raceEntry:GetAttribute("NextRaceAt")) or 0
+                        local raceRem = nextRaceAt > 0 and math.max(0, math.floor(nextRaceAt - now)) or -1
+                        local pCount = raceEntry and (tonumber(raceEntry:GetAttribute("PlayerCount")) or 0) or 0
+                        local wCount = raceEntry and (tonumber(raceEntry:GetAttribute("WaitingCount")) or 0) or 0
+                        local nextElig = tonumber(lp:GetAttribute("HorseRaceNextEligibleAt")) or 0
+                        local eligRem = math.max(0, math.floor(nextElig - now))
+                        local char = lp.Character
+                        local isRiding = (char and char:GetAttribute("HorseRiding") == true) or false
+
+                        raceStatusLbl.Text = string.format("Next Race: %s  |  Lobby: %d (Wait: %d)", raceRem >= 0 and fmtMMSS(raceRem) or "N/A", pCount, wCount)
+                        raceStatusLbl.TextColor3 = (raceRem >= 0 and raceRem <= 30) and C.gold or C.text2
+                        raceEligLbl.Text = string.format("Eligible: %s  |  Mount: %s",
+                            eligRem <= 0 and "READY" or ("CD " .. fmtMMSS(eligRem)),
+                            isRiding and "Riding" or "Not Riding"
+                        )
+                        raceEligLbl.TextColor3 = (eligRem <= 0 and isRiding) and C.green or C.text2
+
+                        -- Alert when Turkey Trot is about to start (<= 30s)
+                        if gConfig.alertTurkeyTrot ~= false and nextRaceAt > 0 and raceRem > 0 and raceRem <= 30 and tgState.lastAlertedRaceAt ~= nextRaceAt then
+                            tgState.lastAlertedRaceAt = nextRaceAt
+                            showWorkshopPopup("Turkey Trot starts in " .. raceRem .. "s!", C.gold)
+                            abLog("[Thanksgiving] Turkey Trot Race starting in " .. raceRem .. "s!", C.gold)
+                        end
+
+                        -- Auto-TP Lobby when riding & eligible within 25s
+                        local busyInAuction = AB.auctionOpen or AB.pickupPhase or AB.startingAuction or _G.questTpInProgress or _G.AHPickupCycleRunning
+                        if gConfig.autoJoinTurkeyTrot == true and not busyInAuction and isRiding and eligRem <= 0 and nextRaceAt > 0 and raceRem > 0 and raceRem <= 25 and tgState.lastAutoJoinRaceAt ~= nextRaceAt then
+                            tgState.lastAutoJoinRaceAt = nextRaceAt
+                            local targetPos = (raceEntry and raceEntry:GetPivot().Position) or Vector3.new(-30.0, 1720.2, -889.0)
+                            safeTP(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+                            abLog("[Thanksgiving] Auto-TP to Turkey Trot Lobby (" .. raceRem .. "s)!", C.green)
+                        end
+
+                        -- 4. Automated Actions (never interrupt active auction/pickup)
+                        if not busyInAuction then
+                            -- Auto-Feed Giant Turkey
+                            if gConfig.autoFeedGiantTurkey == true and not tgState.feedBusy and tgState.bagFoodCount > 0 and (clk - lastAutoFeedAt) >= 8 then
+                                if not (gConfig.saveFoodWhileFeastActive ~= false and feastRem > 0) then
+                                    lastAutoFeedAt = clk
+                                    task.spawn(function() feedGiantTurkeyOnce(true) end)
+                                end
+                            end
+
+                            -- Auto-Lockpick Roasted Turkey Safes in Bag
+                            if gConfig.autoLockpickTurkeySafes == true and not tgState.lockpickBusy and tgState.bagSafeCount > 0 and (clk - lastAutoLockpickAt) >= 5 then
+                                lastAutoLockpickAt = clk
+                                task.spawn(function() lockpickOneTurkeySafeFromBag(true) end)
+                            end
+
+                            -- Auto-Roll Thanksgiving Market
+                            if gConfig.autoRollThanksgivingMarket == true and not tgState.rollBusy and (clk - lastAutoRollAt) >= 4 then
+                                local rollCnt = (gConfig.thanksgivingRollMode == "x1") and 1 or 5
+                                if coins >= (rollCnt * 200) then
+                                    lastAutoRollAt = clk
+                                    task.spawn(function() rollThanksgivingMarket(rollCnt, true) end)
+                                end
+                            end
+
+                            -- Auto-Use Turkey Luck Drink
+                            if gConfig.autoUseTurkeyLuckDrink == true and drinkRem <= 10 and tgState.bagLuckDrinks > 0 and (clk - lastAutoDrinkAt) >= 12 then
+                                lastAutoDrinkAt = clk
+                                task.spawn(function() useTurkeyLuckDrink(true) end)
+                            end
+                        end
+                    end)
+                end
+            end)
+            -- Explicit CanvasSize sync (avoids Roblox hidden-ScrollingFrame AutomaticCanvasSize stall)
+            do
+                tabTG.AutomaticCanvasSize = Enum.AutomaticSize.None
+                local tgLayout = tabTG:FindFirstChildOfClass("UIListLayout")
+                local function syncTgCanvas()
+                    if not tabTG or not tabTG.Parent or not tgLayout then return end
+                    local h = tgLayout.AbsoluteContentSize.Y
+                    if h > 0 then
+                        tabTG.CanvasSize = UDim2.new(0, 0, 0, h + 20)
+                    end
+                end
+                if tgLayout then
+                    table.insert(cleanUpSignals, tgLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                        if _G.AHScanner_RunID ~= myRunID then return end
+                        syncTgCanvas()
+                    end))
+                end
+                table.insert(cleanUpSignals, tabTG:GetPropertyChangedSignal("Visible"):Connect(function()
+                    if _G.AHScanner_RunID ~= myRunID then return end
+                    if tabTG.Visible then
+                        task.defer(syncTgCanvas)
+                        task.delay(0.05, syncTgCanvas)
+                    end
+                end))
+                table.insert(cleanUpSignals, tabTG:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                    if _G.AHScanner_RunID ~= myRunID then return end
+                    task.defer(syncTgCanvas)
+                end))
+                task.defer(syncTgCanvas)
+                task.delay(0.1, syncTgCanvas)
+            end
+        end
+        mountThanksgivingTab()
+    end
+
+    -- ═════════════════════════════════════════════════════════════════════
+    -- [Mastery] INDEX MASTERY, AUTO INDEX HUNTER & MASTERY SHOP SUBTAB
+    -- ═════════════════════════════════════════════════════════════════════
+    do
+        local function mountMasteryTab()
+            local tabMastery = eventsSubtabs["Mastery"]
+            if not tabMastery then return end
+
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local lp = Players.LocalPlayer
+
+            local MASTERY_AREAS = {
+                "Junk Yard", "Back Alley", "Farmyard", "Power Plant", "The Mines",
+                "Shipyard", "Lucky Beach", "Business Bay", "Military Base"
+            }
+
+            local mState = {
+                collectionsMod = nil,
+                shopConfigMod = nil,
+                discovered = {},
+                areaCatalog = {},
+                masteryCounts = {},
+                milestones = {},
+                missingByArea = {}, -- [area] = { count=n, ids={[idStr]=true} }
+                nameToItemId = {},
+                areaRows = {},
+                shopRows = {},
+                shopState = nil,
+                lastStateFetch = 0,
+                lastShopFetch = 0,
+                lastPoolSyncAt = 0,
+                rotateOffset = 0,
+                activeTargetArea = nil,
+                buyBusy = false,
+            }
+            pcall(function() mState.collectionsMod = require(ReplicatedStorage.Modules.Collections) end)
+            pcall(function() mState.shopConfigMod = require(ReplicatedStorage.Modules.MasteryShopConfig) end)
+            if type(mState.collectionsMod) == "table" and type(mState.collectionsMod.MasteryAreas) == "table" and #mState.collectionsMod.MasteryAreas > 0 then
+                local liveAreas = {}
+                for _, a in ipairs(mState.collectionsMod.MasteryAreas) do
+                    local n = type(a) == "table" and a.Name or tostring(a)
+                    if n and n ~= "" then table.insert(liveAreas, n) end
+                end
+                if #liveAreas > 0 then MASTERY_AREAS = liveAreas end
+            end
+
+            -- Build reverse Name -> ItemId lookup from ItemsData for fallback matching
+            if type(ItemsData) == "table" then
+                for idKey, conf in pairs(ItemsData) do
+                    if type(conf) == "table" and type(conf.Name) == "string" and conf.Name ~= "" then
+                        mState.nameToItemId[conf.Name:lower()] = tostring(idKey)
+                    end
+                end
+            end
+
+            local mpSummaryLbl, missingSummaryLbl, modeTgBtn, modeNativeBtn, shopMpLbl
+
+            local function makeCard(titleTxt, titleCol)
+                local card = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundColor3 = C.card,
+                    BorderSizePixel = 0,
+                }, tabMastery)
+                corner(6, card); pad(8, card); list(nil, 5, card)
+                make("TextLabel", {
+                    Text = titleTxt,
+                    TextSize = 10,
+                    TextColor3 = titleCol or C.gold,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                return card
+            end
+
+            local function isAutoBestPoolActive()
+                return gConfig.indexHunterMode ~= "Native Area" and gConfig.indexHunterAutoBestArea == true
+            end
+
+            local function getBestUnlockedMasteryArea()
+                local poolSt = _G.getThanksgivingPoolState and _G.getThanksgivingPoolState(false) or nil
+                if type(poolSt) == "table" then
+                    if type(poolSt.Areas) == "table" and #poolSt.Areas > 0 then
+                        local bestName = nil
+                        local bestGate = -1
+                        for _, a in ipairs(poolSt.Areas) do
+                            if type(a) == "table" and a.Unlocked == true and type(a.Name) == "string" and a.Name ~= "" then
+                                local g = tonumber(a.Gate) or 0
+                                if g >= bestGate then
+                                    bestGate = g
+                                    bestName = a.Name
+                                end
+                            end
+                        end
+                        if bestName then return bestName end
+                    end
+                    if type(poolSt.Resolved) == "string" and poolSt.Resolved ~= "" then
+                        return poolSt.Resolved
+                    end
+                end
+                return MASTERY_AREAS[1] or "Junk Yard"
+            end
+
+            local function getSelectedAreasOrdered()
+                local sel = {}
+                local cfgMap = gConfig.indexHunterAreas or {}
+                for _, areaName in ipairs(MASTERY_AREAS) do
+                    if cfgMap[areaName] == true then
+                        table.insert(sel, areaName)
+                    end
+                end
+                return sel
+            end
+
+            local function applyIndexHunterGreyStates()
+                local isTG = (gConfig.indexHunterMode ~= "Native Area")
+                local autoBestOn = isTG and (gConfig.indexHunterAutoBestArea == true)
+                if mState.autoBestOverlay then
+                    mState.autoBestOverlay.Visible = (not isTG)
+                end
+                if mState.targetAreaHdrLbl then
+                    mState.targetAreaHdrLbl.Text = autoBestOn and "Target Masterable Areas (Auto Best):" or "Target Masterable Areas:"
+                    mState.targetAreaHdrLbl.TextColor3 = autoBestOn and Color3.fromRGB(78, 84, 98) or C.text2
+                end
+                if mState.selAllBtn then
+                    mState.selAllBtn.BackgroundColor3 = autoBestOn and Color3.fromRGB(15, 17, 24) or Color3.fromRGB(24, 30, 44)
+                    mState.selAllBtn.TextColor3 = autoBestOn and Color3.fromRGB(68, 74, 88) or C.accent
+                end
+                if mState.clrBtn then
+                    mState.clrBtn.BackgroundColor3 = autoBestOn and Color3.fromRGB(15, 17, 24) or Color3.fromRGB(24, 30, 44)
+                    mState.clrBtn.TextColor3 = autoBestOn and Color3.fromRGB(68, 74, 88) or C.red
+                end
+            end
+
+            local function recomputeMissingCache()
+                local totalMissingSel = 0
+                local cfgMap = gConfig.indexHunterAreas or {}
+                local autoBestOn = isAutoBestPoolActive()
+                local bestArea = autoBestOn and getBestUnlockedMasteryArea() or nil
+                for _, areaName in ipairs(MASTERY_AREAS) do
+                    local cat = mState.areaCatalog[areaName] or {}
+                    local missIds = {}
+                    local missCnt = 0
+                    local foundCnt = 0
+                    for _, rawId in ipairs(cat) do
+                        local idStr = tostring(rawId)
+                        if mState.discovered[idStr] or mState.discovered[rawId] then
+                            foundCnt = foundCnt + 1
+                        else
+                            missIds[idStr] = true
+                            missCnt = missCnt + 1
+                        end
+                    end
+                    mState.missingByArea[areaName] = {
+                        ids = missIds,
+                        count = missCnt,
+                        found = foundCnt,
+                        total = #cat,
+                        stars = tonumber(mState.masteryCounts[areaName]) or 0,
+                    }
+                    if cfgMap[areaName] == true then
+                        totalMissingSel = totalMissingSel + missCnt
+                    end
+                end
+
+                applyIndexHunterGreyStates()
+
+                -- Update Area Checklist UI rows
+                for _, areaName in ipairs(MASTERY_AREAS) do
+                    local rowRef = mState.areaRows[areaName]
+                    local info = mState.missingByArea[areaName] or { found = 0, total = 0, count = 0, stars = 0 }
+                    if rowRef then
+                        local isSel = (cfgMap[areaName] == true)
+                        local isReady = (info.total > 0 and info.found >= info.total)
+                        if autoBestOn then
+                            local isPickedBest = (areaName == bestArea)
+                            rowRef.check.Text = isPickedBest and "[*]" or "[ ]"
+                            rowRef.check.TextColor3 = isPickedBest and Color3.fromRGB(115, 98, 62) or Color3.fromRGB(68, 74, 88)
+                            rowRef.name.Text = isPickedBest and (areaName .. " (Best)") or areaName
+                            rowRef.name.TextColor3 = isPickedBest and Color3.fromRGB(115, 118, 128) or Color3.fromRGB(74, 80, 94)
+                            rowRef.prog.Text = string.format("%d/%d ★%d", info.found, info.total, info.stars)
+                            rowRef.prog.TextColor3 = Color3.fromRGB(74, 80, 94)
+                            rowRef.frame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+                        else
+                            rowRef.check.Text = isSel and "[x]" or "[ ]"
+                            rowRef.check.TextColor3 = isSel and C.gold or C.text2
+                            rowRef.name.Text = areaName
+                            rowRef.name.TextColor3 = isSel and C.text or C.text2
+                            rowRef.prog.Text = string.format("%d/%d ★%d", info.found, info.total, info.stars)
+                            rowRef.prog.TextColor3 = isReady and C.green or (isSel and C.gold or C.text2)
+                            rowRef.frame.BackgroundColor3 = isSel and Color3.fromRGB(36, 30, 18) or Color3.fromRGB(22, 26, 38)
+                        end
+                    end
+                end
+
+                -- Keep mState.activeTargetArea strictly a valid area name or nil (never sentinel text)
+                local selOrdered = getSelectedAreasOrdered()
+                local nextValidTarget = nil
+                if autoBestOn then
+                    nextValidTarget = bestArea
+                elseif #selOrdered > 0 then
+                    if gConfig.indexHunterMode == "Thanksgiving Pool" then
+                        local poolSt = _G.getThanksgivingPoolState and _G.getThanksgivingPoolState(false) or nil
+                        local lockMap = {}
+                        if type(poolSt) == "table" and type(poolSt.Areas) == "table" then
+                            for _, a in ipairs(poolSt.Areas) do
+                                if type(a) == "table" and a.Name then lockMap[a.Name] = (a.Unlocked == true) end
+                            end
+                        end
+                        local n = #selOrdered
+                        local startIdx = (mState.rotateOffset % n) + 1
+                        for step = 0, n - 1 do
+                            local idx = ((startIdx - 1 + step) % n) + 1
+                            local aName = selOrdered[idx]
+                            local info = mState.missingByArea[aName]
+                            if (lockMap[aName] ~= false) and info and info.count > 0 then
+                                nextValidTarget = aName
+                                break
+                            end
+                        end
+                        if not nextValidTarget then
+                            for step = 0, n - 1 do
+                                local idx = ((startIdx - 1 + step) % n) + 1
+                                local aName = selOrdered[idx]
+                                if lockMap[aName] ~= false then nextValidTarget = aName; break end
+                            end
+                        end
+                    else
+                        for _, aName in ipairs(selOrdered) do
+                            local info = mState.missingByArea[aName]
+                            if info and info.count > 0 then
+                                nextValidTarget = aName
+                                break
+                            end
+                        end
+                    end
+                end
+                mState.activeTargetArea = nextValidTarget
+
+                if missingSummaryLbl then
+                    if autoBestOn then
+                        local bestMiss = (bestArea and mState.missingByArea[bestArea] and mState.missingByArea[bestArea].count) or 0
+                        missingSummaryLbl.Text = string.format("Missing (Auto Best): %d  |  Target: %s (Best)", bestMiss, tostring(bestArea or "Auto"))
+                        missingSummaryLbl.TextColor3 = bestMiss > 0 and C.gold or C.green
+                    else
+                        local dispTarget = nextValidTarget or ((#selOrdered == 0) and "Select Area(s)" or ((totalMissingSel == 0) and "All Complete" or "Idle"))
+                        missingSummaryLbl.Text = string.format("Missing (Selected): %d  |  Target: %s", totalMissingSel, dispTarget)
+                        missingSummaryLbl.TextColor3 = totalMissingSel > 0 and C.gold or C.green
+                    end
+                end
+            end
+
+            local function fetchCollectionState(forceRefresh)
+                if not forceRefresh and (os.clock() - mState.lastStateFetch) < 8 and next(mState.areaCatalog) ~= nil then
+                    return
+                end
+                pcall(function()
+                    local ev = ReplicatedStorage:FindFirstChild("Events")
+                    local colEv = ev and ev:FindFirstChild("Collections")
+                    local getSt = colEv and colEv:FindFirstChild("GetCollectionState")
+                    if getSt then
+                        local st = getSt:InvokeServer()
+                        if type(st) == "table" then
+                            mState.discovered = type(st.discovered) == "table" and st.discovered or {}
+                            mState.areaCatalog = type(st.areaCatalog) == "table" and st.areaCatalog or {}
+                            mState.masteryCounts = type(st.masteryCounts) == "table" and st.masteryCounts or {}
+                            mState.milestones = type(st.milestones) == "table" and st.milestones or {}
+                            mState.lastStateFetch = os.clock()
+                            recomputeMissingCache()
+                        end
+                    end
+                end)
+            end
+            _G.refreshMasteryState = fetchCollectionState
+
+            -- Optimistic update when an item is picked up in runAutoPickupCycle
+            _G.markIndexItemDiscovered = function(itemId)
+                if itemId == nil then return end
+                local idStr = tostring(itemId)
+                if idStr ~= "" and not mState.discovered[idStr] then
+                    mState.discovered[idStr] = true
+                    recomputeMissingCache()
+                end
+            end
+
+            _G.onAutoPickupFinished = function()
+                fetchCollectionState(true)
+                if gConfig.autoMasterArea == true and _G.runIndexClaimAndMasterPass then
+                    pcall(_G.runIndexClaimAndMasterPass, false, false)
+                end
+            end
+
+            _G.onAreaMastered = function(areaName, newStars)
+                if gConfig.indexHunterRotateAfterMaster ~= false then
+                    mState.rotateOffset = (mState.rotateOffset or 0) + 1
+                end
+                fetchCollectionState(true)
+            end
+
+            -- Pick active target area for Thanksgiving Pool Mode (auto-best or unlocked + selected + missing > 0)
+            local function pickThanksgivingTargetArea()
+                if isAutoBestPoolActive() then
+                    return getBestUnlockedMasteryArea()
+                end
+                local sel = getSelectedAreasOrdered()
+                if #sel == 0 then return nil end
+                local poolSt = _G.getThanksgivingPoolState and _G.getThanksgivingPoolState(false) or nil
+                local lockMap = {}
+                if type(poolSt) == "table" and type(poolSt.Areas) == "table" then
+                    for _, a in ipairs(poolSt.Areas) do
+                        if type(a) == "table" and a.Name then lockMap[a.Name] = (a.Unlocked == true) end
+                    end
+                end
+                local n = #sel
+                local startIdx = (mState.rotateOffset % n) + 1
+                for step = 0, n - 1 do
+                    local idx = ((startIdx - 1 + step) % n) + 1
+                    local aName = sel[idx]
+                    local info = mState.missingByArea[aName]
+                    local unlocked = (lockMap[aName] ~= false)
+                    if unlocked and info and info.count > 0 then
+                        return aName
+                    end
+                end
+                -- If all selected are 100% (waiting on master), return first unlocked selected
+                for step = 0, n - 1 do
+                    local idx = ((startIdx - 1 + step) % n) + 1
+                    local aName = sel[idx]
+                    if lockMap[aName] ~= false then return aName end
+                end
+                return nil
+            end
+
+            _G.ensureIndexHunterPoolSync = function()
+                if gConfig.autoIndexHunter ~= true then return end
+                if gConfig.indexHunterMode ~= "Thanksgiving Pool" then return end
+                if lp:GetAttribute("InAuction") == true or (AB and (AB.auctionOpen or AB.pickupPhase)) then return end
+                local curPool = tostring(lp:GetAttribute("ThanksgivingPoolArea") or "")
+                if isAutoBestPoolActive() then
+                    local bestArea = getBestUnlockedMasteryArea()
+                    mState.activeTargetArea = bestArea
+                    -- Use Pilgrim Pete's "Automatic" ("") so server always serves highest unlocked area
+                    if curPool ~= "" and (os.clock() - mState.lastPoolSyncAt) >= 4.0 then
+                        mState.lastPoolSyncAt = os.clock()
+                        if _G.setThanksgivingPoolArea then
+                            local switched = _G.setThanksgivingPoolArea("", true)
+                            if switched then
+                                abLog("[Index Hunter] Auto-switched Pilgrim Pete pool -> Automatic (" .. tostring(bestArea) .. ")", C.gold)
+                            end
+                        end
+                    end
+                    return
+                end
+                local targetArea = pickThanksgivingTargetArea()
+                mState.activeTargetArea = targetArea
+                if not targetArea then return end
+                if curPool ~= targetArea and (os.clock() - mState.lastPoolSyncAt) >= 4.0 then
+                    mState.lastPoolSyncAt = os.clock()
+                    if _G.setThanksgivingPoolArea then
+                        local switched = _G.setThanksgivingPoolArea(targetArea, true)
+                        if switched then
+                            abLog("[Index Hunter] Auto-switched Pilgrim Pete pool -> " .. targetArea, C.gold)
+                        end
+                    end
+                end
+            end
+
+            _G.getIndexHunterRoutingFilter = function()
+                if gConfig.autoIndexHunter ~= true then return nil end
+                if gConfig.indexHunterMode == "Thanksgiving Pool" then
+                    local tgt = pickThanksgivingTargetArea()
+                    mState.activeTargetArea = tgt
+                    if tgt then
+                        return { active = true, mode = "Thanksgiving Pool", targetArea = tgt }
+                    end
+                    return nil
+                else
+                    local sel = getSelectedAreasOrdered()
+                    if #sel == 0 then
+                        mState.activeTargetArea = nil
+                        return nil
+                    end
+                    local areaSet = {}
+                    local firstArea = nil
+                    for _, aName in ipairs(sel) do
+                        local info = mState.missingByArea[aName]
+                        if info and info.count > 0 then
+                            areaSet[aName] = true
+                            firstArea = firstArea or aName
+                        end
+                    end
+                    mState.activeTargetArea = firstArea
+                    if firstArea then
+                        return { active = true, mode = "Native Area", areas = areaSet }
+                    end
+                    return nil
+                end
+            end
+
+            _G.isIndexHunterRoutedGarage = function(garage, lotName)
+                if gConfig.autoIndexHunter ~= true then return false end
+                local route = _G.getIndexHunterRoutingFilter and _G.getIndexHunterRoutingFilter() or nil
+                if not route or not route.active then return false end
+                local lName = lotName or (garage and (garage:GetAttribute("GarageId") or garage.Name)) or ""
+                local cat = GARAGE_CATALOG and GARAGE_CATALOG[lName]
+                local gArea = (cat and cat.area) or (garage and garage:GetAttribute("AreaName")) or ""
+                if route.mode == "Thanksgiving Pool" then
+                    return (gArea == "Thanksgiving") or (string.find(tostring(lName), "Thanksgiving") ~= nil)
+                elseif route.mode == "Native Area" and type(route.areas) == "table" then
+                    return route.areas[gArea] == true
+                end
+                return false
+            end
+
+            -- Missing-Item Garage Scanner (hooked by Auto-Bid, Quick-Win, Priority 1.5!)
+            _G.isMissingIndexGarage = function(garage)
+                if not garage or gConfig.autoIndexHunter ~= true then return false end
+                local floor = garage:FindFirstChild("Floorspace")
+                if not floor then return false end
+
+                -- 1. SERVER-AUTHORITATIVE INDEX HIGHLIGHT CHECK (SpotOutline / blue SpotOutlineColor)
+                -- Regular Floorspace models often omit ItemId; the server tags undiscovered index items
+                -- per-player with SpotOutline == lp.UserId and/or blue/cyan SpotOutlineColor (distinct from white Feast Food!).
+                local myUid = lp and lp.UserId
+                for _, item in ipairs(floor:GetChildren()) do
+                    if item:IsA("Model") then
+                        local so = item:GetAttribute("SpotOutline")
+                        local soCol = item:GetAttribute("SpotOutlineColor")
+                        local isBlueCol = (typeof(soCol) == "Color3") and (soCol.B >= 0.45 and soCol.B > soCol.R + 0.12)
+                        if (myUid and so == myUid) or (so == true and isBlueCol) then
+                            local rName = (_G.resolveGarageItemName and _G.resolveGarageItemName(item)) or item.Name
+                            return true, (rName ~= "Storage Item" and rName or "Index Item"), "SpotOutline"
+                        end
+                        local hl = item:FindFirstChild("SpotOutline")
+                        if hl and hl:IsA("Highlight") then
+                            local c = hl.OutlineColor
+                            if c.B >= 0.45 and c.B > c.R + 0.12 then
+                                local rName = (_G.resolveGarageItemName and _G.resolveGarageItemName(item)) or item.Name
+                                return true, (rName ~= "Storage Item" and rName or "Index Item"), "SpotOutline"
+                            end
+                        end
+                    end
+                end
+
+                -- 2. Fallback: Catalog ItemId / Name lookup for selected areas (or auto-best area in TG Pool Mode!)
+                local checkAreas = nil
+                if gConfig.indexHunterMode == "Thanksgiving Pool" then
+                    local tgt = isAutoBestPoolActive() and getBestUnlockedMasteryArea() or mState.activeTargetArea
+                    if not (tgt and mState.missingByArea[tgt] and mState.missingByArea[tgt].count > 0) then
+                        tgt = pickThanksgivingTargetArea()
+                    end
+                    mState.activeTargetArea = tgt
+                    if tgt and mState.missingByArea[tgt] then
+                        checkAreas = { tgt }
+                    else
+                        local sel = getSelectedAreasOrdered()
+                        if #sel == 0 then return false end
+                        checkAreas = sel
+                    end
+                else
+                    local sel = getSelectedAreasOrdered()
+                    if #sel == 0 then return false end
+                    checkAreas = sel
+                end
+
+                for _, item in ipairs(floor:GetChildren()) do
+                    if not _G.isValidGarageItem or _G.isValidGarageItem(item) then
+                        local idAttr = item:GetAttribute("ItemId")
+                        local idStr = idAttr and tostring(idAttr) or nil
+                        if (not idStr or idStr == "") and _G.resolveGarageItemName then
+                            local rName = _G.resolveGarageItemName(item)
+                            if rName and rName ~= "" and rName ~= "Storage Item" then
+                                local clean = tostring(rName):gsub("%[.-%]%s*", ""):match("^%s*(.-)%s*$"):lower()
+                                idStr = mState.nameToItemId[clean]
+                            end
+                        end
+                        if idStr and idStr ~= "" and not mState.discovered[idStr] then
+                            for _, areaName in ipairs(checkAreas) do
+                                local info = mState.missingByArea[areaName]
+                                if info and info.ids and info.ids[idStr] then
+                                    local itemConf = ItemsData and (ItemsData[idStr] or ItemsData[tonumber(idStr)])
+                                    local disp = (type(itemConf) == "table" and itemConf.Name) or idStr
+                                    return true, disp, areaName
+                                end
+                            end
+                        end
+                    end
+                end
+                return false
+            end
+
+            -- 1. MASTERY OVERVIEW CARD
+            do
+                local card = makeCard("INDEX MASTERY OVERVIEW", C.gold)
+                mpSummaryLbl = make("TextLabel", {
+                    Text = "Mastery Points: 0 MP  (Lifetime Earned: 0)",
+                    TextSize = 11,
+                    TextColor3 = C.gold,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 16),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+                missingSummaryLbl = make("TextLabel", {
+                    Text = "Missing (Selected): 0  |  Target: Idle",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, card)
+
+                local row = make("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1 }, card)
+                local bRef = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Refresh Index Now",
+                    TextColor3 = C.accent,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                }, row)
+                corner(5, bRef); stroke(1, C.border, bRef)
+                bRef.MouseButton1Click:Connect(function()
+                    task.spawn(function()
+                        fetchCollectionState(true)
+                        showWorkshopPopup("Collection Index refreshed!", C.green)
+                    end)
+                end)
+
+                local bClm = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    Position = UDim2.new(0.5, 3, 0, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Claim Ready Milestones",
+                    TextColor3 = C.green,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                }, row)
+                corner(5, bClm); stroke(1, C.border, bClm)
+                bClm.MouseButton1Click:Connect(function()
+                    task.spawn(function()
+                        local cCnt = _G.runIndexClaimAndMasterPass and _G.runIndexClaimAndMasterPass(true, false) or 0
+                        showWorkshopPopup(cCnt > 0 and ("Claimed " .. cCnt .. " milestone(s)!") or "No milestones ready!", cCnt > 0 and C.green or C.text2)
+                    end)
+                end)
+            end
+
+            -- 2. AUTO INDEX HUNTER (MISSING-ITEM SNIPER) CARD
+            do
+                local card = makeCard("AUTO INDEX HUNTER (MISSING-ITEM SNIPER)", C.accent)
+
+                local _, updHunter = createToggle(card, "Auto Index Hunter (No Min Bid)", gConfig.autoIndexHunter == true, function(state)
+                    gConfig.autoIndexHunter = state
+                    saveConfig()
+                    if state then
+                        task.spawn(function()
+                            if _G.getThanksgivingPoolState then pcall(_G.getThanksgivingPoolState, true) end
+                            fetchCollectionState(true)
+                            if _G.ensureIndexHunterPoolSync then pcall(_G.ensureIndexHunterPoolSync) end
+                        end)
+                    end
+                end)
+                _G.uiToggles["autoIndexHunter"] = updHunter
+
+                local modeRow = make("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1 }, card)
+                modeTgBtn = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Thanksgiving Pool Mode",
+                    TextColor3 = C.gold,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, modeRow)
+                corner(5, modeTgBtn); stroke(1, C.border, modeTgBtn)
+
+                modeNativeBtn = make("TextButton", {
+                    Size = UDim2.new(0.5, -3, 1, 0),
+                    Position = UDim2.new(0.5, 3, 0, 0),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Native Area Mode",
+                    TextColor3 = C.text2,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, modeRow)
+                corner(5, modeNativeBtn); stroke(1, C.border, modeNativeBtn)
+
+                local function updateModeButtons()
+                    local isTG = (gConfig.indexHunterMode ~= "Native Area")
+                    modeTgBtn.BackgroundColor3 = isTG and Color3.fromRGB(52, 38, 18) or Color3.fromRGB(20, 24, 36)
+                    modeTgBtn.TextColor3 = isTG and C.gold or C.text2
+                    modeNativeBtn.BackgroundColor3 = (not isTG) and Color3.fromRGB(22, 44, 68) or Color3.fromRGB(20, 24, 36)
+                    modeNativeBtn.TextColor3 = (not isTG) and C.accent or C.text2
+                    recomputeMissingCache()
+                end
+                modeTgBtn.MouseButton1Click:Connect(function()
+                    gConfig.indexHunterMode = "Thanksgiving Pool"
+                    updateModeButtons()
+                    saveConfig()
+                    if gConfig.autoIndexHunter == true and _G.ensureIndexHunterPoolSync then
+                        task.spawn(function() pcall(_G.ensureIndexHunterPoolSync) end)
+                    end
+                end)
+                modeNativeBtn.MouseButton1Click:Connect(function()
+                    gConfig.indexHunterMode = "Native Area"
+                    updateModeButtons()
+                    saveConfig()
+                end)
+
+                local autoBestCard, updAutoBest = createToggle(card, "Auto Best Unlocked Area (TG Pool)", gConfig.indexHunterAutoBestArea == true, function(state)
+                    if gConfig.indexHunterMode == "Native Area" then
+                        return
+                    end
+                    gConfig.indexHunterAutoBestArea = state
+                    recomputeMissingCache()
+                    saveConfig()
+                    if gConfig.autoIndexHunter == true and _G.ensureIndexHunterPoolSync then
+                        task.spawn(function() pcall(_G.ensureIndexHunterPoolSync) end)
+                    end
+                end)
+                local autoBestOverlay = make("TextButton", {
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundColor3 = Color3.fromRGB(10, 12, 18),
+                    BackgroundTransparency = 0.42,
+                    BorderSizePixel = 0,
+                    Text = "",
+                    AutoButtonColor = false,
+                    Active = true,
+                    ZIndex = 20,
+                    Visible = (gConfig.indexHunterMode == "Native Area"),
+                }, autoBestCard)
+                corner(6, autoBestOverlay)
+                mState.autoBestOverlay = autoBestOverlay
+                _G.uiToggles["indexHunterAutoBestArea"] = function(val)
+                    updAutoBest(val)
+                    recomputeMissingCache()
+                end
+
+                local _, updRotate = createToggle(card, "Rotate Area After Master", gConfig.indexHunterRotateAfterMaster ~= false, function(state)
+                    gConfig.indexHunterRotateAfterMaster = state
+                    saveConfig()
+                end)
+                _G.uiToggles["indexHunterRotateAfterMaster"] = updRotate
+
+                -- Select All / Clear row
+                local hdrRow = make("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1 }, card)
+                local targetAreaHdrLbl = make("TextLabel", {
+                    Size = UDim2.new(0.52, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "Target Masterable Areas:",
+                    TextColor3 = C.text2,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                }, hdrRow)
+                mState.targetAreaHdrLbl = targetAreaHdrLbl
+                local selAllBtn = make("TextButton", {
+                    Size = UDim2.new(0.23, -2, 0, 20),
+                    Position = UDim2.new(0.52, 0, 0.5, -10),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Select All",
+                    TextColor3 = C.accent,
+                    TextSize = 8,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                }, hdrRow)
+                corner(4, selAllBtn); stroke(1, C.border, selAllBtn)
+                mState.selAllBtn = selAllBtn
+                local clrBtn = make("TextButton", {
+                    Size = UDim2.new(0.23, 0, 0, 20),
+                    Position = UDim2.new(0.77, 0, 0.5, -10),
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+                    Text = "Clear",
+                    TextColor3 = C.red,
+                    TextSize = 8,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                }, hdrRow)
+                corner(4, clrBtn); stroke(1, C.border, clrBtn)
+                mState.clrBtn = clrBtn
+
+                selAllBtn.MouseButton1Click:Connect(function()
+                    if isAutoBestPoolActive() then return end
+                    gConfig.indexHunterAreas = gConfig.indexHunterAreas or {}
+                    for _, a in ipairs(MASTERY_AREAS) do gConfig.indexHunterAreas[a] = true end
+                    recomputeMissingCache()
+                    saveConfig()
+                    if gConfig.autoIndexHunter == true and _G.ensureIndexHunterPoolSync then
+                        task.spawn(function() pcall(_G.ensureIndexHunterPoolSync) end)
+                    end
+                end)
+                clrBtn.MouseButton1Click:Connect(function()
+                    if isAutoBestPoolActive() then return end
+                    gConfig.indexHunterAreas = {}
+                    recomputeMissingCache()
+                    saveConfig()
+                end)
+
+                -- Per-area checklist rows with live Found/Total ★Mastery progress
+                for _, areaName in ipairs(MASTERY_AREAS) do
+                    local rowF = make("Frame", {
+                        Size = UDim2.new(1, 0, 0, 24),
+                        BackgroundColor3 = Color3.fromRGB(22, 26, 38),
+                        BorderSizePixel = 0,
+                    }, card)
+                    corner(4, rowF); stroke(1, C.border, rowF)
+
+                    local chk = make("TextLabel", {
+                        Size = UDim2.new(0, 24, 1, 0),
+                        Position = UDim2.new(0, 6, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text = "[ ]",
+                        TextColor3 = C.text2,
+                        TextSize = 10,
+                        Font = Enum.Font.MontserratBold,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                    }, rowF)
+                    local nLbl = make("TextLabel", {
+                        Size = UDim2.new(1, -110, 1, 0),
+                        Position = UDim2.new(0, 30, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text = areaName,
+                        TextColor3 = C.text2,
+                        TextSize = 10,
+                        Font = Enum.Font.MontserratBold,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        TextTruncate = Enum.TextTruncate.AtEnd,
+                    }, rowF)
+                    local pLbl = make("TextLabel", {
+                        Size = UDim2.new(0, 74, 1, 0),
+                        Position = UDim2.new(1, -78, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text = "0/0 ★0",
+                        TextColor3 = C.text2,
+                        TextSize = 9,
+                        Font = Enum.Font.MontserratBold,
+                        TextXAlignment = Enum.TextXAlignment.Right,
+                    }, rowF)
+                    local clickOverlay = make("TextButton", {
+                        Size = UDim2.new(1, 0, 1, 0),
+                        BackgroundTransparency = 1,
+                        Text = "",
+                        ZIndex = 5,
+                    }, rowF)
+                    local capArea = areaName
+                    clickOverlay.MouseButton1Click:Connect(function()
+                        if isAutoBestPoolActive() then return end
+                        gConfig.indexHunterAreas = gConfig.indexHunterAreas or {}
+                        gConfig.indexHunterAreas[capArea] = not (gConfig.indexHunterAreas[capArea] == true)
+                        recomputeMissingCache()
+                        saveConfig()
+                        if gConfig.autoIndexHunter == true and _G.ensureIndexHunterPoolSync then
+                            task.spawn(function() pcall(_G.ensureIndexHunterPoolSync) end)
+                        end
+                    end)
+                    mState.areaRows[areaName] = { frame = rowF, check = chk, name = nLbl, prog = pLbl }
+                end
+                updateModeButtons()
+                _G.uiUpdaters["indexHunterMode"] = updateModeButtons
+                _G.uiUpdaters["indexHunterAreas"] = recomputeMissingCache
+            end
+
+            -- 3. AUTO MASTER LOOP (INFINITE AFK) CARD
+            do
+                local card = makeCard("AUTO MASTER LOOP (INFINITE AFK)", C.green)
+                local _, updAutoMaster = createToggle(card, "Auto Master Area at 100%", gConfig.autoMasterArea == true, function(state)
+                    gConfig.autoMasterArea = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoMasterArea"] = updAutoMaster
+
+                local _, updMasteryClaim = createToggle(card, "Auto Claim Index Rewards", gConfig.autoClaimIndexRewards == true, function(state)
+                    gConfig.autoClaimIndexRewards = state
+                    saveConfig()
+                    if _G._automationIndexClaimUpd then pcall(_G._automationIndexClaimUpd, state) end
+                end)
+                _G._masteryIndexClaimUpd = updMasteryClaim
+
+                createButton(card, "Master All 100% Areas Now", function()
+                    task.spawn(function()
+                        local cCnt, mCnt = 0, 0
+                        if _G.runIndexClaimAndMasterPass then
+                            cCnt, mCnt = _G.runIndexClaimAndMasterPass(true, true)
+                        end
+                        if mCnt > 0 then
+                            showWorkshopPopup(string.format("Mastered %d area(s)!", mCnt), C.gold)
+                        else
+                            showWorkshopPopup("No masterable areas at 100% yet!", C.text2)
+                        end
+                    end)
+                end)
+            end
+
+            -- 4. MASTERY SHOP QUICK ACCESS CARD
+            local function renderMasteryShopRows()
+                local mp = tonumber(lp:GetAttribute("MasteryPoints")) or 0
+                local nw = tonumber(mState.shopState and mState.shopState.NetWorth) or tonumber(lp:GetAttribute("MaxNetWorth")) or tonumber(lp:GetAttribute("NetWorth")) or 0
+                if shopMpLbl then
+                    shopMpLbl.Text = string.format("Available: %d MP  |  Shop Perks", mp)
+                end
+                local levels = (type(mState.shopState) == "table" and type(mState.shopState.Levels) == "table") and mState.shopState.Levels or {}
+                for itemId, ref in pairs(mState.shopRows) do
+                    local lvl = tonumber(levels[itemId]) or tonumber(lp:GetAttribute("MasteryPerk_" .. itemId)) or 0
+                    local costs = ref.costs or {}
+                    local maxLvl = #costs
+                    local isMaxed = (maxLvl > 0 and lvl >= maxLvl)
+                    local nextCost = (not isMaxed) and tonumber(costs[lvl + 1]) or nil
+                    local nwBlocked = (ref.minNW and ref.minNW > 0 and nw < ref.minNW)
+                    local canAfford = (not isMaxed) and (not nwBlocked) and nextCost and mp >= nextCost
+
+                    ref.sub.Text = string.format("Lv %d/%d  |  %s", lvl, maxLvl, ref.desc or "")
+                    if isMaxed then
+                        ref.btn.Text = "MAXED"
+                        ref.btn.BackgroundColor3 = Color3.fromRGB(22, 46, 30)
+                        ref.btn.TextColor3 = C.green
+                    elseif nwBlocked then
+                        ref.btn.Text = "NW Lock"
+                        ref.btn.BackgroundColor3 = Color3.fromRGB(30, 22, 26)
+                        ref.btn.TextColor3 = C.textMuted
+                    else
+                        ref.btn.Text = tostring(nextCost or "?") .. " MP"
+                        ref.btn.BackgroundColor3 = canAfford and Color3.fromRGB(48, 38, 16) or Color3.fromRGB(24, 28, 40)
+                        ref.btn.TextColor3 = canAfford and C.gold or C.text2
+                    end
+                end
+            end
+
+            local function fetchMasteryShop(forceRefresh)
+                if not forceRefresh and mState.shopState and (os.clock() - mState.lastShopFetch) < 12 then
+                    renderMasteryShopRows()
+                    return
+                end
+                pcall(function()
+                    local ev = ReplicatedStorage:FindFirstChild("Events")
+                    local mEv = ev and ev:FindFirstChild("Mastery")
+                    local getShop = mEv and mEv:FindFirstChild("GetShop")
+                    if getShop then
+                        local res = getShop:InvokeServer()
+                        if type(res) == "table" then
+                            mState.shopState = res
+                            mState.lastShopFetch = os.clock()
+                        end
+                    end
+                end)
+                renderMasteryShopRows()
+            end
+
+            do
+                local card = makeCard("MASTERY SHOP QUICK ACCESS", C.gold)
+                shopMpLbl = make("TextLabel", {
+                    Text = "Available: 0 MP  |  Shop Perks",
+                    TextSize = 10,
+                    TextColor3 = C.gold,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 15),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, card)
+
+                local shopItems = (type(mState.shopConfigMod) == "table" and type(mState.shopConfigMod.Items) == "table") and mState.shopConfigMod.Items or {
+                    { Id = "CargoBoost", Name = "Cargo Space", Costs = {10,15,20,25,30}, Description = "+10% vehicle cap/lvl" },
+                    { Id = "BaseLuck", Name = "Base Luck", Costs = {20,35,50,70,100}, Description = "+100 luck/lvl" },
+                    { Id = "EntrepreneurShopper", Name = "Entrepreneur", Costs = {50}, MinNetWorth = 5000000, Description = "High-pay shopper" },
+                    { Id = "MasteryWrap", Name = "Mastery Wrap", Costs = {60}, Description = "Animated wrap" },
+                    { Id = "MasteryHoverboard", Name = "Hoverboard", Costs = {60}, Description = "75 speed board" },
+                    { Id = "GavelSlot", Name = "Extra Gavel", Costs = {60}, MinNetWorth = 25000000, Description = "+1 gavel slot" },
+                    { Id = "MasteryMutator", Name = "Mastery Mut", Costs = {100}, Description = "1% x10 mutator" },
+                }
+
+                for _, it in ipairs(shopItems) do
+                    if type(it) == "table" and it.Id then
+                        local rowF = make("Frame", {
+                            Size = UDim2.new(1, 0, 0, 34),
+                            BackgroundColor3 = Color3.fromRGB(22, 26, 38),
+                            BorderSizePixel = 0,
+                        }, card)
+                        corner(5, rowF); stroke(1, C.border, rowF)
+
+                        make("TextLabel", {
+                            Size = UDim2.new(1, -88, 0, 15),
+                            Position = UDim2.new(0, 8, 0, 3),
+                            BackgroundTransparency = 1,
+                            Text = tostring(it.Name or it.Id),
+                            TextColor3 = C.text,
+                            TextSize = 10,
+                            Font = Enum.Font.MontserratBold,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            TextTruncate = Enum.TextTruncate.AtEnd,
+                        }, rowF)
+                        local subLbl = make("TextLabel", {
+                            Size = UDim2.new(1, -88, 0, 13),
+                            Position = UDim2.new(0, 8, 0, 18),
+                            BackgroundTransparency = 1,
+                            Text = "Lv 0/" .. tostring(type(it.Costs) == "table" and #it.Costs or 1),
+                            TextColor3 = C.text2,
+                            TextSize = 8,
+                            Font = Enum.Font.Montserrat,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            TextTruncate = Enum.TextTruncate.AtEnd,
+                        }, rowF)
+                        local buyBtn = make("TextButton", {
+                            Size = UDim2.new(0, 72, 0, 24),
+                            Position = UDim2.new(1, -78, 0.5, -12),
+                            BackgroundColor3 = Color3.fromRGB(24, 28, 40),
+                            Text = "Buy",
+                            TextColor3 = C.gold,
+                            TextSize = 9,
+                            Font = Enum.Font.MontserratBold,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                        }, rowF)
+                        corner(4, buyBtn); stroke(1, C.border, buyBtn)
+
+                        local capId = it.Id
+                        local capName = tostring(it.Name or it.Id)
+                        buyBtn.MouseButton1Click:Connect(function()
+                            if mState.buyBusy then return end
+                            mState.buyBusy = true
+                            task.spawn(function()
+                                pcall(function()
+                                    local ev = ReplicatedStorage:FindFirstChild("Events")
+                                    local buyRf = ev and ev:FindFirstChild("Mastery") and ev.Mastery:FindFirstChild("BuyItem")
+                                    if buyRf then
+                                        local res = buyRf:InvokeServer(capId)
+                                        local buyOk = (res == true) or (type(res) == "table" and (res.success == true or res.ok == true))
+                                        if buyOk then
+                                            showWorkshopPopup("Purchased " .. capName .. "!", C.green)
+                                            abLog("[Mastery] Purchased perk: " .. capName, C.gold)
+                                        else
+                                            local rawErr = type(res) == "table" and (res.error or res.message) or nil
+                                            local errMsg = (rawErr ~= nil and tostring(rawErr)) or ("Cannot buy " .. capName)
+                                            showWorkshopPopup(errMsg, C.orange)
+                                        end
+                                    end
+                                end)
+                                mState.buyBusy = false
+                                task.wait(0.2)
+                                fetchMasteryShop(true)
+                            end)
+                        end)
+                        mState.shopRows[it.Id] = { sub = subLbl, btn = buyBtn, costs = it.Costs, minNW = it.MinNetWorth, desc = it.Description }
+                    end
+                end
+            end
+
+            -- Explicit CanvasSize sync (fixes Roblox hidden-ScrollingFrame AutomaticCanvasSize stall on Events > Mastery)
+            do
+                tabMastery.AutomaticCanvasSize = Enum.AutomaticSize.None
+                local mLayout = tabMastery:FindFirstChildOfClass("UIListLayout")
+                local function syncMasteryCanvas()
+                    if not tabMastery or not tabMastery.Parent or not mLayout then return end
+                    local h = mLayout.AbsoluteContentSize.Y
+                    if h > 0 then
+                        tabMastery.CanvasSize = UDim2.new(0, 0, 0, h + 20)
+                    end
+                end
+                if mLayout then
+                    table.insert(cleanUpSignals, mLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                        if _G.AHScanner_RunID ~= myRunID then return end
+                        syncMasteryCanvas()
+                    end))
+                end
+                table.insert(cleanUpSignals, tabMastery:GetPropertyChangedSignal("Visible"):Connect(function()
+                    if _G.AHScanner_RunID ~= myRunID then return end
+                    if tabMastery.Visible then
+                        task.defer(syncMasteryCanvas)
+                        task.delay(0.05, syncMasteryCanvas)
+                    end
+                end))
+                table.insert(cleanUpSignals, tabMastery:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                    if _G.AHScanner_RunID ~= myRunID then return end
+                    task.defer(syncMasteryCanvas)
+                end))
+                task.defer(syncMasteryCanvas)
+                task.delay(0.1, syncMasteryCanvas)
+            end
+
+            -- Background Live Sync Loop for Mastery Points, Collection Book & Shop
+            task.spawn(function()
+                task.wait(1.0)
+                if _G.getThanksgivingPoolState then pcall(_G.getThanksgivingPoolState, true) end
+                pcall(fetchCollectionState, true)
+                pcall(fetchMasteryShop, true)
+                while task.wait(2) do
+                    if _G.AHScanner_RunID ~= myRunID then break end
+                    pcall(function()
+                        local mp = tonumber(lp:GetAttribute("MasteryPoints")) or 0
+                        local mpTot = tonumber(lp:GetAttribute("MasteryPointsEarned")) or 0
+                        mpSummaryLbl.Text = string.format("Mastery Points: %d MP  (Lifetime Earned: %d)", mp, mpTot)
+                        if (os.clock() - mState.lastStateFetch) >= 18 then
+                            fetchCollectionState(true)
+                        end
+                        if (os.clock() - mState.lastShopFetch) >= 25 then
+                            fetchMasteryShop(true)
+                        else
+                            renderMasteryShopRows()
+                        end
+                    end)
+                end
+            end)
+        end
+        mountMasteryTab()
+    end
 
     -- Museum Subtab - Remote Controller UI
     local HttpService = game:GetService("HttpService")
@@ -8070,6 +13436,7 @@ do
     -- Run refresh when tab opens
     task.spawn(function()
         while task.wait(5) do
+            if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
             if tabMuseum and tabMuseum.Visible then
                 refreshMuseumUI()
             end
@@ -8595,6 +13962,7 @@ end
         -- Run refresh when tab opens
         task.spawn(function()
             while task.wait(5) do
+                if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
                 if tabTimeCapsule and tabTimeCapsule.Visible then
                     refreshTimeCapsuleUI()
                 end
@@ -9127,7 +14495,8 @@ end
             Vector3.new(-3153.54, 1584.25, -2241.60), -- 7
             Vector3.new(-3150.46, 1586.59, -2274.01), -- 8
             Vector3.new(-3140.11, 1589.06, -2312.38), -- 9
-            Vector3.new(-3168.37, 1591.35, -2344.33)  -- 10
+            Vector3.new(-3177.84, 1589.47, -2298.37), -- 10 ($300M)
+            Vector3.new(-3168.37, 1591.35, -2344.33)  -- 11 ($500M)
         }
         local NODE_STAND = {
             CFrame.lookAt(Vector3.new(-3258.28, 1578.24, -2234.01), Vector3.new(-3258.28, 1576.81, -2237.51)),
@@ -9139,6 +14508,7 @@ end
             CFrame.lookAt(Vector3.new(-3153.54, 1588.59, -2238.10), Vector3.new(-3153.54, 1584.25, -2241.60)),
             CFrame.lookAt(Vector3.new(-3150.46, 1591.16, -2270.51), Vector3.new(-3150.46, 1586.59, -2274.01)),
             CFrame.lookAt(Vector3.new(-3140.11, 1590.56, -2308.88), Vector3.new(-3140.11, 1589.06, -2312.38)),
+            CFrame.lookAt(Vector3.new(-3177.84, 1590.97, -2294.87), Vector3.new(-3177.84, 1589.47, -2298.37)),
             CFrame.lookAt(Vector3.new(-3168.37, 1592.85, -2340.83), Vector3.new(-3168.37, 1591.35, -2344.33))
         }
         local MINES_HUB = Vector3.new(-3180.33, 1578.50, -1912.78)
@@ -9169,21 +14539,6 @@ end
                 n = n + countItem(id)
             end
             return n
-        end
-
-        local function equipItem(id)
-            local inv = mInv()
-            if not inv then return false end
-            local eq = RS.Events.Inventory:FindFirstChild("EquipItem")
-            if not eq then return false end
-            for guid, d in pairs(inv) do
-                if tostring(d.ItemId or "") == id then
-                    eq:FireServer(guid)
-                    task.wait(0.4)
-                    return true
-                end
-            end
-            return false
         end
 
         local function heldTool()
@@ -9342,6 +14697,14 @@ end
             end
         end
 
+        local function fmtNodeNW(n)
+            n = tonumber(n) or 0
+            if n >= 1e9 then return string.format("$%.1fB", n / 1e9):gsub("%.0B", "B")
+            elseif n >= 1e6 then return string.format("$%.1fM", n / 1e6):gsub("%.0M", "M")
+            elseif n >= 1e3 then return string.format("$%.0fK", n / 1e3)
+            else return "$" .. tostring(math.floor(n)) end
+        end
+
         local NODE_REQ = {
             [1] = { name = "Node 1", nw = 30000, label = "$30K" },
             [2] = { name = "Node 2", nw = 60000, label = "$60K" },
@@ -9352,14 +14715,48 @@ end
             [7] = { name = "Node 7", nw = 17500000, label = "$17.5M" },
             [8] = { name = "Node 8", nw = 50000000, label = "$50M" },
             [9] = { name = "Node 9", nw = 150000000, label = "$150M" },
-            [10] = { name = "Node 10", nw = 500000000, label = "$500M" },
+            [10] = { name = "Node 10", nw = 300000000, label = "$300M" },
+            [11] = { name = "Node 11", nw = 500000000, label = "$500M" },
         }
+
+        -- Dynamically sync Node list & RockNodes workspace coordinates when MiningConfig defines newer nodes
+        pcall(function()
+            local mcMod = RS:FindFirstChild("Modules") and RS.Modules:FindFirstChild("MiningConfig")
+            local mc = mcMod and require(mcMod)
+            if type(mc) == "table" and type(mc.Nodes) == "table" and #mc.Nodes > 0 then
+                for i, info in ipairs(mc.Nodes) do
+                    local reqNW = tonumber(info.MinNetWorth) or (NODE_REQ[i] and NODE_REQ[i].nw) or 0
+                    NODE_REQ[i] = { name = "Node " .. i, nw = reqNW, label = fmtNodeNW(reqNW) }
+                end
+            end
+            local mines = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("The Mines")
+            local rn = mines and mines:FindFirstChild("RockNodes")
+            if rn then
+                for _, child in ipairs(rn:GetChildren()) do
+                    local idx = tonumber(child.Name)
+                    if idx then
+                        local pos = child:GetPivot().Position
+                        if pos and pos.Magnitude > 1 then
+                            NODE_POS[idx] = pos
+                            if not NODE_STAND[idx] then
+                                NODE_STAND[idx] = CFrame.lookAt(pos + Vector3.new(0, 1.5, 3.5), pos)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
 
         local function getPlayerNW()
             local nwVal = 0
             pcall(function()
-                local raw = LocalPlayer.leaderstats["Net Worth"].Value
-                raw = tostring(raw or ""):gsub("%$", ""):gsub(",", ""):upper()
+                local nwObj = LocalPlayer.leaderstats["Net Worth"]
+                local rawAttr = tonumber(nwObj:GetAttribute("RawValue"))
+                if rawAttr then
+                    nwVal = rawAttr
+                    return
+                end
+                local raw = tostring(nwObj.Value or ""):gsub("%$", ""):gsub(",", ""):upper()
                 local num = tonumber(raw:match("[%d%.]+")) or 0
                 if raw:find("B") then
                     nwVal = num * 1000000000
@@ -9377,7 +14774,7 @@ end
         local function getBestEligibleNode()
             local nw = getPlayerNW()
             local best = 1
-            for i = 1, 10 do
+            for i = 1, #NODE_REQ do
                 if nw >= NODE_REQ[i].nw then
                     best = i
                 end
@@ -9391,7 +14788,7 @@ end
                 return getBestEligibleNode()
             end
             local num = tonumber(target:match("%d+"))
-            return num or 1
+            return (num and math.clamp(num, 1, #NODE_REQ)) or 1
         end
 
         local function getRockNodePrompt(nodeIdx)
@@ -9432,6 +14829,10 @@ end
         _G.stopMining = stopMining
 
         local function startMiningSession(isContinuous)
+            if _G.isCrystalCavernPriority or (LocalPlayer:GetAttribute("InMiningSeason") == true) then
+                _G.isMiningActive = false
+                return
+            end
             if _G.isMiningActive then
                 abLog("[Mine] Mining session already active.", C.textMuted)
                 return
@@ -9481,6 +14882,10 @@ end
             local prompt = nil
             local startWait = os.clock()
             while os.clock() - startWait < 4 and _G.isMiningActive do
+                if _G.isCrystalCavernPriority or (LocalPlayer:GetAttribute("InMiningSeason") == true) then
+                    stopMining()
+                    return
+                end
                 prompt = getRockNodePrompt(nodeIdx)
                 if prompt then break end
                 task.wait(0.25)
@@ -9510,6 +14915,12 @@ end
             local lastRewardTime = 0
             while _G.isMiningActive do
                 _G._lastMiningAttempt = os.clock()
+
+                if _G.isCrystalCavernPriority or (LocalPlayer:GetAttribute("InMiningSeason") == true) then
+                    abLog("[Mine] Pausing Rock Node mining for Crystal Cavern!", C.accent)
+                    stopMining()
+                    break
+                end
 
                 local liveCh = LocalPlayer.Character
                 local liveHum = liveCh and liveCh:FindFirstChildOfClass("Humanoid")
@@ -9788,8 +15199,8 @@ end
             abLog("[Mine] Mining Target: Auto (Best for Net Worth)", C.accent)
         end)
 
-        -- Nodes 1-10 buttons
-        for i = 1, 10 do
+        -- Nodes 1..N buttons (supports Node 10 $300M, Node 11 $500M, & any dynamic nodes)
+        for i = 1, #NODE_REQ do
             local req = NODE_REQ[i]
             local nBtn = make("TextButton", {
                 Size = UDim2.new(1, 0, 0, 22),
@@ -10246,6 +15657,1417 @@ end
             useDrink("luck")
         end)
 
+        -- 3B & 3C. CRYSTAL CAVERN & AFK MINING ASSISTANT (v428)
+        do
+            local function mountCrystalAndAssistant()
+                local rs = game:GetService("ReplicatedStorage")
+                local ItemsMod = nil
+                pcall(function() ItemsMod = require(rs.Modules.Items) end)
+                local MiningCfgMod = nil
+                pcall(function() MiningCfgMod = require(rs.Modules.MiningConfig) end)
+                local MiningSeasonCfg = nil
+                pcall(function() MiningSeasonCfg = require(rs.Modules.MiningSeasonConfig) end)
+                local MutatorMod = nil
+                pcall(function() MutatorMod = require(rs.Modules.MutatorModule) end)
+
+                local function getMSFolder()
+                    local areas = ws:FindFirstChild("Areas")
+                    local mines = areas and areas:FindFirstChild("The Mines")
+                    return mines and mines:FindFirstChild("MiningSeason")
+                end
+
+                local function getMSRemotes()
+                    local ev = rs:FindFirstChild("Events")
+                    return ev and ev:FindFirstChild("MiningSeason"), ev and ev:FindFirstChild("Misc"), ev and ev:FindFirstChild("Inventory")
+                end
+
+                local function isPickaxeItem(idStr, dispName)
+                    local s = tostring(idStr or "")
+                    if s ~= "" and MiningCfgMod and MiningCfgMod.Pickaxes and MiningCfgMod.Pickaxes[s] ~= nil then
+                        return true
+                    end
+                    local conf = s ~= "" and ItemsMod and (ItemsMod[s] or ItemsMod[tonumber(s)])
+                    if conf and conf.PickaxeDamage and tonumber(conf.PickaxeDamage) > 0 then
+                        return true
+                    end
+                    if dispName and string.lower(tostring(dispName)):find("pickaxe", 1, true) then
+                        return true
+                    end
+                    return false
+                end
+
+                local function isPickaxeTool(ch)
+                    if not (ch and ch:IsA("Tool")) then return false end
+                    if ch:GetAttribute("MiningSpeed") ~= nil then return true end
+                    return isPickaxeItem(ch:GetAttribute("ItemId"), ch.Name)
+                end
+
+                local function scorePickaxe(idStr, entry, toolObj)
+                    local spd, luck = 0, 0
+                    local name = (toolObj and toolObj.Name) or (entry and (entry.DisplayName or entry.Name)) or "Pickaxe"
+                    if toolObj then
+                        spd = tonumber(toolObj:GetAttribute("MiningSpeed")) or 0
+                        luck = tonumber(toolObj:GetAttribute("MiningLuck")) or 0
+                    end
+                    if spd == 0 and entry and type(entry.RolledAttributes) == "table" and type(entry.RolledAttributes.Buffs) == "table" then
+                        for _, b in ipairs(entry.RolledAttributes.Buffs) do
+                            if type(b) == "table" then
+                                if b.AttrId == "MiningSpeed" then spd = spd + (tonumber(b.Magnitude) or 0)
+                                elseif b.AttrId == "MiningLuck" then luck = luck + (tonumber(b.Magnitude) or 0) end
+                            end
+                        end
+                    end
+                    local sId = tostring(idStr or "")
+                    local cfgP = (MiningCfgMod and MiningCfgMod.Pickaxes) and MiningCfgMod.Pickaxes[sId]
+                    if spd == 0 and cfgP then
+                        spd = (cfgP.MiningSpeed and cfgP.MiningSpeed.max) or 1
+                        luck = (cfgP.MiningLuck and cfgP.MiningLuck.max) or 0
+                    end
+                    if name == "Pickaxe" and ItemsMod then
+                        local conf = ItemsMod[sId] or ItemsMod[tonumber(sId)]
+                        if conf and conf.Name then name = conf.Name end
+                    end
+                    return (spd * 100) + luck + ((tonumber(sId) or 0) * 0.001), spd, luck, name
+                end
+
+                local invPickCache = nil
+                local lastInvPickFetch = 0
+                local function getBestPickaxeCandidate(forceFetchInv)
+                    local char = lp.Character
+                    local charTool, charGuid = nil, ""
+                    if char then
+                        for _, ch in ipairs(char:GetChildren()) do
+                            if isPickaxeTool(ch) then
+                                charTool = ch
+                                charGuid = tostring(ch:GetAttribute("EquippedGuid") or "")
+                                break
+                            end
+                        end
+                    end
+
+                    local bpTools, bpByGuid = {}, {}
+                    local bp = lp:FindFirstChild("Backpack")
+                    if bp then
+                        for _, ch in ipairs(bp:GetChildren()) do
+                            if isPickaxeTool(ch) then
+                                table.insert(bpTools, ch)
+                                local g = tostring(ch:GetAttribute("EquippedGuid") or "")
+                                if g ~= "" then bpByGuid[g] = ch end
+                            end
+                        end
+                    end
+
+                    local _, _, invEv = getMSRemotes()
+                    local needInv = forceFetchInv or ((not charTool) and (#bpTools == 0) and (os.clock() - lastInvPickFetch) >= 2.0)
+                    local periodicInv = (lp:GetAttribute("InMiningSeason") == true) and ((os.clock() - lastInvPickFetch) >= 10.0)
+                    if needInv or periodicInv then
+                        local getInvR = invEv and invEv:FindFirstChild("GetPlayerInventory")
+                        if getInvR then
+                            lastInvPickFetch = os.clock()
+                            local okInv, invData = pcall(function() return getInvR:InvokeServer() end)
+                            if okInv and type(invData) == "table" then
+                                invPickCache = invData
+                            end
+                        end
+                    end
+
+                    local cands, seenGuids = {}, {}
+                    if type(invPickCache) == "table" then
+                        for guid, entry in pairs(invPickCache) do
+                            if type(entry) == "table" and not entry.Placed then
+                                local idStr = tostring(entry.ItemId or "")
+                                local disp = entry.DisplayName or entry.Name
+                                if isPickaxeItem(idStr, disp) then
+                                    local gStr = tostring(guid)
+                                    local matchedTool = (charTool and charGuid == gStr and charTool) or bpByGuid[gStr]
+                                    local sc, spd, luck, pName = scorePickaxe(idStr, entry, matchedTool)
+                                    seenGuids[gStr] = true
+                                    table.insert(cands, { guid = gStr, idStr = idStr, score = sc, spd = spd, luck = luck, name = pName, tool = matchedTool })
+                                end
+                            end
+                        end
+                    end
+
+                    local function addLooseTool(t)
+                        local g = tostring(t:GetAttribute("EquippedGuid") or "")
+                        if g ~= "" and seenGuids[g] then return end
+                        local idStr = tostring(t:GetAttribute("ItemId") or "")
+                        local sc, spd, luck, pName = scorePickaxe(idStr, nil, t)
+                        if g ~= "" then seenGuids[g] = true end
+                        table.insert(cands, { guid = g, idStr = idStr, score = sc, spd = spd, luck = luck, name = pName, tool = t })
+                    end
+                    if charTool then addLooseTool(charTool) end
+                    for _, t in ipairs(bpTools) do addLooseTool(t) end
+
+                    if #cands == 0 then return nil, false, charTool end
+                    local chosen = cands[1]
+                    for i = 2, #cands do
+                        if cands[i].score > chosen.score or (cands[i].score == chosen.score and cands[i].guid < chosen.guid) then
+                            chosen = cands[i]
+                        end
+                    end
+                    local isEq = (charTool ~= nil) and (chosen.tool == charTool or (chosen.guid ~= "" and charGuid == chosen.guid))
+                    return chosen, isEq, charTool
+                end
+
+                local lastBestPickCheck = 0
+                local function ensurePickaxeEquipped(hum)
+                    local char = lp.Character
+                    local curCharTool = nil
+                    if char then
+                        for _, ch in ipairs(char:GetChildren()) do
+                            if isPickaxeTool(ch) then curCharTool = ch; break end
+                        end
+                    end
+                    if gConfig.autoEquipPickaxe == false then
+                        return curCharTool, curCharTool ~= nil
+                    end
+                    if curCharTool and (os.clock() - lastBestPickCheck) < 5.0 then
+                        return curCharTool, true
+                    end
+                    lastBestPickCheck = os.clock()
+                    local chosen, isEq, _ = getBestPickaxeCandidate(curCharTool == nil)
+                    if not chosen then return curCharTool, curCharTool ~= nil end
+                    if isEq and curCharTool then return curCharTool, true end
+
+                    if chosen.tool and chosen.tool.Parent == lp:FindFirstChild("Backpack") and hum then
+                        pcall(function() hum:EquipTool(chosen.tool) end)
+                        task.wait(0.18)
+                    elseif chosen.guid ~= "" then
+                        local _, _, invEv = getMSRemotes()
+                        local eqR = invEv and invEv:FindFirstChild("EquipItem")
+                        if eqR then
+                            pcall(function() eqR:FireServer(chosen.guid) end)
+                            for _ = 1, 14 do
+                                task.wait(0.05)
+                                local ch = lp.Character
+                                if ch then
+                                    for _, kid in ipairs(ch:GetChildren()) do
+                                        if isPickaxeTool(kid) then
+                                            return kid, true
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    local finalChar = lp.Character
+                    if finalChar then
+                        for _, kid in ipairs(finalChar:GetChildren()) do
+                            if isPickaxeTool(kid) then return kid, true end
+                        end
+                    end
+                    return nil, false
+                end
+
+                -- Helper: net worth lookup + compact dollar formatter
+                local function getLocalRawNetWorth()
+                    local ls = lp:FindFirstChild("leaderstats")
+                    local nwVal = ls and ls:FindFirstChild("Net Worth")
+                    if not nwVal then return nil end
+                    return tonumber(nwVal:GetAttribute("RawValue"))
+                end
+
+                local function fmtCompactNW(n)
+                    if not n or n <= 0 then return "" end
+                    if n >= 1e9 then return string.format("$%.1fB", n / 1e9):gsub("%.0B", "B")
+                    elseif n >= 1e6 then return string.format("$%.1fM", n / 1e6):gsub("%.0M", "M")
+                    elseif n >= 1e3 then return string.format("$%.0fK", n / 1e3)
+                    else return "$" .. tostring(math.floor(n)) end
+                end
+
+                local GEM_TYPES = { "Diamond", "Ruby", "Sapphire", "Emerald", "Amethyst", "Aquamarine", "Carnelian", "Lapis", "Citrine", "Morganite", "Titanium" }
+                local GEM_MIN_NW = { Diamond = 0 }
+                if MiningCfgMod and type(MiningCfgMod.Jewels) == "table" and MiningSeasonCfg and type(MiningSeasonCfg.JewelMinNetWorth) == "function" then
+                    for idx, jId in ipairs(MiningCfgMod.Jewels) do
+                        local conf = ItemsMod and (ItemsMod[jId] or ItemsMod[tonumber(jId)])
+                        local gName = conf and conf.Name
+                        local okReq, reqNW = pcall(function() return MiningSeasonCfg.JewelMinNetWorth(idx) end)
+                        if gName and okReq and tonumber(reqNW) then
+                            GEM_MIN_NW[gName] = tonumber(reqNW)
+                        end
+                    end
+                end
+
+                -- 3B. CRYSTAL CAVERN CARD
+                local ccCard = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundColor3 = C.card,
+                    BorderSizePixel = 0,
+                }, tabMines)
+                corner(6, ccCard); pad(8, ccCard); list(nil, 6, ccCard)
+
+                make("TextLabel", {
+                    Text = "CRYSTAL CAVERN (15 DIAMONDS / 15 MIN)",
+                    TextSize = 10,
+                    TextColor3 = C.accent,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, ccCard)
+
+                local ccStatusLbl = make("TextLabel", {
+                    Text = "Crystal Cavern: Checking...",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 16),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, ccCard)
+
+                local ccPickaxeLbl = make("TextLabel", {
+                    Text = "Pickaxe: Scanning Inventory...",
+                    TextSize = 9,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 13),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, ccCard)
+
+                local ccBtnRow = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 26),
+                    BackgroundTransparency = 1,
+                }, ccCard)
+                list(nil, 4, ccBtnRow).FillDirection = Enum.FillDirection.Horizontal
+
+                local openCCBtn = make("TextButton", {
+                    Size = UDim2.new(0.36, -3, 1, 0),
+                    BackgroundColor3 = Color3.fromRGB(25, 110, 175),
+                    Text = "Open (15 Dia)",
+                    TextColor3 = Color3.fromRGB(255, 255, 255),
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, ccBtnRow)
+                corner(5, openCCBtn)
+
+                local enterCCBtn = make("TextButton", {
+                    Size = UDim2.new(0.32, -3, 1, 0),
+                    BackgroundColor3 = COLORS.BG,
+                    Text = "Enter Hatch",
+                    TextColor3 = C.green,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, ccBtnRow)
+                corner(5, enterCCBtn); stroke(1, C.border, enterCCBtn)
+
+                local leaveCCBtn = make("TextButton", {
+                    Size = UDim2.new(0.32, -2, 1, 0),
+                    BackgroundColor3 = COLORS.BG,
+                    Text = "Leave Cavern",
+                    TextColor3 = C.orange,
+                    TextSize = 9,
+                    Font = Enum.Font.MontserratBold,
+                    BorderSizePixel = 0,
+                }, ccBtnRow)
+                corner(5, leaveCCBtn); stroke(1, C.border, leaveCCBtn)
+
+                local skipReenterEndsAt = 0
+                local cavernOpBusy = false
+
+                local function enterCavernPit(msFolder)
+                    msFolder = msFolder or getMSFolder()
+                    local now = ws:GetServerTimeNow()
+                    local endsAt = tonumber(lp:GetAttribute("CrystalCavernEndsAt")) or 0
+                    local blocks = msFolder and msFolder:FindFirstChild("Blocks")
+                    local originPart = msFolder and msFolder:FindFirstChild("Origin")
+                    local sp = msFolder and msFolder:FindFirstChild("Spawn")
+                    local targetPos = nil
+
+                    if endsAt > now then
+                        local refPos = (originPart and originPart.Position) or Vector3.new(-3122.12, 1557.38, -1915.05)
+                        pcall(function() lp:RequestStreamAroundAsync(refPos) end)
+                        if blocks then
+                            local bestY = -math.huge
+                            for _, b in ipairs(blocks:GetChildren()) do
+                                local kind = tostring(b:GetAttribute("Kind") or "")
+                                if kind ~= "Bedrock" then
+                                    local p = b.PrimaryPart or b:FindFirstChild("Block") or b:FindFirstChildWhichIsA("BasePart")
+                                    if p and p.Position.Y > bestY then
+                                        bestY = p.Position.Y
+                                        targetPos = Vector3.new(p.Position.X, p.Position.Y + (p.Size.Y * 0.5) + 4.0, p.Position.Z)
+                                    end
+                                end
+                            end
+                        end
+                        if not targetPos then
+                            targetPos = refPos + Vector3.new(0, 6.0, 0)
+                        end
+                        local pitFloor = ws:FindFirstChild("NexCavernSafetyFloor") or Instance.new("Part")
+                        pitFloor.Name = "NexCavernSafetyFloor"
+                        pitFloor.Size = Vector3.new(120, 1.2, 120)
+                        pitFloor.Anchored = true
+                        pitFloor.CanCollide = true
+                        pitFloor.Transparency = 1
+                        pitFloor.CFrame = CFrame.new(targetPos.X, targetPos.Y - 3.85, targetPos.Z)
+                        pitFloor.Parent = ws
+                        safeTP(CFrame.new(targetPos))
+                    elseif sp then
+                        safeTP(sp.CFrame + Vector3.new(0, 3, 0))
+                    else
+                        safeTP(CFrame.new(-3161.96, 1579.15, -1911.54))
+                    end
+                end
+
+                local function tryOpenCavern(isAuto)
+                    if lp:GetAttribute("CrystalCavernUnlocked") ~= true then
+                        if not isAuto then showWorkshopPopup("Complete Old Miner's quest to unlock Crystal Cavern!", C.orange) end
+                        return false
+                    end
+                    if (tonumber(lp:GetAttribute("Diamonds")) or 0) < 15 then
+                        if not isAuto then showWorkshopPopup("Need 15 Diamonds to open Crystal Cavern!", C.orange) end
+                        return false
+                    end
+                    local msEv = getMSRemotes()
+                    local openR = msEv and msEv:FindFirstChild("Open")
+                    if not openR then return false end
+
+                    cavernOpBusy = true
+                    if isAuto then
+                        _G.isCrystalCavernPriority = true
+                        if _G.stopMining then pcall(_G.stopMining) end
+                    end
+
+                    -- Move near Old Miner (within UseDistance = 30) before invoking Open so remote works from Rock Node 11
+                    local msFolder = getMSFolder()
+                    local areas = ws:FindFirstChild("Areas")
+                    local mines = areas and areas:FindFirstChild("The Mines")
+                    local oldMiner = mines and mines:FindFirstChild("Old Miner")
+                    local minerPos = (oldMiner and oldMiner:GetPivot().Position) or Vector3.new(-3142.79, 1576.00, -1893.18)
+                    local char = lp.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp and (hrp.Position - minerPos).Magnitude > 22 then
+                        safeTP(CFrame.new(minerPos + Vector3.new(0, 3.0, -4.5)))
+                        task.wait(0.25)
+                    end
+
+                    local ok, res = pcall(function() return openR:InvokeServer() end)
+                    if ok and (res == true or (type(res) == "table" and (res.ok or res.success))) then
+                        abLog("[Cavern] Opened Crystal Cavern (15 Diamonds)!", C.green)
+                        if not isAuto then showWorkshopPopup("Crystal Cavern Opened!", C.green) end
+                        if isAuto and (gConfig.autoEnterCrystalCavern ~= false) and (gConfig.autoDigCrystalCavern == true or gConfig.autoCrackTargetCrystals == true) then
+                            task.wait(0.25)
+                            enterCavernPit(msFolder)
+                        elseif isAuto and (lp:GetAttribute("InMiningSeason") ~= true) then
+                            _G.isCrystalCavernPriority = false
+                        end
+                        cavernOpBusy = false
+                        return true
+                    elseif not isAuto then
+                        local err = (type(res) == "table" and (res.error or res.reason)) or "Could not open cavern (check cooldown/unlock)"
+                        showWorkshopPopup(tostring(err), C.orange)
+                    end
+                    if lp:GetAttribute("InMiningSeason") ~= true then
+                        _G.isCrystalCavernPriority = false
+                    end
+                    cavernOpBusy = false
+                    return false
+                end
+
+                openCCBtn.MouseButton1Click:Connect(function() task.spawn(function() tryOpenCavern(false) end) end)
+                enterCCBtn.MouseButton1Click:Connect(function()
+                    skipReenterEndsAt = 0
+                    enterCavernPit(getMSFolder())
+                end)
+                leaveCCBtn.MouseButton1Click:Connect(function()
+                    skipReenterEndsAt = tonumber(lp:GetAttribute("CrystalCavernEndsAt")) or 0
+                    _G.isCrystalCavernPriority = false
+                    local fl = ws:FindFirstChild("NexCavernSafetyFloor")
+                    if fl then pcall(function() fl:Destroy() end) end
+                    local msEv = getMSRemotes()
+                    local lvR = msEv and msEv:FindFirstChild("Leave")
+                    if lvR then pcall(function() lvR:FireServer() end) end
+                end)
+
+                local _, updAutoOpenCC = createToggle(ccCard, "Auto Open Crystal Cavern When Ready (15 Diamonds)", gConfig.autoOpenCrystalCavern or false, function(state)
+                    gConfig.autoOpenCrystalCavern = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoOpenCrystalCavern"] = updAutoOpenCC
+
+                local _, updAutoEnterCC = createToggle(ccCard, "Auto Enter Cavern When Open (Overnight AFK)", gConfig.autoEnterCrystalCavern ~= false, function(state)
+                    gConfig.autoEnterCrystalCavern = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoEnterCrystalCavern"] = updAutoEnterCC
+
+                local _, updAutoEqPick = createToggle(ccCard, "Auto Equip Best Pickaxe (Inventory + Hotbar)", gConfig.autoEquipPickaxe ~= false, function(state)
+                    gConfig.autoEquipPickaxe = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoEquipPickaxe"] = updAutoEqPick
+
+                local _, updCrystalEsp = createToggle(ccCard, "Crystal & Gem X-Ray ESP (Core + Outline + Highlight)", gConfig.crystalEspEnabled ~= false, function(state)
+                    gConfig.crystalEspEnabled = state
+                    saveConfig()
+                end)
+                _G.uiToggles["crystalEspEnabled"] = updCrystalEsp
+
+                local _, updSurfaceEsp = createToggle(ccCard, "Show Dig Layer Guide When 0 Exposed Gems", gConfig.cavernSurfaceEsp ~= false, function(state)
+                    gConfig.cavernSurfaceEsp = state
+                    saveConfig()
+                end)
+                _G.uiToggles["cavernSurfaceEsp"] = updSurfaceEsp
+
+                local gemBtns, gemStrokes = {}, {}
+                local function refreshGemBtns()
+                    local t = gConfig.targetCrystalGems or {}
+                    local myNW = getLocalRawNetWorth()
+                    for gName, btn in pairs(gemBtns) do
+                        local on = (t[gName] == true)
+                        local minNW = GEM_MIN_NW[gName] or 0
+                        local locked = (myNW ~= nil and minNW > 0 and myNW < minNW)
+                        if locked then
+                            btn.BackgroundColor3 = on and Color3.fromRGB(115, 62, 32) or Color3.fromRGB(22, 18, 22)
+                            btn.TextColor3 = on and Color3.fromRGB(255, 210, 170) or Color3.fromRGB(145, 115, 110)
+                            if gemStrokes[gName] then gemStrokes[gName].Color = Color3.fromRGB(190, 95, 55) end
+                        else
+                            btn.BackgroundColor3 = on and C.accent or COLORS.BG
+                            btn.TextColor3 = on and Color3.fromRGB(255, 255, 255) or C.text2
+                            if gemStrokes[gName] then gemStrokes[gName].Color = on and C.accent or C.border end
+                        end
+                    end
+                end
+                _G.uiUpdaters["targetCrystalGems"] = refreshGemBtns
+
+                for rowStart = 1, #GEM_TYPES, 4 do
+                    local row = make("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1 }, ccCard)
+                    list(nil, 3, row).FillDirection = Enum.FillDirection.Horizontal
+                    local rowCount = math.min(4, #GEM_TYPES - rowStart + 1)
+                    for j = rowStart, rowStart + rowCount - 1 do
+                        local gemName = GEM_TYPES[j]
+                        local minNW = GEM_MIN_NW[gemName] or 0
+                        local suffix = (minNW >= 1e6) and (" " .. fmtCompactNW(minNW)) or ""
+                        local gb = make("TextButton", {
+                            Size = UDim2.new(1 / rowCount, -3, 1, 0),
+                            BackgroundColor3 = COLORS.BG,
+                            Text = gemName .. suffix,
+                            TextColor3 = C.text2,
+                            TextSize = 8,
+                            Font = Enum.Font.MontserratBold,
+                            BorderSizePixel = 0,
+                        }, row)
+                        corner(4, gb)
+                        gemStrokes[gemName] = stroke(1, C.border, gb)
+                        gemBtns[gemName] = gb
+                        gb.MouseButton1Click:Connect(function()
+                            gConfig.targetCrystalGems = gConfig.targetCrystalGems or {}
+                            gConfig.targetCrystalGems[gemName] = not (gConfig.targetCrystalGems[gemName] == true)
+                            refreshGemBtns()
+                            saveConfig()
+                        end)
+                    end
+                end
+
+                local presetRow = make("Frame", { Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1 }, ccCard)
+                list(nil, 4, presetRow).FillDirection = Enum.FillDirection.Horizontal
+                local function makePresetBtn(txt, wScale, cb)
+                    local b = make("TextButton", {
+                        Size = UDim2.new(wScale, -3, 1, 0),
+                        BackgroundColor3 = COLORS.BG,
+                        Text = txt,
+                        TextColor3 = C.accent,
+                        TextSize = 8,
+                        Font = Enum.Font.MontserratBold,
+                        BorderSizePixel = 0,
+                    }, presetRow)
+                    corner(4, b); stroke(1, C.border, b)
+                    b.MouseButton1Click:Connect(cb)
+                end
+                makePresetBtn("Select Affordable", 0.42, function()
+                    local myNW = getLocalRawNetWorth()
+                    local nt = {}
+                    for _, gName in ipairs(GEM_TYPES) do
+                        local minNW = GEM_MIN_NW[gName] or 0
+                        if (not myNW) or myNW >= minNW then nt[gName] = true end
+                    end
+                    gConfig.targetCrystalGems = nt
+                    refreshGemBtns()
+                    saveConfig()
+                end)
+                makePresetBtn("All Gems", 0.30, function()
+                    local nt = {}
+                    for _, gName in ipairs(GEM_TYPES) do nt[gName] = true end
+                    gConfig.targetCrystalGems = nt
+                    refreshGemBtns()
+                    saveConfig()
+                end)
+                makePresetBtn("Clear", 0.28, function()
+                    gConfig.targetCrystalGems = {}
+                    refreshGemBtns()
+                    saveConfig()
+                end)
+                refreshGemBtns()
+
+                local _, updAutoCrack = createToggle(ccCard, "Auto Crack Exposed Target Crystals", gConfig.autoCrackTargetCrystals or false, function(state)
+                    gConfig.autoCrackTargetCrystals = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoCrackTargetCrystals"] = updAutoCrack
+
+                local _, updAutoDig = createToggle(ccCard, "Auto Dig Crystal Cavern Layers (Auto Leave <= 8s)", gConfig.autoDigCrystalCavern or false, function(state)
+                    gConfig.autoDigCrystalCavern = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoDigCrystalCavern"] = updAutoDig
+
+                -- 3C. AFK MINING ASSISTANT CARD (50 DIAMONDS / 12H + COLLECT JEWELS)
+                local astCard = make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundColor3 = C.card,
+                    BorderSizePixel = 0,
+                }, tabMines)
+                corner(6, astCard); pad(8, astCard); list(nil, 6, astCard)
+
+                make("TextLabel", {
+                    Text = "AFK MINING ASSISTANT (50 DIAMONDS / 12H)",
+                    TextSize = 10,
+                    TextColor3 = C.accent,
+                    Font = Enum.Font.MontserratBold,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, astCard)
+
+                local astStatusLbl = make("TextLabel", {
+                    Text = "Assistant: Checking...",
+                    TextSize = 10,
+                    TextColor3 = C.text2,
+                    Font = Enum.Font.MontserratMedium,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 16),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                }, astCard)
+
+                local _, updAutoCollectAst = createToggle(astCard, "Auto Collect Assistant Jewels (When Held > 0)", gConfig.autoCollectMiningAssistant or false, function(state)
+                    gConfig.autoCollectMiningAssistant = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoCollectMiningAssistant"] = updAutoCollectAst
+
+                local _, updAutoRenewAst = createToggle(astCard, "Auto Hire / Renew Mining Assistant (50 Diamonds)", gConfig.autoRenewMiningAssistant or false, function(state)
+                    gConfig.autoRenewMiningAssistant = state
+                    saveConfig()
+                end)
+                _G.uiToggles["autoRenewMiningAssistant"] = updAutoRenewAst
+
+                local function tryCollectAssistant(isAuto)
+                    local held = tonumber(lp:GetAttribute("MiningAssistantHeld")) or 0
+                    if held <= 0 then
+                        if not isAuto then showWorkshopPopup("Mining Assistant has no held jewels to collect.", C.text2) end
+                        return true
+                    end
+                    local _, miscEv = getMSRemotes()
+                    local colR = miscEv and miscEv:FindFirstChild("MiningAssistantCollect")
+                    if not colR then return false end
+                    local pcallOk, r1, r2 = pcall(function() return colR:InvokeServer() end)
+                    if pcallOk and (r1 == true or (type(r1) == "table" and (r1.ok or r1.success))) then
+                        abLog(string.format("[Assistant] Collected %d held jewels!", held), C.green)
+                        if not isAuto then showWorkshopPopup(string.format("Collected %d Assistant Jewels!", held), C.green) end
+                        return true
+                    else
+                        local errMsg = (type(r2) == "string" and r2)
+                            or (type(r1) == "table" and (r1.error or r1.reason))
+                            or "Could not collect jewels (Inventory full?)"
+                        if isAuto then
+                            abLog("[Assistant] Auto-Collect skipped: " .. tostring(errMsg), C.orange)
+                        else
+                            showWorkshopPopup(tostring(errMsg), C.orange)
+                        end
+                    end
+                    return false
+                end
+
+                local function tryHireAssistant(isAuto)
+                    local diams = tonumber(lp:GetAttribute("Diamonds")) or 0
+                    if diams < 50 then
+                        if not isAuto then showWorkshopPopup("Need 50 Diamonds to hire Mining Assistant!", C.orange) end
+                        return false
+                    end
+                    -- Game update requires collecting any held jewels before hiring the Mining Assistant again
+                    local held = tonumber(lp:GetAttribute("MiningAssistantHeld")) or 0
+                    if held > 0 then
+                        local collected = tryCollectAssistant(isAuto)
+                        if collected then task.wait(0.25) end
+                        if (tonumber(lp:GetAttribute("MiningAssistantHeld")) or 0) > 0 then
+                            if not isAuto then showWorkshopPopup("Collect held jewels first before re-hiring!", C.orange) end
+                            return false
+                        end
+                    end
+                    local _, miscEv = getMSRemotes()
+                    local hireR = miscEv and miscEv:FindFirstChild("MiningAssistantHire")
+                    if not hireR then return false end
+                    local ok, res, errMsg = pcall(function() return hireR:InvokeServer() end)
+                    if ok and (res == true or (type(res) == "table" and (res.ok or res.success))) then
+                        abLog("[Assistant] Hired / Renewed AFK Mining Assistant (50 Diamonds)!", C.green)
+                        if not isAuto then showWorkshopPopup("Mining Assistant Hired / Renewed!", C.green) end
+                        return true
+                    elseif not isAuto then
+                        local err = (type(errMsg) == "string" and errMsg)
+                            or (type(res) == "table" and (res.error or res.reason))
+                            or "Need $35K Net Worth & 50 Diamonds"
+                        showWorkshopPopup(tostring(err), C.orange)
+                    end
+                    return false
+                end
+
+                local collectAstBtn = createButton(astCard, "Collect Assistant Jewels (0 Held)", function()
+                    task.spawn(function() tryCollectAssistant(false) end)
+                end)
+
+                createButton(astCard, "Hire / Renew Mining Assistant Now (50 Diamonds)", function()
+                    task.spawn(function() tryHireAssistant(false) end)
+                end)
+
+                -- Dedicated ESP container (PlayerGui/gethui) + Local anti-fall floor platform
+                local espUiRoot = nil
+                pcall(function() if type(gethui) == "function" then espUiRoot = gethui() end end)
+                if not espUiRoot then espUiRoot = lp:FindFirstChildOfClass("PlayerGui") end
+                if espUiRoot then
+                    for _, oldF in ipairs(espUiRoot:GetChildren()) do
+                        if oldF:IsA("Folder") and string.sub(oldF.Name, 1, 14) == "NexCrystalESP_" then
+                            pcall(function() oldF:Destroy() end)
+                        end
+                    end
+                end
+                for _, oldFl in ipairs(ws:GetChildren()) do
+                    if oldFl:IsA("BasePart") and oldFl.Name == "NexCavernSafetyFloor" then
+                        pcall(function() oldFl:Destroy() end)
+                    end
+                end
+
+                local espFolder = Instance.new("Folder")
+                espFolder.Name = "NexCrystalESP_" .. tostring(myRunID)
+                espFolder.Parent = espUiRoot or ws
+
+                local espEntries = {}
+                local cavernFloorPart = nil
+
+                local function clearCavernFloor()
+                    if cavernFloorPart then
+                        pcall(function() cavernFloorPart:Destroy() end)
+                        cavernFloorPart = nil
+                    end
+                end
+
+                local function ensureCavernFloor(cx, standY, cz)
+                    if not cavernFloorPart or not cavernFloorPart.Parent then
+                        cavernFloorPart = Instance.new("Part")
+                        cavernFloorPart.Name = "NexCavernSafetyFloor"
+                        cavernFloorPart.Size = Vector3.new(120, 1.2, 120)
+                        cavernFloorPart.Anchored = true
+                        cavernFloorPart.CanCollide = true
+                        cavernFloorPart.CanQuery = true
+                        cavernFloorPart.CanTouch = false
+                        cavernFloorPart.Transparency = 1
+                        cavernFloorPart.Parent = ws
+                    end
+                    cavernFloorPart.CFrame = CFrame.new(cx, standY - 0.65, cz)
+                    return cavernFloorPart
+                end
+
+                local function removeEspEntry(keyObj)
+                    local rec = espEntries[keyObj]
+                    if rec then
+                        if rec.outerBox then pcall(function() rec.outerBox:Destroy() end) end
+                        if rec.coreBox then pcall(function() rec.coreBox:Destroy() end) end
+                        if rec.highlight then pcall(function() rec.highlight:Destroy() end) end
+                        if rec.bb then pcall(function() rec.bb:Destroy() end) end
+                        espEntries[keyObj] = nil
+                    end
+                end
+
+                local function clearAllCrystalESP()
+                    for k, _ in pairs(espEntries) do
+                        removeEspEntry(k)
+                    end
+                    clearCavernFloor()
+                    if espFolder then pcall(function() espFolder:ClearAllChildren() end) end
+                end
+
+                local function getBlockPart(blockModel)
+                    if not blockModel then return nil end
+                    local p = blockModel.PrimaryPart or blockModel:FindFirstChild("Block")
+                    if p and p:IsA("BasePart") then return p end
+                    return blockModel:FindFirstChildWhichIsA("BasePart")
+                end
+
+                local function getBlockCoords(blockModel, blockPart, grid, maxRawY, defaultCellY)
+                    if MiningSeasonCfg and type(MiningSeasonCfg.ParseKey) == "function" then
+                        local okP, gx, depth, gz = pcall(MiningSeasonCfg.ParseKey, blockModel.Name)
+                        if okP and gx ~= nil and depth ~= nil and gz ~= nil then
+                            return gx, tonumber(depth), gz
+                        end
+                    end
+                    local k1, k2, k3 = string.match(blockModel.Name, "^(-?%d+),(-?%d+),(-?%d+)$")
+                    if k1 and k2 and k3 then
+                        return tonumber(k1), tonumber(k2), tonumber(k3)
+                    end
+                    local bs = (grid and tonumber(grid.Block)) or math.max(4, defaultCellY or 10)
+                    if grid and typeof(grid.Origin) == "CFrame" and blockPart then
+                        local rel = grid.Origin:PointToObjectSpace(blockPart.Position)
+                        return math.floor((rel.X / bs) + 0.5), math.floor((-rel.Y / bs) + 0.5), math.floor((rel.Z / bs) + 0.5)
+                    end
+                    local dIdx = blockPart and maxRawY and math.floor(((maxRawY - blockPart.Position.Y) / bs) + 0.35) or 0
+                    return 0, dIdx, 0
+                end
+
+                local function resolveBlockGem(blockModel)
+                    local kind = tostring(blockModel:GetAttribute("Kind") or "")
+                    if kind == "Diamond" then
+                        local dCol = (MiningSeasonCfg and MiningSeasonCfg.DiamondColor) or Color3.fromRGB(115, 225, 255)
+                        return "Diamond", dCol:Lerp(Color3.fromRGB(140, 245, 255), 0.35)
+                    elseif kind == "Crystal" then
+                        local jId = blockModel:GetAttribute("Jewel")
+                        local jIdx = tonumber(blockModel:GetAttribute("JewelIndex"))
+                        if not jId and jIdx and MiningCfgMod and type(MiningCfgMod.Jewels) == "table" then
+                            jId = MiningCfgMod.Jewels[jIdx]
+                        end
+                        local conf = jId and ItemsMod and (ItemsMod[jId] or ItemsMod[tostring(jId)] or ItemsMod[tonumber(jId)])
+                        local gName = (conf and conf.Name) or (type(jId) == "string" and not tonumber(jId) and jId) or "Crystal"
+                        local gCol = nil
+                        if MutatorMod and type(MutatorMod.GetLabelColor) == "function" then
+                            local okC, cRes = pcall(function() return MutatorMod:GetLabelColor(gName) end)
+                            if okC and typeof(cRes) == "Color3" then gCol = cRes end
+                        end
+                        if not gCol then
+                            local cry = blockModel:FindFirstChild("Crystal")
+                            if cry and cry:IsA("BasePart") then gCol = cry.Color end
+                        end
+                        return gName, gCol or Color3.fromRGB(255, 196, 92)
+                    end
+                    return nil, nil
+                end
+
+                local function canAffordGemBlock(blockModel)
+                    if tostring(blockModel:GetAttribute("Kind") or "") ~= "Crystal" then
+                        return true, nil
+                    end
+                    local jIdx = tonumber(blockModel:GetAttribute("JewelIndex"))
+                    if not jIdx or not MiningSeasonCfg or type(MiningSeasonCfg.JewelMinNetWorth) ~= "function" then
+                        return true, nil
+                    end
+                    local okReq, reqNW = pcall(function() return MiningSeasonCfg.JewelMinNetWorth(jIdx) end)
+                    if not okReq or not tonumber(reqNW) then
+                        return true, nil
+                    end
+                    local myNW = getLocalRawNetWorth()
+                    if myNW and myNW < reqNW then
+                        return false, reqNW
+                    end
+                    return true, reqNW
+                end
+
+                local crackFailedFlag = false
+                local crackSkipUntil = {}
+                local msEvInit = getMSRemotes()
+                local fbEv = msEvInit and msEvInit:FindFirstChild("Feedback")
+                if fbEv then
+                    table.insert(cleanUpSignals, fbEv.OnClientEvent:Connect(function(payload)
+                        if _G.AHScanner_RunID ~= myRunID then return end
+                        if type(payload) == "table" and payload.Type == "CrackFailed" then
+                            crackFailedFlag = true
+                            if payload.Key then
+                                local dur = (payload.Reason == "networth") and 120 or 12
+                                crackSkipUntil[tostring(payload.Key)] = os.clock() + dur
+                            end
+                        end
+                    end))
+                end
+
+                -- UI & ESP Update Loop (0.4s)
+                task.spawn(function()
+                    local lastAutoOpenAttempt = 0
+                    local lastAutoEnterAttempt = 0
+                    local lastAutoCollectAttempt = 0
+                    local lastAutoHireAttempt = 0
+                    local lastNwRefresh = 0
+                    while task.wait(0.4) do
+                        if _G.AHScanner_RunID ~= myRunID then
+                            _G.isCrystalCavernPriority = false
+                            clearAllCrystalESP()
+                            if espFolder then pcall(function() espFolder:Destroy() end) end
+                            break
+                        end
+                        pcall(function()
+                            local now = ws:GetServerTimeNow()
+                            local unlocked = (lp:GetAttribute("CrystalCavernUnlocked") == true)
+                            local endsAt = tonumber(lp:GetAttribute("CrystalCavernEndsAt")) or 0
+                            local readyAt = tonumber(lp:GetAttribute("CrystalCavernReadyAt")) or 0
+                            local inside = (lp:GetAttribute("InMiningSeason") == true)
+                            local msFolder = getMSFolder()
+                            local blocks = msFolder and msFolder:FindFirstChild("Blocks")
+
+                            if (os.clock() - lastNwRefresh) >= 3 then
+                                lastNwRefresh = os.clock()
+                                refreshGemBtns()
+                            end
+
+                            -- Keep Crystal Cavern priority active while inside (or actively opening/entering) so Rock Node mining yields cleanly
+                            if inside then
+                                _G.isCrystalCavernPriority = true
+                                if _G.isMiningActive and _G.stopMining then
+                                    pcall(_G.stopMining)
+                                end
+                            elseif not cavernOpBusy then
+                                _G.isCrystalCavernPriority = false
+                            end
+
+                            -- Pickaxe indicator
+                            local bestPick, isEqPick, curCharPick = getBestPickaxeCandidate(false)
+                            if curCharPick then
+                                local _, spd, luck, pName = scorePickaxe(curCharPick:GetAttribute("ItemId"), nil, curCharPick)
+                                ccPickaxeLbl.Text = string.format("Pickaxe: %s (+%d%% Spd | +%d%% Luck)", tostring(pName), math.floor(spd), math.floor(luck))
+                                ccPickaxeLbl.TextColor3 = C.green
+                            elseif bestPick then
+                                ccPickaxeLbl.Text = string.format("Pickaxe Ready in Bag: %s (+%d%% Spd)%s", tostring(bestPick.name), math.floor(bestPick.spd), (gConfig.autoEquipPickaxe ~= false) and " [Auto-Equip]" or "")
+                                ccPickaxeLbl.TextColor3 = C.gold
+                            else
+                                ccPickaxeLbl.Text = "Pickaxe: None detected in Hand/Inventory!"
+                                ccPickaxeLbl.TextColor3 = C.orange
+                            end
+
+                            -- Pre-collapse leave safety
+                            if inside and endsAt > now and (endsAt - now) <= 8 and (gConfig.autoDigCrystalCavern == true or gConfig.autoCrackTargetCrystals == true) then
+                                skipReenterEndsAt = endsAt
+                                clearCavernFloor()
+                                local msEv = getMSRemotes()
+                                local lvR = msEv and msEv:FindFirstChild("Leave")
+                                if lvR then
+                                    pcall(function() lvR:FireServer() end)
+                                    abLog("[Cavern] Pre-collapse safety: left Crystal Cavern!", C.orange)
+                                end
+                                _G.isCrystalCavernPriority = false
+                            end
+
+                            local busyOutside = (AB and (AB.pickupPhase or AB.startingAuction or AB.activeLot)) or _G.questTpInProgress or _G.isFreightCollecting
+
+                            -- Auto-Open Crystal Cavern (moves within UseDistance of Old Miner and stops Rock Node mining cleanly)
+                            if gConfig.autoOpenCrystalCavern == true and unlocked and endsAt <= now and readyAt <= now and not busyOutside and (os.clock() - lastAutoOpenAttempt) >= 10 then
+                                if (tonumber(lp:GetAttribute("Diamonds")) or 0) >= 15 then
+                                    lastAutoOpenAttempt = os.clock()
+                                    task.spawn(function() tryOpenCavern(true) end)
+                                end
+                            end
+
+                            -- Auto-Enter open Crystal Cavern when overnight Auto-Dig / Auto-Crack is enabled
+                            if (not inside) and (not cavernOpBusy) and (not busyOutside)
+                                and (gConfig.autoEnterCrystalCavern ~= false)
+                                and (gConfig.autoDigCrystalCavern == true or gConfig.autoCrackTargetCrystals == true)
+                                and endsAt > now + 20
+                                and math.abs(endsAt - skipReenterEndsAt) > 5
+                                and (os.clock() - lastAutoEnterAttempt) >= 6 then
+                                lastAutoEnterAttempt = os.clock()
+                                _G.isCrystalCavernPriority = true
+                                if _G.stopMining then pcall(_G.stopMining) end
+                                task.spawn(function()
+                                    cavernOpBusy = true
+                                    enterCavernPit(msFolder)
+                                    task.wait(0.6)
+                                    cavernOpBusy = false
+                                end)
+                            end
+
+                            -- Assistant Status, Held Jewels Display, Auto-Collect & Auto-Renew (12h shift)
+                            local astEnds = tonumber(lp:GetAttribute("MiningAssistantEndsAt")) or 0
+                            local astRem = math.max(0, math.floor(astEnds - now))
+                            local astHeld = tonumber(lp:GetAttribute("MiningAssistantHeld")) or 0
+                            local nodeIdx = tonumber(lp:GetAttribute("MiningAssistantNode"))
+                            local nodeStr = (MiningCfgMod and MiningCfgMod.NodeName and nodeIdx) and tostring(MiningCfgMod.NodeName(nodeIdx)) or "Auto"
+
+                            if collectAstBtn and collectAstBtn.Parent then
+                                collectAstBtn.Text = string.format("Collect Assistant Jewels (%d Held)", astHeld)
+                            end
+
+                            if astRem > 0 then
+                                local hrs = astRem // 3600
+                                local mins = (astRem % 3600) // 60
+                                local heldPart = (astHeld > 0) and (" | Held: " .. astHeld) or ""
+                                astStatusLbl.Text = string.format("Assistant: Active (%dh %dm left) | %s%s", hrs, mins, nodeStr, heldPart)
+                                astStatusLbl.TextColor3 = C.green
+                            elseif astHeld > 0 then
+                                astStatusLbl.Text = string.format("Assistant: Shift Done | Held: %d jewels (Collect to re-hire)", astHeld)
+                                astStatusLbl.TextColor3 = C.gold
+                            else
+                                astStatusLbl.Text = "Assistant: Inactive (50 Diamonds / 12h)"
+                                astStatusLbl.TextColor3 = C.text2
+                            end
+
+                            if gConfig.autoCollectMiningAssistant == true and astHeld > 0 and (os.clock() - lastAutoCollectAttempt) >= 15 then
+                                lastAutoCollectAttempt = os.clock()
+                                task.spawn(function() tryCollectAssistant(true) end)
+                            end
+
+                            if gConfig.autoRenewMiningAssistant == true and astRem <= 60 and (os.clock() - lastAutoHireAttempt) >= 20 then
+                                if (tonumber(lp:GetAttribute("Diamonds")) or 0) >= 50 then
+                                    lastAutoHireAttempt = os.clock()
+                                    task.spawn(function() tryHireAssistant(true) end)
+                                end
+                            end
+
+                            -- Crystal & Gem X-Ray ESP + Shallow Fog-of-War Dig Guide
+                            local gemCount, targetGemCount, blockCount = 0, 0, 0
+                            local curMinDepth = math.huge
+                            local activeModels = {}
+                            local char = lp.Character
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+                            if blocks and (gConfig.crystalEspEnabled ~= false) then
+                                local allBlocks = blocks:GetChildren()
+                                blockCount = #allBlocks
+                                local originPart = msFolder:FindFirstChild("Origin")
+                                local grid = nil
+                                if originPart and MiningSeasonCfg and type(MiningSeasonCfg.ReadGrid) == "function" then
+                                    local okG, gRes = pcall(function() return MiningSeasonCfg.ReadGrid(originPart) end)
+                                    if okG and type(gRes) == "table" and typeof(gRes.Origin) == "CFrame" then grid = gRes end
+                                end
+
+                                local targets = gConfig.targetCrystalGems or {}
+                                local anyTargetSelected = (next(targets) ~= nil)
+                                local gemList, diggableList = {}, {}
+
+                                for _, b in ipairs(allBlocks) do
+                                    local gName, gColor = resolveBlockGem(b)
+                                    local part = getBlockPart(b)
+                                    if part then
+                                        local _, depthIdx = getBlockCoords(b, part, grid, nil, part.Size.Y)
+                                        if depthIdx < curMinDepth and tostring(b:GetAttribute("Kind") or "") ~= "Bedrock" then
+                                            curMinDepth = depthIdx
+                                        end
+                                        local distM = hrp and math.floor((part.Position - hrp.Position).Magnitude + 0.5) or 0
+                                        if gName then
+                                            gemCount = gemCount + 1
+                                            local isTarget = (targets[gName] == true) or (gName == "Crystal" and anyTargetSelected) or (not anyTargetSelected)
+                                            if isTarget then targetGemCount = targetGemCount + 1 end
+                                            local affordable, reqNW = canAffordGemBlock(b)
+                                            table.insert(gemList, {
+                                                model = b, part = part, gName = gName, gColor = gColor,
+                                                isTarget = isTarget, affordable = affordable, reqNW = reqNW,
+                                                layer = b:GetAttribute("Layer"), dist = distM,
+                                            })
+                                        elseif tostring(b:GetAttribute("Kind") or "") ~= "Bedrock" then
+                                            table.insert(diggableList, { model = b, part = part, depth = depthIdx, dist = distM })
+                                        end
+                                    end
+                                end
+
+                                -- Sort gems: Target+Affordable first, then closest distance; cap Highlight to top 10
+                                table.sort(gemList, function(a, b)
+                                    local pa = (a.isTarget and a.affordable and 2) or (a.isTarget and 1) or 0
+                                    local pb = (b.isTarget and b.affordable and 2) or (b.isTarget and 1) or 0
+                                    if pa ~= pb then return pa > pb end
+                                    return a.dist < b.dist
+                                end)
+
+                                for idx, g in ipairs(gemList) do
+                                    local b = g.model
+                                    activeModels[b] = true
+                                    local wantHl = (idx <= 10)
+                                    local sig = string.format("GEM|%s|%s|%s|%s|%s", tostring(g.gName), tostring(g.isTarget), tostring(g.affordable), tostring(wantHl), tostring(g.layer or ""))
+                                    local rec = espEntries[b]
+                                    if not rec or rec.sig ~= sig or rec.adornPart ~= g.part then
+                                        removeEspEntry(b)
+                                        local outerBox = Instance.new("BoxHandleAdornment")
+                                        outerBox.Name = "NexCrystalOuter"
+                                        outerBox.Adornee = g.part
+                                        outerBox.Size = g.part.Size + Vector3.new(0.25, 0.25, 0.25)
+                                        outerBox.Color3 = g.gColor
+                                        outerBox.Transparency = g.isTarget and 0.42 or 0.72
+                                        outerBox.AlwaysOnTop = true
+                                        outerBox.ZIndex = g.isTarget and 8 or 3
+                                        outerBox.Parent = espFolder
+
+                                        local coreBox = Instance.new("BoxHandleAdornment")
+                                        coreBox.Name = "NexCrystalCore"
+                                        coreBox.Adornee = g.part
+                                        coreBox.Size = g.isTarget and Vector3.new(3.8, 3.8, 3.8) or Vector3.new(2.2, 2.2, 2.2)
+                                        coreBox.Color3 = g.isTarget and g.gColor:Lerp(Color3.new(1, 1, 1), 0.32) or g.gColor
+                                        coreBox.Transparency = g.isTarget and 0.05 or 0.45
+                                        coreBox.AlwaysOnTop = true
+                                        coreBox.ZIndex = 10
+                                        coreBox.Parent = espFolder
+
+                                        local hl = nil
+                                        if wantHl then
+                                            hl = Instance.new("Highlight")
+                                            hl.Name = "NexCrystalHL"
+                                            hl.Adornee = b
+                                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                            hl.FillColor = g.gColor
+                                            hl.OutlineColor = g.isTarget and Color3.new(1, 1, 1) or g.gColor
+                                            hl.FillTransparency = g.isTarget and 0.65 or 0.82
+                                            hl.OutlineTransparency = g.isTarget and 0 or 0.35
+                                            hl.Parent = espFolder
+                                        end
+
+                                        local bb = Instance.new("BillboardGui")
+                                        bb.Name = "NexCrystalTag"
+                                        bb.Adornee = g.part
+                                        bb.Size = UDim2.new(0, 175, 0, 26)
+                                        bb.StudsOffset = Vector3.new(0, (g.part.Size.Y * 0.5) + 1.8, 0)
+                                        bb.AlwaysOnTop = true
+                                        bb.LightInfluence = 0
+                                        bb.MaxDistance = math.huge
+                                        bb.ResetOnSpawn = false
+                                        bb.Parent = espFolder
+
+                                        local tl = Instance.new("TextLabel")
+                                        tl.Size = UDim2.new(1, 0, 1, 0)
+                                        tl.BackgroundTransparency = 0.2
+                                        tl.BackgroundColor3 = Color3.fromRGB(12, 16, 26)
+                                        tl.TextColor3 = g.affordable and g.gColor or Color3.fromRGB(255, 130, 110)
+                                        tl.TextStrokeTransparency = 0.25
+                                        tl.TextSize = g.isTarget and 11 or 9
+                                        tl.Font = Enum.Font.MontserratBold
+                                        tl.Parent = bb
+                                        corner(4, tl)
+                                        stroke(1, g.isTarget and g.gColor or C.border, tl)
+
+                                        rec = { sig = sig, adornPart = g.part, outerBox = outerBox, coreBox = coreBox, highlight = hl, bb = bb, label = tl }
+                                        espEntries[b] = rec
+                                    end
+                                    if rec and rec.label then
+                                        local prefix = g.isTarget and "★ " or ""
+                                        local lockSuffix = (not g.affordable) and (" [LOCKED " .. fmtCompactNW(g.reqNW) .. "]") or ""
+                                        rec.label.Text = string.format("%s%s%s · %dm", prefix, string.upper(tostring(g.gName)), lockSuffix, g.dist)
+                                    end
+                                end
+
+                                -- When 0 exposed gems exist inside the cavern (initial fog-of-war), show shallow layer dig-guide wireframe
+                                if inside and gemCount == 0 and (gConfig.cavernSurfaceEsp ~= false) and #diggableList > 0 then
+                                    table.sort(diggableList, function(a, b)
+                                        if a.depth ~= b.depth then return a.depth < b.depth end
+                                        return a.dist < b.dist
+                                    end)
+                                    local minD = diggableList[1].depth
+                                    local shown = 0
+                                    for _, dg in ipairs(diggableList) do
+                                        if dg.depth <= minD and shown < 12 then
+                                            shown = shown + 1
+                                            local b = dg.model
+                                            activeModels[b] = true
+                                            local showTag = (shown == 1)
+                                            local sig = "GUIDE|" .. tostring(minD) .. "|" .. tostring(showTag)
+                                            local rec = espEntries[b]
+                                            if not rec or rec.sig ~= sig or rec.adornPart ~= dg.part then
+                                                removeEspEntry(b)
+                                                local outerBox = Instance.new("BoxHandleAdornment")
+                                                outerBox.Name = "NexGuideBox"
+                                                outerBox.Adornee = dg.part
+                                                outerBox.Size = dg.part.Size + Vector3.new(0.08, 0.08, 0.08)
+                                                outerBox.Color3 = Color3.fromRGB(0, 225, 255)
+                                                outerBox.Transparency = showTag and 0.74 or 0.86
+                                                outerBox.AlwaysOnTop = true
+                                                outerBox.ZIndex = 2
+                                                outerBox.Parent = espFolder
+
+                                                local bb, tl = nil, nil
+                                                if showTag then
+                                                    bb = Instance.new("BillboardGui")
+                                                    bb.Name = "NexGuideTag"
+                                                    bb.Adornee = dg.part
+                                                    bb.Size = UDim2.new(0, 210, 0, 24)
+                                                    bb.StudsOffset = Vector3.new(0, (dg.part.Size.Y * 0.5) + 1.5, 0)
+                                                    bb.AlwaysOnTop = true
+                                                    bb.LightInfluence = 0
+                                                    bb.MaxDistance = math.huge
+                                                    bb.ResetOnSpawn = false
+                                                    bb.Parent = espFolder
+
+                                                    tl = Instance.new("TextLabel")
+                                                    tl.Size = UDim2.new(1, 0, 1, 0)
+                                                    tl.BackgroundTransparency = 0.25
+                                                    tl.BackgroundColor3 = Color3.fromRGB(12, 16, 26)
+                                                    tl.TextColor3 = Color3.fromRGB(0, 235, 255)
+                                                    tl.TextStrokeTransparency = 0.25
+                                                    tl.TextSize = 10
+                                                    tl.Font = Enum.Font.MontserratBold
+                                                    tl.Parent = bb
+                                                    corner(4, tl)
+                                                end
+                                                rec = { sig = sig, adornPart = dg.part, outerBox = outerBox, bb = bb, label = tl }
+                                                espEntries[b] = rec
+                                            end
+                                            if rec and rec.label then
+                                                rec.label.Text = string.format("0 Exposed Gems · Dig Layer %d · %dm", minD, dg.dist)
+                                            end
+                                        end
+                                    end
+                                end
+                            elseif blocks then
+                                blockCount = #blocks:GetChildren()
+                            end
+
+                            -- Sweep removed / unmatching ESP entries
+                            for kModel, _ in pairs(espEntries) do
+                                if not activeModels[kModel] or not kModel.Parent then
+                                    removeEspEntry(kModel)
+                                end
+                            end
+
+                            if not (inside and (gConfig.autoDigCrystalCavern == true or gConfig.autoCrackTargetCrystals == true)) then
+                                clearCavernFloor()
+                            end
+
+                            if not unlocked then
+                                ccStatusLbl.Text = "Crystal Cavern: LOCKED (Complete Old Miner Quest)"
+                                ccStatusLbl.TextColor3 = C.orange
+                            elseif endsAt > now then
+                                local rem = math.floor(endsAt - now)
+                                local espInfo = ""
+                                if inside and blocks then
+                                    local dStr = (curMinDepth < math.huge) and tostring(curMinDepth) or "?"
+                                    if gemCount > 0 then
+                                        espInfo = string.format(" [IN · D%s · Blk:%d · Gems:%d (%d Target)]", dStr, blockCount, gemCount, targetGemCount)
+                                    else
+                                        espInfo = string.format(" [IN · D%s · Blk:%d · 0 Gems — Dig to reveal]", dStr, blockCount)
+                                    end
+                                elseif inside then
+                                    espInfo = " [INSIDE]"
+                                end
+                                ccStatusLbl.Text = string.format("Crystal Cavern: OPEN (%d:%02d left)%s", rem // 60, rem % 60, espInfo)
+                                ccStatusLbl.TextColor3 = C.green
+                            elseif readyAt > now then
+                                local cd = math.floor(readyAt - now)
+                                ccStatusLbl.Text = string.format("Crystal Cavern: Cooldown %d:%02d", cd // 60, cd % 60)
+                                ccStatusLbl.TextColor3 = C.text2
+                            else
+                                ccStatusLbl.Text = "Crystal Cavern: READY TO OPEN (15 Diamonds)"
+                                ccStatusLbl.TextColor3 = C.gold
+                            end
+                        end)
+                    end
+                end)
+
+                -- Cavern Auto-Crack + Horizontal Layer-by-Layer Auto-Dig Worker Loop
+                task.spawn(function()
+                    local function standSafeNearBlock(hrp, char, blockPart)
+                        local bx, by, bz = blockPart.Position.X, blockPart.Position.Y, blockPart.Position.Z
+                        local bs = math.max(8, blockPart.Size.X)
+                        local topY = by + (blockPart.Size.Y * 0.5)
+                        local layerUpY = topY + bs
+
+                        local candList = {
+                            { pos = Vector3.new(bx, topY + 3.2, bz), floorY = topY },
+                            { pos = Vector3.new(bx + bs, topY + 3.2, bz), floorY = topY },
+                            { pos = Vector3.new(bx - bs, topY + 3.2, bz), floorY = topY },
+                            { pos = Vector3.new(bx, topY + 3.2, bz + bs), floorY = topY },
+                            { pos = Vector3.new(bx, topY + 3.2, bz - bs), floorY = topY },
+                            { pos = Vector3.new(bx, layerUpY + 3.2, bz), floorY = layerUpY },
+                            { pos = Vector3.new(bx + bs, layerUpY + 3.2, bz), floorY = layerUpY },
+                            { pos = Vector3.new(bx - bs, layerUpY + 3.2, bz), floorY = layerUpY },
+                            { pos = Vector3.new(bx, layerUpY + 3.2, bz + bs), floorY = layerUpY },
+                            { pos = Vector3.new(bx, layerUpY + 3.2, bz - bs), floorY = layerUpY },
+                        }
+
+                        local ov = OverlapParams.new()
+                        ov.FilterType = Enum.RaycastFilterType.Exclude
+                        local ex = { char }
+                        if cavernFloorPart then table.insert(ex, cavernFloorPart) end
+                        ov.FilterDescendantsInstances = ex
+                        ov.RespectCanCollide = true
+
+                        local chosen = candList[1]
+                        for _, cand in ipairs(candList) do
+                            if (cand.pos - blockPart.Position).Magnitude <= 21 then
+                                local hits = ws:GetPartBoundsInBox(CFrame.new(cand.pos), Vector3.new(2.8, 4.6, 2.8), ov)
+                                if #hits == 0 then
+                                    chosen = cand
+                                    break
+                                end
+                            end
+                        end
+
+                        -- Temporarily drop floor before teleporting so moving up/down never traps character on platform
+                        ensureCavernFloor(chosen.pos.X, chosen.floorY - 8, chosen.pos.Z)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                        hrp.CFrame = CFrame.new(chosen.pos)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        ensureCavernFloor(chosen.pos.X, chosen.floorY, chosen.pos.Z)
+                    end
+
+                    while task.wait(0.15) do
+                        if _G.AHScanner_RunID ~= myRunID then
+                            clearCavernFloor()
+                            break
+                        end
+                        local now = ws:GetServerTimeNow()
+                        local endsAt = tonumber(lp:GetAttribute("CrystalCavernEndsAt")) or 0
+                        if (gConfig.autoCrackTargetCrystals == true or gConfig.autoDigCrystalCavern == true)
+                            and lp:GetAttribute("InMiningSeason") == true
+                            and endsAt > now + 10 then
+
+                            pcall(function()
+                                local msFolder = getMSFolder()
+                                local blocks = msFolder and msFolder:FindFirstChild("Blocks")
+                                if not blocks then return end
+                                local char = lp.Character
+                                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                                if not hrp or not hum then return end
+
+                                local msEv = getMSRemotes()
+                                local startCrackR = msEv and msEv:FindFirstChild("StartCrack")
+                                local crackHitR = msEv and msEv:FindFirstChild("CrackHit")
+                                local digR = msEv and msEv:FindFirstChild("Dig")
+
+                                local pick, equipped = ensurePickaxeEquipped(hum)
+                                if not pick or not equipped then return end
+
+                                local clkNow = os.clock()
+
+                                -- Priority 1: Exposed target crystals/diamonds when autoCrackTargetCrystals enabled
+                                local targetCrystal, cDist = nil, math.huge
+                                if gConfig.autoCrackTargetCrystals == true and startCrackR and crackHitR then
+                                    local targets = gConfig.targetCrystalGems or {}
+                                    local anyTargetSelected = (next(targets) ~= nil)
+                                    for _, b in ipairs(blocks:GetChildren()) do
+                                        local skipUntil = crackSkipUntil[b.Name]
+                                        if not skipUntil or clkNow >= skipUntil then
+                                            local gName = resolveBlockGem(b)
+                                            local isMatch = gName ~= nil and ((targets[gName] == true) or (gName == "Crystal" and anyTargetSelected) or (not anyTargetSelected))
+                                            if isMatch and canAffordGemBlock(b) then
+                                                local p = getBlockPart(b)
+                                                if p then
+                                                    local d = (p.Position - hrp.Position).Magnitude
+                                                    if d < cDist then
+                                                        cDist = d
+                                                        targetCrystal = b
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+
+                                if targetCrystal and targetCrystal.Parent then
+                                    local p = getBlockPart(targetCrystal)
+                                    if p then
+                                        if (p.Position - hrp.Position).Magnitude > 17 or (not cavernFloorPart) then
+                                            standSafeNearBlock(hrp, char, p)
+                                            task.wait(0.1)
+                                        end
+                                        crackFailedFlag = false
+                                        local okS, resS = pcall(function() return startCrackR:InvokeServer(targetCrystal.Name) end)
+                                        if okS and type(resS) == "table" and resS.ok then
+                                            local maxHits = (tonumber(resS.Need) or 3) + 4
+                                            for _ = 1, maxHits do
+                                                if _G.AHScanner_RunID ~= myRunID or gConfig.autoCrackTargetCrystals ~= true or not targetCrystal.Parent or crackFailedFlag then break end
+                                                pcall(function() crackHitR:FireServer(targetCrystal.Name) end)
+                                                task.wait(0.21)
+                                            end
+                                            if targetCrystal.Parent then
+                                                crackSkipUntil[targetCrystal.Name] = os.clock() + 2
+                                            end
+                                            return
+                                        else
+                                            local reason = (type(resS) == "table" and tostring(resS.reason or "")) or ""
+                                            local dur = (reason == "networth") and 120 or ((reason == "full") and 8 or 15)
+                                            crackSkipUntil[targetCrystal.Name] = os.clock() + dur
+                                        end
+                                    end
+                                end
+
+                                -- Priority 2: Horizontal layer-by-layer Auto Dig (clears top-most exposed depth completely before stepping down)
+                                if gConfig.autoDigCrystalCavern == true and digR then
+                                    local originPart = msFolder:FindFirstChild("Origin")
+                                    local grid = nil
+                                    if originPart and MiningSeasonCfg and type(MiningSeasonCfg.ReadGrid) == "function" then
+                                        local okG, gRes = pcall(function() return MiningSeasonCfg.ReadGrid(originPart) end)
+                                        if okG and type(gRes) == "table" and typeof(gRes.Origin) == "CFrame" and tonumber(gRes.Block) then
+                                            grid = gRes
+                                        end
+                                    end
+
+                                    local cands = {}
+                                    local maxRawY = -math.huge
+                                    local defaultCellY = 10
+                                    for _, b in ipairs(blocks:GetChildren()) do
+                                        local kind = tostring(b:GetAttribute("Kind") or "")
+                                        if kind ~= "Bedrock" and kind ~= "Crystal" and kind ~= "Diamond" then
+                                            local p = getBlockPart(b)
+                                            if p then
+                                                if p.Position.Y > maxRawY then maxRawY = p.Position.Y end
+                                                if p.Size.Y > 1 then defaultCellY = p.Size.Y end
+                                                table.insert(cands, { model = b, part = p, pos = p.Position })
+                                            end
+                                        end
+                                    end
+
+                                    if #cands > 0 then
+                                        local minDepth = math.huge
+                                        for _, c in ipairs(cands) do
+                                            local _, dIdx = getBlockCoords(c.model, c.part, grid, maxRawY, defaultCellY)
+                                            c.depth = dIdx
+                                            if dIdx < minDepth then
+                                                minDepth = dIdx
+                                            end
+                                        end
+
+                                        local digTarget, bestXZ, best3D = nil, math.huge, math.huge
+                                        for _, c in ipairs(cands) do
+                                            if c.depth <= minDepth then
+                                                local dx = c.pos.X - hrp.Position.X
+                                                local dz = c.pos.Z - hrp.Position.Z
+                                                local xzD = math.sqrt(dx * dx + dz * dz)
+                                                local fullD = (c.pos - hrp.Position).Magnitude
+                                                if xzD < bestXZ - 0.1 or (math.abs(xzD - bestXZ) <= 0.1 and fullD < best3D) then
+                                                    bestXZ = xzD
+                                                    best3D = fullD
+                                                    digTarget = c.model
+                                                end
+                                            end
+                                        end
+
+                                        if digTarget and digTarget.Parent then
+                                            local p = getBlockPart(digTarget)
+                                            if p then
+                                                local expectedStandY = p.Position.Y + (p.Size.Y * 0.5)
+                                                local dist = (p.Position - hrp.Position).Magnitude
+                                                if dist > 18 or math.abs((hrp.Position.Y - 3.2) - expectedStandY) > 4.5 or (not cavernFloorPart) then
+                                                    standSafeNearBlock(hrp, char, p)
+                                                    task.wait(0.06)
+                                                end
+                                                local startDig = os.clock()
+                                                local lastPickRecheck = os.clock()
+                                                while digTarget.Parent and gConfig.autoDigCrystalCavern == true and _G.AHScanner_RunID == myRunID and (os.clock() - startDig) < 45 do
+                                                    if lp:GetAttribute("InMiningSeason") ~= true then break end
+                                                    if (os.clock() - lastPickRecheck) >= 2.0 then
+                                                        lastPickRecheck = os.clock()
+                                                        ensurePickaxeEquipped(hum)
+                                                    end
+                                                    if (p.Position - hrp.Position).Magnitude > 21 then
+                                                        standSafeNearBlock(hrp, char, p)
+                                                        task.wait(0.05)
+                                                    end
+                                                    pcall(function() digR:FireServer(digTarget.Name) end)
+                                                    task.wait(0.2)
+                                                end
+                                            end
+                                        end
+                                    else
+                                        -- Keep player safely supported if all diggable layers are cleared
+                                        ensureCavernFloor(hrp.Position.X, hrp.Position.Y - 3.2, hrp.Position.Z)
+                                    end
+                                end
+                            end)
+                        else
+                            clearCavernFloor()
+                        end
+                    end
+                end)
+            end
+            mountCrystalAndAssistant()
+        end
+
         -- 4. MINING SUPERVISOR & NPCS CARD
         local npcCard = make("Frame", {
             Size = UDim2.new(1, 0, 0, 0),
@@ -10284,6 +17106,26 @@ end
                 safeTP(CFrame.new(MINES_HUB + Vector3.new(0, 2, 3)))
             end
         end)
+
+        createButton(npcCard, "Teleport to Old Miner (Crystal Cavern)", function()
+            local om = ws:FindFirstChild("Areas") and ws.Areas:FindFirstChild("The Mines") and ws.Areas["The Mines"]:FindFirstChild("Old Miner")
+            if om then
+                local p = om:GetPivot().Position
+                safeTP(CFrame.lookAt(p + (om:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+            else
+                safeTP(CFrame.new(-3142.8, 1576.0, -1893.2))
+            end
+        end)
+
+        createButton(npcCard, "Teleport to Mining Assistant (AFK)", function()
+            local ast = ws:FindFirstChild("MiningAssistant", true)
+            if ast then
+                local p = ast:GetPivot().Position
+                safeTP(CFrame.lookAt(p + (ast:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+            else
+                safeTP(CFrame.new(-3190.2, 1575.5, -2233.0))
+            end
+        end)
     end
 
 -- Management Subtabs: Pawn / Sell, Exclusions, Automation, Utilities, Shop
@@ -10299,18 +17141,23 @@ local tabShop       = mgmtSubtabs["Shop"]
 
 -- [Quest] CHANGELOG TAB
 do
-    local logText = "<b><font color='#00F0C8'>[v16.0 Update - Military Base & Carnival Update]</font></b>\n" ..
-        "• <b>New Garages & Catalogues</b>: Added Military Tent, Barrack, Enforced Barrack, Bunker Garage, and Camo Airdrop.\n" ..
-        "• <b>New Mutators</b>: Added [Bulletproof] (3.0x), [Fortified] (4.0x), [Jestered] (5.0x), [Vaulted] (7.0x), [Camo] (16.0x), [Warforged] (30.0x), and [Encrypted] (35.0x).\n" ..
-        "• <b>Live DEFCON Monitor</b>: Real-time DEFCON 5 -> DEFCON 1 level monitoring with server win trackers and active mutator detection.\n" ..
-        "• <b>Camo Airdrop Fast-Claim & Teleports</b>: Instant teleport & auto-claim nearest Camo Airdrop when DEFCON hits 1.\n" ..
-        "• <b>Military & Carnival Teleports</b>: Added Military Base (Gate & Courtyard), General Commander, Soldier NPC, Secret Service NPC, and Carnival Hub.\n" ..
-        "• <b>Halloween Code Deprecation</b>: Clean removal of obsolete Halloween event files and memory overhead for maximum FPS."
+    local logText = "<b><font color='#00F0C8'>[v16.6 Update - Thanksgiving Event, Index Mastery &amp; Fast Auto-Pickup]</font></b>\n" ..
+        "• <b>[Events &gt; Thanksgiving] Full Event Suite</b>: Thanksgiving Garages 1-4, Pilgrim Pete 9-Area Pool Switcher, Giant Turkey Auto-Feeder + Feast Timer, Roasted Turkey Safe (Ignore Min Bid + Bag Auto-Lockpick), Market x1/x5 Roller, Turkey Luck Drink, Cornelius Quests, Turkey Trot Auto-Join/Auto-Hurdles &amp; Teleports.\n" ..
+        "• <b>[Events &gt; Mastery] Index Mastery &amp; Auto Index Hunter</b>: Live per-area index tracker, Missing-Item Sniper (Ignore Min Bid in Auto-Bid &amp; Quick-Win), Native Area vs Thanksgiving Pool Mode (auto Pilgrim Pete switching + rotate/loop), Auto Master at 100%, and Mastery Shop quick-buy.\n" ..
+        "• <b>[Core] Live MutatorModule Sync, Dynamic Safes &amp; Fast Auto-Pickup</b>: Auto-syncs live mutators ([Mastery] x10, [Gobbler's Gold] x50, etc.), dynamic Modules.Safes MinPickTier, and 6x faster Auto-Pickup (upright TP, early-exit poll, cached lockpick/wrench, Boombox/Crate fix).\n\n" ..
+        "<b><font color='#00F0C8'>[v16.5 Update - Tackle Shop Auto-Buy Bait &amp; Lure Support]</font></b>\n" ..
+        "• <b>[Events &gt; Fishing] Tackle Shop Auto-Buy Bait (Cash)</b>: Live hourly stock/timer tracker, per-tier cash auto-buyer on restock &amp; manual Buy Now button.\n" ..
+        "• <b>[Events &gt; Fishing] Lure Protection, Rod Info &amp; Tackle TP</b>: Protects all Fishing Lures (1727-1733) from Auto-Pawn/Place, shows active Rod Lure, prefers lured rods on Best First &amp; adds Tackle Shop TP.\n" ..
+        "• <b>[Events &gt; Carnival] Bowling Speed Polish</b>: Updated Bowling solver fallback speeds for v438 slower bars.\n\n" ..
+        "<b><font color='#00F0C8'>[v16.4 Update - Node 11, Overnight Cavern AFK &amp; Assistant Collect]</font></b>\n" ..
+        "• <b>[Events &gt; The Mines] Rock Node 11 &amp; Node 10 Sync</b>: Added Rock Node 11 ($500M NW), updated shifted Node 10 ($300M NW), and reads live nodes dynamically.\n" ..
+        "• <b>[Events &gt; The Mines] Overnight Node + Cavern AFK</b>: Rock Node Auto-Mine pauses while Crystal Cavern opens/enters, auto-drops into open cavern, and resumes afterward.\n" ..
+        "• <b>[Events &gt; The Mines] Mining Assistant Jewels Collect</b>: Added Held Jewels tracker, Collect button, Auto-Collect toggle, 12h shift timer &amp; collect-before-rehire."
     
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 30),
         BackgroundTransparency = 1,
-        Text = "NexWorks v16.1 Beta Changelog",
+        Text = "NexWorks v16.6 Changelog",
         TextColor3 = Color3.fromRGB(0, 240, 200),
         Font = Enum.Font.MontserratBold,
         TextSize = 15
@@ -10337,13 +17184,21 @@ do
     gConfig.afAutoUnload = gConfig.afAutoUnload == nil and false or gConfig.afAutoUnload
     gConfig.afAutoPlace = gConfig.afAutoPlace == nil and false or gConfig.afAutoPlace
 
-    gConfig.pickupDelay = gConfig.pickupDelay or 0.65
+    gConfig.pickupDelay = gConfig.pickupDelay or 0.25
 
 
     local afToggleCard, updateAFToggle = createToggle(tabAutofarm, "Autofarm", gConfig.seatedAutofarm, function(state)
         gConfig.seatedAutofarm = state
         if state then
             AB.enabled = (gConfig.autoBidEnabled == true)
+            AB.activeLot = nil
+            AB.activeLotData = nil
+            AB.activeGarageInstance = nil
+            AB.startingAuction = false
+            AB.leavingAuction = false
+            AB.quickWinActive = false
+            AB.pickupPhase = false
+            _G.AHGarageCooldowns = {}
         else
             AB.pickupPhase = false
             stopBidLoop()
@@ -10369,6 +17224,15 @@ do
         saveConfig()
     end)
     _G.uiToggles["showFloatingCollect"] = updateFloatingCollectToggle
+
+    do
+        local _, updateAutoRecallToggle = createToggle(tabAutofarm, "Auto-Recall Far Vehicle", gConfig.autoRecallVehicle ~= false, function(state)
+            gConfig.autoRecallVehicle = state
+            abLog(state and "[Vehicle] Auto-Recall Far Vehicle ON." or "[Vehicle] Auto-Recall Far Vehicle OFF.", state and C.green or C.textMuted)
+            saveConfig()
+        end)
+        _G.uiToggles["autoRecallVehicle"] = updateAutoRecallToggle
+    end
 
     createButton(tabAutofarm, "Collect Won Items Now", function()
         if _G.manualCollectWonItems then
@@ -10559,7 +17423,7 @@ do
         Size = UDim2.new(0.3, 0, 0, 20),
         Position = UDim2.new(0.7, -12, 0, 4),
         BackgroundTransparency = 1,
-        Text = string.format("%.2fs", gConfig.pickupDelay or 0.65),
+        Text = string.format("%.2fs", gConfig.pickupDelay or 0.25),
         TextColor3 = C.accent,
         TextSize = 10,
         Font = Enum.Font.MontserratBold,
@@ -10575,7 +17439,7 @@ do
     corner(3, sliderTrack)
 
     local sliderFill = make("Frame", {
-        Size = UDim2.fromScale(math.clamp(((gConfig.pickupDelay or 0.65) - 0.1) / (2.0 - 0.1), 0, 1), 1),
+        Size = UDim2.fromScale(math.clamp(((gConfig.pickupDelay or 0.25) - 0.1) / (2.0 - 0.1), 0, 1), 1),
         BackgroundColor3 = C.accent,
         BorderSizePixel = 0,
     }, sliderTrack)
@@ -10584,7 +17448,7 @@ do
     local sliderBtn = make("ImageButton", {
         Size = UDim2.fromOffset(12, 12),
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(math.clamp(((gConfig.pickupDelay or 0.65) - 0.1) / (2.0 - 0.1), 0, 1), 0.5),
+        Position = UDim2.fromScale(math.clamp(((gConfig.pickupDelay or 0.25) - 0.1) / (2.0 - 0.1), 0, 1), 0.5),
         BackgroundColor3 = C.text,
         BorderSizePixel = 0,
     }, sliderTrack)
@@ -10620,7 +17484,7 @@ do
     end))
 
     local function updatePickupDelayUI(val)
-        val = tonumber(val) or gConfig.pickupDelay or 0.65
+        val = tonumber(val) or gConfig.pickupDelay or 0.25
         val = math.clamp(val, 0.1, 2.0)
         local ratio = math.clamp((val - 0.1) / (2.0 - 0.1), 0, 1)
         pickupDelayValLbl.Text = string.format("%.2fs", val)
@@ -11035,7 +17899,7 @@ do
     list(nil, 4, afDdContainer)
 
     local afDdOpen = false
-    local afAreas = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+    local afAreas = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
     local afBtns = {}
 
     local function updateAfDropdownText()
@@ -11187,7 +18051,7 @@ do
         end)
     end)
 
-    local afAreaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+    local afAreaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
     local afAreaGarages = {}
     for _, a in ipairs(afAreaOrder) do afAreaGarages[a] = {} end
     for id, conf in pairs(GARAGE_CATALOG) do
@@ -11284,28 +18148,18 @@ do
     corner(6, manualUnloadBtn)
 
     manualUnloadBtn.MouseButton1Click:Connect(function()
-        pcall(function()
-            local vehicleId = LocalPlayer:GetAttribute("EquippedVehicle")
-            if vehicleId and vehicleId ~= "" then
-                local getItemsRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Vehicles"):FindFirstChild("GetVehicleItems")
-                local transferRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Vehicles"):FindFirstChild("TransferVehicleItemsToInventory")
-                if getItemsRemote and transferRemote then
-                    local items = getItemsRemote:InvokeServer(vehicleId)
-                    if items then
-                        local guids = {}
-                        for guid, _ in pairs(items) do
-                            table.insert(guids, guid)
-                        end
-                        if #guids > 0 then
-                            transferRemote:FireServer(guids)
-                            showWorkshopPopup("Unloaded " .. #guids .. " items from truck!", C.green)
-                        else
-                            showWorkshopPopup("Truck is already empty!", COLORS.Orange)
-                        end
-                    end
-                end
-            else
+        task.spawn(function()
+            local okU, cnt, reason = instantUnloadVehicle()
+            if okU and cnt > 0 then
+                showWorkshopPopup("Unloaded " .. cnt .. " item(s) from truck!", C.green)
+            elseif reason == "empty" then
+                showWorkshopPopup("Truck is already empty!", COLORS.Orange)
+            elseif reason == "inventory_full" then
+                showWorkshopPopup("Inventory is full — free bag space first!", C.red)
+            elseif reason == "no_vehicle" then
                 showWorkshopPopup("No vehicle spawned!", COLORS.Orange)
+            else
+                showWorkshopPopup("Could not unload truck (" .. tostring(reason or "error") .. ")", COLORS.Orange)
             end
         end)
     end)
@@ -11386,7 +18240,7 @@ local ddContainer = make("Frame", {
 list(nil, 4, ddContainer)
 
 local ddOpen = false
-local areas = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+local areas = {"Any Area", "Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
 local abBtns = {}
 
 local function updateAbDropdownText()
@@ -11538,7 +18392,7 @@ autoResetBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
-local areaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base"}
+local areaOrder = {"Junk Yard", "Back Alley", "Farmyard", "Shipyard", "Lucky Beach", "Power Plant", "Cargo Ship", "Business Bay", "The Mines", "Cargo Train", "Military Base", "Thanksgiving"}
 local areaGarages = {}
 for _, a in ipairs(areaOrder) do areaGarages[a] = {} end
 for id, conf in pairs(GARAGE_CATALOG) do
@@ -11996,7 +18850,7 @@ do
 
     -- UserInputService listeners for Click TP and Navigate (N) TP
     local UserInputService = game:GetService("UserInputService")
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    table.insert(cleanUpSignals, UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
 
         -- Click Teleport (Ctrl + Click)
@@ -12074,7 +18928,7 @@ do
         end
 
         -- Instant TP on Navigate (N) is handled via LocalPlayer:GetAttributeChangedSignal("GPSDestination") upon clicking any NPC or POI in the menu.
-    end)
+    end))
 
     -- Section: Player Plot
     local labelPlot = make("TextLabel", {
@@ -12276,6 +19130,26 @@ do
         end
     end)
 
+    createButton(tabTeleports, "Teleport to Old Miner (Crystal Cavern)", function()
+        local om = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("The Mines") and workspace.Areas["The Mines"]:FindFirstChild("Old Miner")
+        if om then
+            local p = om:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (om:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(-3142.8, 1576.0, -1893.2))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Mining Assistant (AFK)", function()
+        local ast = workspace:FindFirstChild("MiningAssistant", true)
+        if ast then
+            local p = ast:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (ast:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(-3190.2, 1575.5, -2233.0))
+        end
+    end)
+
     -- Section: Military Base
     local labelMilitary = make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 24),
@@ -12344,6 +19218,114 @@ do
 
     createButton(tabTeleports, "Teleport to Carnival Hub", function()
         safeTP(CFrame.new(263.5, 1722.0, -1975.5))
+    end)
+
+    createButton(tabTeleports, "Teleport to Mime NPC (Carnival)", function()
+        local mime = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Carnanval") and workspace.Areas.Carnanval:FindFirstChild("NPC") and workspace.Areas.Carnanval.NPC:FindFirstChild("Mime")
+        mime = mime or workspace:FindFirstChild("Mime", true)
+        if mime then
+            local p = mime:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (mime:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(294.3, 1720.9, -2022.2))
+        end
+    end)
+
+    local labelFishingShop = make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 24),
+        BackgroundTransparency = 1,
+        Text = "── Shopping & Fishing ──",
+        TextColor3 = C.gold,
+        TextSize = 11,
+        Font = Enum.Font.MontserratBold,
+        TextXAlignment = Enum.TextXAlignment.Center,
+    }, tabTeleports)
+
+    createButton(tabTeleports, "Teleport to Tackle Shop (Mall)", function()
+        local ts = workspace:FindFirstChild("Tackle Shop", true)
+        if ts then
+            local p = ts:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (ts:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(482.0, 1722.7, -926.0))
+        end
+    end)
+
+    -- Section: Thanksgiving Event
+    make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 24),
+        BackgroundTransparency = 1,
+        Text = "── Thanksgiving ──",
+        TextColor3 = Color3.fromRGB(245, 165, 60),
+        TextSize = 11,
+        Font = Enum.Font.MontserratBold,
+        TextXAlignment = Enum.TextXAlignment.Center,
+    }, tabTeleports)
+
+    createButton(tabTeleports, "Teleport to Thanksgiving Area", function()
+        local tg = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving")
+        local pete = tg and tg:FindFirstChild("Pilgrim Pete")
+        if pete then
+            local p = pete:GetPivot().Position
+            safeTP(CFrame.new(p + Vector3.new(0, 3, 6)))
+        else
+            safeTP(CFrame.new(-57.5, 1723.1, -811.5))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Giant Turkey (Feast)", function()
+        local cs = game:GetService("CollectionService")
+        local tagged = cs:GetTagged("FeastTurkey")
+        local turkey = (tagged and tagged[1]) or (workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Turkey"))
+        if turkey then
+            local prompt = turkey:FindFirstChild("FeedTurkeyPrompt", true)
+            local p = (prompt and prompt.Parent and prompt.Parent:IsA("Attachment") and prompt.Parent.WorldPosition)
+                or (prompt and prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent.Position)
+                or turkey:GetPivot().Position
+            safeTP(CFrame.new(p + Vector3.new(0, 3, 10)))
+        else
+            safeTP(CFrame.new(6.1, 1725.8, -800.2))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Pilgrim Pete", function()
+        local npc = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Pilgrim Pete")
+        if npc then
+            local p = npc:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (npc:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(-57.5, 1720.1, -811.5))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Cornelius (Quests)", function()
+        local npc = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Cornelius")
+        if npc then
+            local p = npc:GetPivot().Position
+            safeTP(CFrame.lookAt(p + (npc:GetPivot().LookVector * 4) + Vector3.new(0, 0.5, 0), p))
+        else
+            safeTP(CFrame.new(-25.0, 1723.1, -811.5))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Thanksgiving Market", function()
+        local stall = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild("Thanksgiving") and workspace.Areas.Thanksgiving:FindFirstChild("Stall")
+        if stall then
+            local p = stall:GetPivot().Position
+            safeTP(CFrame.new(p + Vector3.new(0, 2.5, 6)))
+        else
+            safeTP(CFrame.new(-48.4, 1726.2, -768.8))
+        end
+    end)
+
+    createButton(tabTeleports, "Teleport to Turkey Trot (Race)", function()
+        local entry = workspace:FindFirstChild("HorseRaceEntry")
+        if entry then
+            local p = entry:GetPivot().Position
+            safeTP(CFrame.new(p + Vector3.new(0, 3, 0)))
+        else
+            safeTP(CFrame.new(-30.0, 1720.2, -889.0))
+        end
     end)
 
 
@@ -12764,14 +19746,16 @@ local function pawnSellAll(isAutomated, reason)
     local guids = {}
     for guid, data in pairs(items) do
         repeat
+            if data.Favorited == true or data.Favorite == true or data.Locked == true or data.IsFavorited == true then break end
             local itemId = data.ItemId
             local itemConf = ItemsData[tostring(itemId)] or ItemsData[tonumber(itemId)]
             local rawName = (itemConf and itemConf.Name) or data.Name or data.DisplayName or ""
             local name = rawName:lower()
             local category = (itemConf and (itemConf.Category or itemConf.category) or data.Category or ""):lower()
+            if (itemConf and (itemConf.EnergyDrinkId ~= nil or itemConf.MaxCleanUses ~= nil or itemConf.Consumable == true)) or name:find("cleaning spray") then break end
             
             -- Safety Exclusions: Always skip valuable items and custom UI excluded items
-            if isItemExcluded(rawName, data, "sell") then break end
+            if isItemExcluded(rawName, data) then break end
             -- Value Range: use real price via MutatorModule (same logic as auto-store min value)
             local MutatorModule = require(ReplicatedStorage.Modules.MutatorModule)
             local basePrice = itemConf and (itemConf.BasePrice or 0) or 0
@@ -12790,6 +19774,20 @@ local function pawnSellAll(isAutomated, reason)
                 if itemPrice > gConfig.autoPawnMaxItemValue then break end
             elseif minActive then
                 if itemPrice < gConfig.autoPawnMinItemValue then break end
+            end
+
+            -- Optional Weight (kg) Filter (0 = Off)
+            local itemWeightKg = tonumber(data.Weight or (itemConf and itemConf.Weight) or 0) or 0
+            local maxWActive = gConfig.autoPawnMaxWeightKg and gConfig.autoPawnMaxWeightKg > 0
+            local minWActive = gConfig.autoPawnMinWeightKg and gConfig.autoPawnMinWeightKg > 0
+            if minWActive and maxWActive then
+                if itemWeightKg < gConfig.autoPawnMinWeightKg or itemWeightKg > gConfig.autoPawnMaxWeightKg then
+                    break
+                end
+            elseif maxWActive then
+                if itemWeightKg > gConfig.autoPawnMaxWeightKg then break end
+            elseif minWActive then
+                if itemWeightKg < gConfig.autoPawnMinWeightKg then break end
             end
 
             table.insert(guids, guid)
@@ -13390,6 +20388,83 @@ _G.inputFlushers["pawnMinValueBox"] = function()
     if val then
         gConfig.autoPawnMinItemValue = math.max(0, math.floor(val))
     end
+end
+
+-- Optional Weight (kg) Filter Inputs (0 = Off)
+do
+    local function createWeightCard(titleText, cfgKey, flusherKey)
+        local wCard = make("Frame", {
+            Size = UDim2.new(1, 0, 0, 38),
+            BackgroundColor3 = C.card,
+            BorderSizePixel = 0,
+        }, tabPawn)
+        corner(6, wCard)
+        make("TextLabel", {
+            Size = UDim2.new(0.5, 0, 1, 0),
+            Position = UDim2.new(0, 12, 0, 0),
+            BackgroundTransparency = 1,
+            Text = titleText,
+            TextColor3 = C.text,
+            TextSize = 10,
+            Font = Enum.Font.MontserratBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, wCard)
+        local wBox = make("TextBox", {
+            Size = UDim2.new(0, 70, 0, 24),
+            Position = UDim2.new(1, -142, 0.5, -12),
+            BackgroundColor3 = COLORS.BG,
+            Text = tostring(gConfig[cfgKey] or 0),
+            TextColor3 = C.gold,
+            TextSize = 10,
+            Font = Enum.Font.MontserratBold,
+            ClearTextOnFocus = false,
+        }, wCard)
+        corner(5, wBox); stroke(1, C.border, wBox)
+        local wStatus = make("TextLabel", {
+            Size = UDim2.new(0, 50, 1, 0),
+            Position = UDim2.new(1, -62, 0, 0),
+            BackgroundTransparency = 1,
+            Text = ((gConfig[cfgKey] or 0) == 0 and "Off (All)" or "Active"),
+            TextColor3 = ((gConfig[cfgKey] or 0) == 0 and C.text2 or C.gold),
+            TextSize = 9,
+            Font = Enum.Font.Montserrat,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, wCard)
+        local function updateW(val)
+            val = math.max(0, math.floor((tonumber(val) or gConfig[cfgKey] or 0) * 100 + 0.5) / 100)
+            gConfig[cfgKey] = val
+            wBox.Text = tostring(val)
+            wStatus.Text = (val == 0 and "Off (All)" or "Active")
+            wStatus.TextColor3 = (val == 0 and C.text2 or C.gold)
+        end
+        _G.uiUpdaters[cfgKey] = updateW
+        wBox:GetPropertyChangedSignal("Text"):Connect(function()
+            local v = tonumber(wBox.Text)
+            if v then
+                local c = math.max(0, math.floor(v * 100 + 0.5) / 100)
+                gConfig[cfgKey] = c
+                wStatus.Text = (c == 0 and "Off (All)" or "Active")
+                wStatus.TextColor3 = (c == 0 and C.text2 or C.gold)
+            end
+        end)
+        wBox.FocusLost:Connect(function()
+            local v = tonumber(wBox.Text)
+            if v then
+                updateW(v)
+                saveConfig()
+            else
+                wBox.Text = tostring(gConfig[cfgKey] or 0)
+            end
+        end)
+        _G.inputFlushers[flusherKey] = function()
+            local v = tonumber(wBox.Text)
+            if v then
+                gConfig[cfgKey] = math.max(0, math.floor(v * 100 + 0.5) / 100)
+            end
+        end
+    end
+    createWeightCard("Pawn Items Under Weight (kg):", "autoPawnMaxWeightKg", "pawnMaxWeightBox")
+    createWeightCard("Pawn Items Over Weight (kg):", "autoPawnMinWeightKg", "pawnMinWeightBox")
 end
 
 -- Sell All and Check Rates Action Buttons
@@ -14280,7 +21355,7 @@ do
     local regularNpcList = {
         "Billy", "Sal", "Ted", "Steve", "Sam", "Michael", "Mike", "Building Inspector", 
         "Museum Attendant", "Gas Station Owner", "Cletus", 
-        "TollboothGuard", "Basketball Player 6", "Basketball Player 7", "Fisherman"
+        "TollboothGuard", "Basketball Player 6", "Basketball Player 7", "Fisherman", "Cornelius"
     }
 
     if not gConfig.allowedQuestNpcs then gConfig.allowedQuestNpcs = {} end
@@ -14703,6 +21778,7 @@ do
 
     task.spawn(function()
         while true do
+            if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
             local diams = lp:GetAttribute("Diamonds") or 0
             diamondLabel.Text = string.format("Diamonds: %s", tostring(diams))
 
@@ -15000,6 +22076,12 @@ do
         saveConfig()
     end)
 
+    local _, updateAllowFavDrinks = createToggle(tabShop, "Consume Found (Favorited) Luck Drinks", gConfig.allowFavoritedLuckDrinks or false, function(state)
+        gConfig.allowFavoritedLuckDrinks = state
+        saveConfig()
+    end)
+    _G.uiToggles["allowFavoritedLuckDrinks"] = updateAllowFavDrinks
+
         -- Luck Drink Purchases
     local drinks = {
         { id = "1", itemId = 359, name = "Luck Drink 1 (+50%)", cost = 12 },
@@ -15053,6 +22135,7 @@ do
         -- Periodically update owned drink counts
         task.spawn(function()
             while true do
+                if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
                 local inv = _G.AHUserInventoryCache
                 local count = 0
                 if inv and type(inv) == "table" then
@@ -15155,6 +22238,7 @@ do
 
         task.spawn(function()
             while true do
+                if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
                 local state = ReplicatedStorage.Events.WrenchShop.GetState:InvokeServer()
                 if state then
                     local isEquipped = state.equipped == "Wrench" .. wr.id
@@ -15242,6 +22326,7 @@ do
 
         task.spawn(function()
             while true do
+                if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
                 local state = ReplicatedStorage.Events.LockpickShop.GetState:InvokeServer()
                 if state then
                     local isEquipped = state.equipped == "Picklock" .. lk.id
@@ -15284,6 +22369,7 @@ do
         local lastBuyTime = 0
         
         while true do
+            if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
             -- 1. Auto-Buy to Stockpile (Buys all selected drinks to inventory WITHOUT consuming)
             if gConfig.autoBuyDrinks and gConfig.buyLuckDrinks then
                 if os.clock() - lastBuyTime >= 8 then
@@ -15325,7 +22411,7 @@ do
                                 local targetGuid = nil
                                 if inv and type(inv) == "table" then
                                     for guid, item in pairs(inv) do
-                                        if type(item) == "table" and tonumber(item.ItemId) == targetItemId then
+                                        if type(item) == "table" and tonumber(item.ItemId) == targetItemId and (gConfig.allowFavoritedLuckDrinks == true or not (item.Favorited == true or item.Favorite == true or item.Locked == true or item.IsFavorited == true)) then
                                             targetGuid = guid
                                             break
                                         end
@@ -15483,16 +22569,15 @@ corner(6, mutDropdownList)
 pad(4, mutDropdownList)
 list(Enum.HorizontalAlignment.Left, 2, mutDropdownList)
 
--- Dynamically fetch all mutators from the game's MutatorModule at runtime
+-- Dynamically fetch all mutators from live MutatorModule sync (_G.NexGetLiveMutations)
 local availableMutators = {}
 local mutatorSet = {}
 pcall(function()
-    local mmMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MutatorModule")
-    local mm = mmMod and require(mmMod)
-    if mm and type(mm._kindByName) == "table" then
-        for mName, _ in pairs(mm._kindByName) do
+    local liveList = _G.NexGetLiveMutations and _G.NexGetLiveMutations(true) or nil
+    if type(liveList) == "table" then
+        for _, mName in ipairs(liveList) do
             local str = tostring(mName)
-            if str ~= "" and not mutatorSet[str] then
+            if str ~= "" and str ~= "None" and not mutatorSet[str] then
                 mutatorSet[str] = true
                 table.insert(availableMutators, str)
             end
@@ -15501,11 +22586,23 @@ pcall(function()
 end)
 if #availableMutators == 0 then
     local fallbacks = {
-        "Diamond", "Pure", "Gold", "Rainbow", "Corrupted", "Gem",
+        "Mint", "Diamond", "Pure", "Gold", "Rainbow", "Corrupted", "Gem",
         "Secret", "Void", "Ancient", "Timeless", "Antique", "Redacted", "Seized", "Silver",
-        "Dusty", "Saloon Sparkle", "Tumbleweed", "Gunsmoked", "Goldrush"
+        "Dusty", "Saloon Sparkle", "Tumbleweed", "Gunsmoked", "Goldrush",
+        "Pickled", "Chamoy", "Spicy", "Pickle Jar",
+        "Mastery", "Whipped Cream", "Woven", "Cranberry Crush", "Gobbler's Gold",
+        "Gummy", "Frozen", "Swampy", "Onyx"
     }
-    for _, f in ipairs(fallbacks) do table.insert(availableMutators, f) end
+    for _, f in ipairs(fallbacks) do
+        if not mutatorSet[f] then
+            mutatorSet[f] = true
+            table.insert(availableMutators, f)
+        end
+    end
+end
+if not mutatorSet["Mint"] then
+    mutatorSet["Mint"] = true
+    table.insert(availableMutators, "Mint")
 end
 table.sort(availableMutators)
 table.insert(availableMutators, 1, "None")
@@ -15996,7 +23093,7 @@ restoreExclBtn.MouseButton1Click:Connect(function()
                 local isCert = lowerName:find("certificate") or category:find("certificate") or lowerName:find("authenticity")
                 local isPart = (lowerName:find("part") or category:find("part")) and not lowerName:find("particle")
                 local isLucky = lowerName:find("luck drink") or lowerName:find("luck_drink") or lowerName:find("luckdrink")
-                local isBrewOrQuestTool = lowerName:find("cauldron skull") or lowerName:find("cauldron bag") or lowerName:find("gravedigger shovel") or lowerName:find("uranium ore") or category == "tool"
+                local isBrewOrQuestTool = lowerName:find("cauldron skull") or lowerName:find("cauldron bag") or lowerName:find("gravedigger shovel") or lowerName:find("uranium ore") or lowerName:find("cleaning spray") or category == "tool"
                 if isTrophy or isAccessory or isSafe or isWheel or isCert or isPart or isLucky or isBrewOrQuestTool then
                     gConfig.excludedItems[name] = true
                 end
@@ -16009,7 +23106,7 @@ restoreExclBtn.MouseButton1Click:Connect(function()
                 local name = data.Name or data.name or ""
                 local lower = name:lower()
                 local cat = (data.Category or data.category or ""):lower()
-                if lower:find("luck drink") or lower:find("cauldron skull") or lower:find("cauldron bag") or lower:find("gravedigger shovel") or lower:find("uranium ore") or cat == "tool" then
+                if lower:find("luck drink") or lower:find("cauldron skull") or lower:find("cauldron bag") or lower:find("gravedigger shovel") or lower:find("uranium ore") or lower:find("cleaning spray") or data.EnergyDrinkId ~= nil or data.MaxCleanUses ~= nil or data.Consumable == true or cat == "tool" then
                     gConfig.excludedItems[name] = true
                 end
             end
@@ -16213,11 +23310,19 @@ table.insert(cleanUpSignals, workspace.DescendantAdded:Connect(function(desc)
 end))
 
 -- Background periodic sweep
-task.spawn(function()
-    pcall(scanAllNPCs)
-    while true do
-        task.wait(2.0)
+if _G.AHScanNPCThread then
+    pcall(function() task.cancel(_G.AHScanNPCThread) end)
+    _G.AHScanNPCThread = nil
+end
+_G.AHScanNPCThread = task.spawn(function()
+    if gConfig.noNPCCollision == true then
         pcall(scanAllNPCs)
+    end
+    while task.wait(15.0) do
+        if _G.AHScanner_RunID ~= myRunID or not ScreenGui or not ScreenGui.Parent then break end
+        if gConfig.noNPCCollision == true then
+            pcall(scanAllNPCs)
+        end
     end
 end)
 
@@ -16384,8 +23489,10 @@ return function(context)
         returnToZone()
         releasePause()
         local key = attempt.garage:GetAttribute("GUID") or attempt.garage.Name
+        local gNameStr = tostring(attempt.garage:GetAttribute("GarageId") or attempt.garage.Name or "")
+        local isTgSkip = (tostring(attempt.garage:GetAttribute("AreaName") or "") == "Thanksgiving") or (string.find(gNameStr, "Thanksgiving") ~= nil)
         _G.AHGarageCooldowns = _G.AHGarageCooldowns or {}
-        _G.AHGarageCooldowns[key] = os.clock() + 60
+        _G.AHGarageCooldowns[key] = os.clock() + (isTgSkip and 12 or 60)
         log(reason or "opening price below your minimum; leaving for the next eligible garage.")
         task.spawn(function()
             local ok, problem = pcall(function() return leave:InvokeServer() end)
@@ -16499,6 +23606,27 @@ return function(context)
                 return
             end
             if context.allowed then
+                -- Wait briefly for Floorspace items to replicate when scanning for Index/Safe/Food/Bait/Pickle bypasses
+                local needsItemScan = (config.autoIndexHunter == true)
+                    or (config.alwaysBidTurkeySafe == true)
+                    or (config.alwaysBidThanksgivingFood == true)
+                    or (config.alwaysBidFishingBait == true)
+                    or (config.alwaysBidPickleLots == true)
+                if needsItemScan and garage then
+                    local floor = garage:FindFirstChild("Floorspace")
+                    if floor and #floor:GetChildren() == 0 then
+                        local flDeadline = os.clock() + 0.65
+                        while floor.Parent and #floor:GetChildren() == 0 and os.clock() < flDeadline do
+                            if round ~= attempt or attempt.cancelled or not current() or controller.phase ~= "watching" then
+                                return
+                            end
+                            task.wait(0.05)
+                        end
+                    end
+                end
+                if round ~= attempt or attempt.cancelled or not current() or controller.phase ~= "watching" then
+                    return
+                end
                 local allowed, reason = context.allowed(garage, amount, nextBid)
                 if not allowed then
                     if reason == "below-minimum" then
@@ -16605,6 +23733,10 @@ end
                 AB.quickWinMinBidBlocked = false
                 return true
             end
+            if _G.shouldBypassMinBidForGarage and _G.shouldBypassMinBidForGarage(garage) then
+                AB.quickWinMinBidBlocked = false
+                return true
+            end
             local minimum = AB.biddingModes.ParseMinimum(gConfig.quickWinMinStartBid) or 0
             if minimum <= 1 then
                 AB.quickWinMinBidBlocked = false
@@ -16613,25 +23745,11 @@ end
             end
             -- If user is manually in this auction or Quick Win is armed, don't block by garage selection filter!
             local isAutofarmDriving = (gConfig.seatedAutofarm == true) and not AB.manualAuctionEntry
-            if isAutofarmDriving and not isGarageAllowed(name, true) then return false end
+            if isAutofarmDriving and not isGarageAllowed(name, true) and not (_G.isPriorityEventGarage and _G.isPriorityEventGarage(garage)) and not (_G.isIndexHunterRoutedGarage and _G.isIndexHunterRoutedGarage(garage, name)) then return false end
             local opening = tonumber(amount) or tonumber(nextBid) or 0
             if minimum > 1 and opening < minimum then
-                local ignoreMinBid = false
-                if garage and evaluateItemRule then
-                    for _, desc in ipairs(garage:GetDescendants()) do
-                        if desc:IsA("Model") and isItemModel and isItemModel(desc) then
-                            local dec = evaluateItemRule(desc, "auction")
-                            if dec == "allow" then
-                                ignoreMinBid = true
-                                break
-                            end
-                        end
-                    end
-                end
-                if not ignoreMinBid then
-                    AB.quickWinMinBidBlocked = true
-                    return false, "below-minimum"
-                end
+                AB.quickWinMinBidBlocked = true
+                return false, "below-minimum"
             end
             return true
         end,
@@ -16725,13 +23843,19 @@ if StartAuctionEvent then
             end
 
             local isSeated = gConfig.seatedAutofarm or (gConfig.seizedGarageSniping and isSeized)
-            local garageSelected = isGarageAllowed(lotName, isSeated) or (gConfig.seizedGarageSniping and isSeized)
+            local isPrioOrHunter = (_G.isPriorityEventGarage and _G.isPriorityEventGarage(matchedGarage))
+                or (_G.isIndexHunterRoutedGarage and _G.isIndexHunterRoutedGarage(matchedGarage, lotName))
+            local garageSelected = isGarageAllowed(lotName, isSeated)
+                or (gConfig.seizedGarageSniping and isSeized)
+                or (isSeated and isPrioOrHunter)
 
             local areaOk = false
             local catEntry = GARAGE_CATALOG[lotName]
             local areaName = catEntry and catEntry.area or ""
             
-            if isSeized and gConfig.seizedGarageSniping then
+            if isSeated and isPrioOrHunter then
+                areaOk = true
+            elseif isSeized and gConfig.seizedGarageSniping then
                 if gConfig.seizedAreas then
                     if gConfig.seizedAreas["Any Area"] or gConfig.seizedAreas[areaName] then
                         areaOk = true
@@ -16842,6 +23966,8 @@ if StartAuctionEvent then
                 return
             end
             AB.auctionOpen = false
+            AB.activeLot = nil
+            AB.activeLotData = nil
             AB.activeGarageInstance = nil
             abLog("Left auction area", C.text2)
             stopBidLoop()
@@ -16922,7 +24048,7 @@ if ToggleBiddingUI then
             local isSeated = gConfig.seatedAutofarm
             local canBid = (AB.enabled == true and gConfig.autoBidEnabled == true)
             if canBid then
-                local garageOk = (AB.activeLot == nil) or isGarageAllowed(AB.activeLot, isSeated)
+                local garageOk = (AB.activeLot == nil) or isGarageAllowed(AB.activeLot, isSeated) or (_G.isPriorityEventGarage and _G.isPriorityEventGarage(AB.activeGarageInstance)) or (_G.isIndexHunterRoutedGarage and _G.isIndexHunterRoutedGarage(AB.activeGarageInstance, AB.activeLot))
                 if garageOk then
                     startBidLoop()
                 else
@@ -16942,8 +24068,10 @@ if ToggleBiddingUI then
             
             if _G.AHLastTargetLot and not AB.weAreWinning and not AB.pickupPhase then
                 local gKey = _G.AHLastTargetLot:GetAttribute("GUID") or _G.AHLastTargetLot.Name
+                local gNameStr = tostring(_G.AHLastTargetLot:GetAttribute("GarageId") or _G.AHLastTargetLot.Name or "")
+                local isTgCd = (tostring(_G.AHLastTargetLot:GetAttribute("AreaName") or "") == "Thanksgiving") or (string.find(gNameStr, "Thanksgiving") ~= nil)
                 _G.AHGarageCooldowns = _G.AHGarageCooldowns or {}
-                _G.AHGarageCooldowns[gKey] = os.clock() + 60
+                _G.AHGarageCooldowns[gKey] = os.clock() + (isTgCd and 12 or 60)
                 _G.AHLastTargetLot = nil
             end
             
@@ -16975,7 +24103,22 @@ if UpdateWinningBidEvent then
         AB.biddingUIOpen = true
         
         local isAirdrop = AB.activeLot and (string.find(AB.activeLot, "Airdrop") or AB.activeLot == "Camo Airdrop")
-        local bypassMinBid = isAirdrop and (gConfig.alwaysCollectAirdrop == true)
+        local gCheck = garageInst or AB.activeGarageInstance
+        if AB.enabled and AB.auctionOpen and AB.minStartBid > 0 and gCheck then
+            local needsScan = (gConfig.autoIndexHunter == true)
+                or (gConfig.alwaysBidTurkeySafe == true)
+                or (gConfig.alwaysBidThanksgivingFood == true)
+                or (gConfig.alwaysBidFishingBait == true)
+                or (gConfig.alwaysBidPickleLots == true)
+            local fl = needsScan and gCheck:FindFirstChild("Floorspace")
+            if fl and #fl:GetChildren() == 0 then
+                local dl = os.clock() + 0.6
+                while fl.Parent and #fl:GetChildren() == 0 and AB.auctionOpen and os.clock() < dl do
+                    task.wait(0.05)
+                end
+            end
+        end
+        local bypassMinBid = (isAirdrop and (gConfig.alwaysCollectAirdrop == true)) or (_G.shouldBypassMinBidForGarage and _G.shouldBypassMinBidForGarage(gCheck))
         if AB.enabled and AB.auctionOpen and AB.minStartBid > 0 and not bypassMinBid and AB.currentBid < AB.minStartBid then
             AB.minBidBlocked = true
             AB.auctionOpen   = false
@@ -17287,1377 +24430,15 @@ end
         local indexClaimToggleCard, updateIndexClaim = createToggle(tabAutomation, "Auto Claim Index Book Rewards", gConfig.autoClaimIndexRewards, function(state)
             gConfig.autoClaimIndexRewards = state
             saveConfig()
+            if _G._masteryIndexClaimUpd then pcall(_G._masteryIndexClaimUpd, state) end
         end)
-        _G.uiToggles["autoClaimIndexRewards"] = updateIndexClaim
+        _G._automationIndexClaimUpd = updateIndexClaim
+        _G.uiToggles["autoClaimIndexRewards"] = function(state)
+            pcall(updateIndexClaim, state)
+            if _G._masteryIndexClaimUpd then pcall(_G._masteryIndexClaimUpd, state) end
+        end
 
     end
-
-    -- ═════════════════════════════════════════════════════
-    -- 🛡️ ITEM RULES SYSTEM (BETA) - MODAL & LAUNCHER SETUP
-    -- ═════════════════════════════════════════════════════
-    do
-        local knownMutationsList = {
-            "None", "Silver", "Gold", "Corrupted", "Diamond", "Gem", "Rainbow",
-            "Dusty", "Saloon Sparkle", "Tumbleweed", "Gunsmoked", "Goldrush",
-            "Polished Brass", "Steam", "Clockwork",
-            "Titanium", "Morganite", "Citrine", "Lapis", "Carnelian", "Aquamarine",
-            "Amethyst", "Emerald", "Sapphire", "Ruby",
-            "Bulletproof", "Fortified", "Jestered", "Vaulted", "Camo", "Warforged", "Encrypted"
-        }
-        local knownRaritiesList = {
-            "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Secret", "Exotic", "Ancient", "Divine", "Special"
-        }
-        local knownIsTypesList = {
-            "Vault items", "Energy drinks", "Event exclusives", "Limited items"
-        }
-
-        local function getLiveCatalogItems()
-            local items = {}
-            local seen = {}
-            if ItemsData then
-                for id, data in pairs(ItemsData) do
-                    if type(data) == "table" and data.Name and not seen[data.Name] then
-                        seen[data.Name] = true
-                        table.insert(items, data.Name)
-                    end
-                end
-            end
-            if #items == 0 then
-                pcall(function()
-                    for _, desc in ipairs(workspace:GetDescendants()) do
-                        if desc:IsA("Model") then
-                            local n = desc:GetAttribute("ItemName") or desc:GetAttribute("Name")
-                            if n and not seen[n] and not n:lower():find("garage") then
-                                seen[n] = true
-                                table.insert(items, n)
-                            end
-                        end
-                    end
-                end)
-            end
-            table.sort(items)
-            return items
-        end
-
-        local function getLiveCategories()
-            local cats = {}
-            local seen = {}
-            if ItemsData then
-                for _, data in pairs(ItemsData) do
-                    if type(data) == "table" then
-                        local cat = tostring(data.Category or data.category or data.Type or "Misc")
-                        if not seen[cat] then
-                            seen[cat] = true
-                            table.insert(cats, cat)
-                        end
-                    end
-                end
-            end
-            if #cats == 0 then
-                cats = {"Antique", "Electronics", "Furniture", "Jewelry", "Tools", "Weapons", "Vehicles", "Collectibles", "Safes", "Drinks", "Misc"}
-            end
-            table.sort(cats)
-            return cats
-        end
-
-        -- ── 1. STANDALONE ITEM RULES MODAL FRAME (640 x 420) ──
-        local ItemRulesModal = make("Frame", {
-            Name = "ItemRulesModal",
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, 640, 0, 420),
-            BackgroundColor3 = Color3.fromRGB(12, 14, 20),
-            ClipsDescendants = true,
-            Active = true,
-            Visible = false,
-            ZIndex = 100000,
-        }, ScreenGui)
-        corner(8, ItemRulesModal)
-        stroke(1.2, C.border, ItemRulesModal)
-
-        -- TitleBar
-        local ModalTitleBar = make("Frame", {
-            Size = UDim2.new(1, 0, 0, 36),
-            BackgroundColor3 = COLORS.Sidebar,
-            BorderSizePixel = 0,
-            ZIndex = 100001,
-        }, ItemRulesModal)
-        corner(8, ModalTitleBar)
-
-        local ModalTitleLabel = make("TextLabel", {
-            Size = UDim2.new(0.5, 0, 1, 0),
-            Position = UDim2.new(0, 14, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "Item Rules",
-            TextColor3 = C.text,
-            TextSize = 13,
-            Font = Enum.Font.MontserratBold,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 100002,
-        }, ModalTitleBar)
-
-        -- Red Close [X] Button
-        local ModalCloseBtn = make("TextButton", {
-            Size = UDim2.new(0, 24, 0, 24),
-            Position = UDim2.new(1, -30, 0.5, -12),
-            BackgroundColor3 = Color3.fromRGB(130, 30, 30),
-            Text = "X",
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextSize = 11,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            AutoButtonColor = false,
-            ZIndex = 100002,
-        }, ModalTitleBar)
-        corner(4, ModalCloseBtn)
-
-        ModalCloseBtn.MouseButton1Click:Connect(function()
-            ItemRulesModal.Visible = false
-        end)
-
-        -- Draggable Modal Logic
-        local draggingModal, dragStartModal, dragStartModalCenter = false, nil, nil
-        ModalTitleBar.InputBegan:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-                draggingModal = true
-                dragStartModal = inp.Position
-                dragStartModalCenter = Vector2.new(
-                    ItemRulesModal.AbsolutePosition.X + (ItemRulesModal.AbsoluteSize.X / 2),
-                    ItemRulesModal.AbsolutePosition.Y + (ItemRulesModal.AbsoluteSize.Y / 2)
-                )
-            end
-        end)
-        table.insert(cleanUpSignals, UserInputService.InputEnded:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-                draggingModal = false
-            end
-        end))
-        table.insert(cleanUpSignals, UserInputService.InputChanged:Connect(function(inp)
-            if draggingModal and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-                local delta = inp.Position - dragStartModal
-                local targetX = dragStartModalCenter.X + delta.X
-                local targetY = dragStartModalCenter.Y + delta.Y
-                local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
-                local halfW = ItemRulesModal.AbsoluteSize.X / 2
-                local halfH = ItemRulesModal.AbsoluteSize.Y / 2
-                ItemRulesModal.Position = UDim2.new(0, math.clamp(targetX, halfW, vp.X - halfW), 0, math.clamp(targetY, halfH, vp.Y - halfH))
-            end
-        end))
-
-        -- ── 2. SUBTAB SWITCHER: [Rules] vs [Lists] ──
-        local currentSubtab = "rules"
-        local currentSelectedLane = "AutoSell"
-        local currentSelectedRuleIdx = 1
-
-        local subtabBar = make("Frame", {
-            Size = UDim2.new(0, 180, 0, 28),
-            Position = UDim2.new(0, 14, 0, 42),
-            BackgroundTransparency = 1,
-            ZIndex = 100001,
-        }, ItemRulesModal)
-        list(Enum.HorizontalAlignment.Left, 6, subtabBar).FillDirection = Enum.FillDirection.Horizontal
-
-        local btnRulesTab = make("TextButton", {
-            Size = UDim2.new(0, 85, 1, 0),
-            BackgroundColor3 = Color3.fromRGB(60, 120, 220),
-            Text = "Rules",
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextSize = 11,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            AutoButtonColor = false,
-            ZIndex = 100002,
-        }, subtabBar)
-        corner(6, btnRulesTab)
-
-        local btnListsTab = make("TextButton", {
-            Size = UDim2.new(0, 85, 1, 0),
-            BackgroundColor3 = C.card,
-            Text = "Lists",
-            TextColor3 = C.text2,
-            TextSize = 11,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            AutoButtonColor = false,
-            ZIndex = 100002,
-        }, subtabBar)
-        corner(6, btnListsTab)
-
-        -- Main Content Split Container
-        local modalBody = make("Frame", {
-            Size = UDim2.new(1, -28, 1, -112),
-            Position = UDim2.new(0, 14, 0, 76),
-            BackgroundTransparency = 1,
-            ZIndex = 100001,
-        }, ItemRulesModal)
-
-        -- Left Pane (180px)
-        local leftPane = make("Frame", {
-            Size = UDim2.new(0, 180, 1, 0),
-            Position = UDim2.new(0, 0, 0, 0),
-            BackgroundTransparency = 1,
-            ZIndex = 100002,
-        }, modalBody)
-
-        local leftHeader = make("TextLabel", {
-            Size = UDim2.new(1, 0, 0, 18),
-            BackgroundTransparency = 1,
-            Text = "RULES (ordered)",
-            TextColor3 = Color3.fromRGB(0, 200, 255),
-            TextSize = 9,
-            Font = Enum.Font.MontserratBold,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 100003,
-        }, leftPane)
-
-        local leftScroll = make("ScrollingFrame", {
-            Size = UDim2.new(1, 0, 1, -44),
-            Position = UDim2.new(0, 0, 0, 20),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            ScrollBarThickness = 3,
-            ScrollBarImageColor3 = C.accent,
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollingDirection = Enum.ScrollingDirection.Y,
-            ZIndex = 100003,
-        }, leftPane)
-        list(Enum.HorizontalAlignment.Center, 4, leftScroll)
-
-        local leftFooter = make("TextLabel", {
-            Size = UDim2.new(1, 0, 0, 22),
-            Position = UDim2.new(0, 0, 1, -22),
-            BackgroundTransparency = 1,
-            Text = "First match wins.",
-            TextColor3 = C.textMuted,
-            TextSize = 8.5,
-            Font = Enum.Font.Montserrat,
-            TextWrapped = true,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 100003,
-        }, leftPane)
-
-        -- Right Pane (Inspector / Lane Editor)
-        local rightPane = make("ScrollingFrame", {
-            Size = UDim2.new(1, -192, 1, 0),
-            Position = UDim2.new(0, 192, 0, 0),
-            BackgroundColor3 = Color3.fromRGB(16, 20, 30),
-            BorderSizePixel = 0,
-            ScrollBarThickness = 3,
-            ScrollBarImageColor3 = C.accent,
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollingDirection = Enum.ScrollingDirection.Y,
-            ZIndex = 100002,
-        }, modalBody)
-        corner(6, rightPane)
-        stroke(1, C.border, rightPane)
-        pad(10, rightPane)
-        list(Enum.HorizontalAlignment.Left, 6, rightPane)
-
-        -- Bottom Status Bar
-        local modalFooter = make("TextLabel", {
-            Size = UDim2.new(1, -28, 0, 24),
-            Position = UDim2.new(0, 14, 1, -28),
-            BackgroundTransparency = 1,
-            Text = "Lists decide which items a lane touches. A rule beats a list for the items it names.",
-            TextColor3 = C.textMuted,
-            TextSize = 9,
-            Font = Enum.Font.MontserratMedium,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 100002,
-        }, ItemRulesModal)
-
-        -- ── 3. MULTI-SELECT PICKER DIALOG POPUP (380 x 320) ──
-        local PickerOverlay = make("Frame", {
-            Name = "PickerOverlay",
-            Size = UDim2.new(1, 0, 1, 0),
-            BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-            BackgroundTransparency = 0.5,
-            Visible = false,
-            ZIndex = 200000,
-        }, ItemRulesModal)
-
-        local PickerBox = make("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, 380, 0, 320),
-            BackgroundColor3 = Color3.fromRGB(15, 18, 28),
-            BorderSizePixel = 0,
-            ClipsDescendants = true,
-            ZIndex = 200001,
-        }, PickerOverlay)
-        corner(8, PickerBox)
-        stroke(1.5, Color3.fromRGB(0, 200, 255), PickerBox)
-
-        local PickerTitleBar = make("Frame", {
-            Size = UDim2.new(1, 0, 0, 32),
-            BackgroundColor3 = Color3.fromRGB(22, 27, 40),
-            BorderSizePixel = 0,
-            ZIndex = 200002,
-        }, PickerBox)
-
-        local PickerTitle = make("TextLabel", {
-            Size = UDim2.new(1, -40, 1, 0),
-            Position = UDim2.new(0, 10, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "Select Items",
-            TextColor3 = C.text,
-            TextSize = 11,
-            Font = Enum.Font.MontserratBold,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 200003,
-        }, PickerTitleBar)
-
-        local PickerCloseBtn = make("TextButton", {
-            Size = UDim2.new(0, 20, 0, 20),
-            Position = UDim2.new(1, -26, 0.5, -10),
-            BackgroundColor3 = C.card,
-            Text = "X",
-            TextColor3 = C.text2,
-            TextSize = 10,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            ZIndex = 200003,
-        }, PickerTitleBar)
-        corner(4, PickerCloseBtn)
-
-        local PickerSearchFrame = make("Frame", {
-            Size = UDim2.new(1, -20, 0, 26),
-            Position = UDim2.new(0, 10, 0, 38),
-            BackgroundColor3 = C.card,
-            BorderSizePixel = 0,
-            ZIndex = 200002,
-        }, PickerBox)
-        corner(5, PickerSearchFrame)
-        stroke(1, C.border, PickerSearchFrame)
-
-        local PickerSearchBox = make("TextBox", {
-            Size = UDim2.new(1, -12, 1, 0),
-            Position = UDim2.new(0, 6, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "",
-            PlaceholderText = "Search...",
-            TextColor3 = C.text,
-            PlaceholderColor3 = C.text2,
-            TextSize = 10,
-            Font = Enum.Font.Montserrat,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ClearTextOnFocus = false,
-            ZIndex = 200003,
-        }, PickerSearchFrame)
-
-        local PickerScroll = make("ScrollingFrame", {
-            Size = UDim2.new(1, -20, 1, -112),
-            Position = UDim2.new(0, 10, 0, 70),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            ScrollBarThickness = 3,
-            ScrollBarImageColor3 = C.accent,
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollingDirection = Enum.ScrollingDirection.Y,
-            ZIndex = 200002,
-        }, PickerBox)
-        list(Enum.HorizontalAlignment.Left, 2, PickerScroll)
-
-        local PickerActionBar = make("Frame", {
-            Size = UDim2.new(1, -20, 0, 28),
-            Position = UDim2.new(0, 10, 1, -34),
-            BackgroundTransparency = 1,
-            ZIndex = 200002,
-        }, PickerBox)
-        list(Enum.HorizontalAlignment.Right, 6, PickerActionBar).FillDirection = Enum.FillDirection.Horizontal
-
-        local btnPickerSelectAll = make("TextButton", {
-            Size = UDim2.new(0, 75, 1, 0),
-            BackgroundColor3 = C.card,
-            Text = "Select All",
-            TextColor3 = C.text2,
-            TextSize = 9,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            ZIndex = 200003,
-        }, PickerActionBar)
-        corner(4, btnPickerSelectAll); stroke(1, C.border, btnPickerSelectAll)
-
-        local btnPickerClearAll = make("TextButton", {
-            Size = UDim2.new(0, 75, 1, 0),
-            BackgroundColor3 = C.card,
-            Text = "Clear All",
-            TextColor3 = C.red,
-            TextSize = 9,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            ZIndex = 200003,
-        }, PickerActionBar)
-        corner(4, btnPickerClearAll); stroke(1, C.border, btnPickerClearAll)
-
-        local btnPickerDone = make("TextButton", {
-            Size = UDim2.new(0, 70, 1, 0),
-            BackgroundColor3 = Color3.fromRGB(60, 120, 220),
-            Text = "Done",
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextSize = 10,
-            Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0,
-            ZIndex = 200003,
-        }, PickerActionBar)
-        corner(4, btnPickerDone)
-
-        local activePickerCallback = nil
-        local activePickerTargetSet = nil
-        local activePickerOptions = {}
-        local pickerRowButtons = {}
-
-        local function refreshPickerRows(query)
-            query = query and query:lower() or ""
-            for _, btn in ipairs(pickerRowButtons) do btn:Destroy() end
-            pickerRowButtons = {}
-
-            for _, opt in ipairs(activePickerOptions) do
-                if query == "" or opt:lower():find(query, 1, true) then
-                    local isChecked = activePickerTargetSet and activePickerTargetSet[opt] == true
-                    local rowBtn = make("TextButton", {
-                        Size = UDim2.new(1, 0, 0, 22),
-                        BackgroundColor3 = isChecked and Color3.fromRGB(28, 38, 58) or Color3.fromRGB(18, 22, 32),
-                        Text = (isChecked and " [X]  " or " [ ]  ") .. opt,
-                        TextColor3 = isChecked and Color3.fromRGB(0, 200, 255) or C.text2,
-                        TextSize = 9.5,
-                        Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        BorderSizePixel = 0,
-                        AutoButtonColor = false,
-                        ZIndex = 200004,
-                    }, PickerScroll)
-                    corner(4, rowBtn)
-                    local optRef = opt
-                    rowBtn.MouseButton1Click:Connect(function()
-                        if activePickerTargetSet then
-                            if activePickerTargetSet[optRef] then
-                                activePickerTargetSet[optRef] = nil
-                            else
-                                activePickerTargetSet[optRef] = true
-                            end
-                            saveConfig()
-                            refreshPickerRows(PickerSearchBox.Text)
-                            if activePickerCallback then activePickerCallback() end
-                        end
-                    end)
-                    table.insert(pickerRowButtons, rowBtn)
-                end
-            end
-        end
-
-        local function openPicker(title, optionsList, targetSet, onDone)
-            PickerTitle.Text = "Select " .. title
-            PickerSearchBox.Text = ""
-            activePickerOptions = optionsList
-            activePickerTargetSet = targetSet
-            activePickerCallback = onDone
-            refreshPickerRows("")
-            PickerOverlay.Visible = true
-        end
-
-        local function closePicker()
-            PickerOverlay.Visible = false
-            if activePickerCallback then activePickerCallback() end
-            saveConfig()
-        end
-
-        PickerCloseBtn.MouseButton1Click:Connect(closePicker)
-        btnPickerDone.MouseButton1Click:Connect(closePicker)
-        PickerSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-            refreshPickerRows(PickerSearchBox.Text)
-        end)
-        btnPickerSelectAll.MouseButton1Click:Connect(function()
-            if activePickerTargetSet then
-                for _, opt in ipairs(activePickerOptions) do activePickerTargetSet[opt] = true end
-                refreshPickerRows(PickerSearchBox.Text)
-                if activePickerCallback then activePickerCallback() end
-                saveConfig()
-            end
-        end)
-        btnPickerClearAll.MouseButton1Click:Connect(function()
-            if activePickerTargetSet then
-                table.clear(activePickerTargetSet)
-                refreshPickerRows(PickerSearchBox.Text)
-                if activePickerCallback then activePickerCallback() end
-                saveConfig()
-            end
-        end)
-
-        -- ── 4. RENDERERS FOR [Rules] AND [Lists] ──
-        local renderModalBody = nil
-
-        local function getFilterCount(targetTable)
-            if not targetTable then return 0 end
-            local c = 0
-            for _, _ in pairs(targetTable) do c = c + 1 end
-            return c
-        end
-
-        local function getLaneTotalFilters(laneKey)
-            local lane = gConfig.itemLists and gConfig.itemLists[laneKey]
-            if not lane then return 0 end
-            local cnt = getFilterCount(lane.items) + getFilterCount(lane.mutations) + getFilterCount(lane.categories) + getFilterCount(lane.rarities)
-            if lane.vaultItems then cnt = cnt + 1 end
-            if lane.energyDrinks then cnt = cnt + 1 end
-            if lane.limitedItems then cnt = cnt + 1 end
-            if lane.eventExclusives then cnt = cnt + 1 end
-            return cnt
-        end
-
-        -- Row builder helper for Left Panel
-        local function makeLeftLaneButton(name, count, isSelected, onClick)
-            local btn = make("TextButton", {
-                Size = UDim2.new(1, 0, 0, 26),
-                BackgroundColor3 = isSelected and Color3.fromRGB(60, 120, 220) or Color3.fromRGB(22, 28, 42),
-                Text = string.format(" %s (%d)", name, count),
-                TextColor3 = isSelected and Color3.fromRGB(255, 255, 255) or C.text2,
-                TextSize = 10,
-                Font = Enum.Font.MontserratBold,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                BorderSizePixel = 0,
-                AutoButtonColor = false,
-                ZIndex = 100004,
-            }, leftScroll)
-            corner(5, btn)
-            btn.MouseButton1Click:Connect(onClick)
-            return btn
-        end
-
-        -- Row builder helper for Right Panel Checkbox
-        local function makeInspectorCheckbox(parent, labelText, descText, isChecked, onToggle)
-            local card = make("Frame", {
-                Size = UDim2.new(1, 0, 0, descText and 36 or 24),
-                BackgroundColor3 = Color3.fromRGB(20, 26, 38),
-                BorderSizePixel = 0,
-                ZIndex = 100003,
-            }, parent)
-            corner(4, card)
-            
-            local boxBtn = make("TextButton", {
-                Size = UDim2.new(1, 0, 0, 20),
-                BackgroundTransparency = 1,
-                Text = (isChecked and " [X]  " or " [ ]  ") .. labelText,
-                TextColor3 = isChecked and Color3.fromRGB(0, 215, 255) or C.text,
-                TextSize = 9.5,
-                Font = Enum.Font.MontserratBold,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                ZIndex = 100004,
-            }, card)
-
-            if descText then
-                make("TextLabel", {
-                    Size = UDim2.new(1, -18, 0, 14),
-                    Position = UDim2.new(0, 18, 0, 18),
-                    BackgroundTransparency = 1,
-                    Text = descText,
-                    TextColor3 = C.textMuted,
-                    TextSize = 8,
-                    Font = Enum.Font.Montserrat,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ZIndex = 100004,
-                }, card)
-            end
-
-            boxBtn.MouseButton1Click:Connect(function()
-                onToggle(not isChecked)
-            end)
-            return card
-        end
-
-        -- Row builder helper for Selector Row
-        local function makeInspectorSelectorRow(parent, labelText, targetSet, optionsGetter, title)
-            local row = make("Frame", {
-                Size = UDim2.new(1, 0, 0, 24),
-                BackgroundTransparency = 1,
-                ZIndex = 100003,
-            }, parent)
-
-            make("TextLabel", {
-                Size = UDim2.new(0, 95, 1, 0),
-                BackgroundTransparency = 1,
-                Text = labelText,
-                TextColor3 = C.text2,
-                TextSize = 9.5,
-                Font = Enum.Font.MontserratBold,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                ZIndex = 100004,
-            }, row)
-
-            local count = getFilterCount(targetSet)
-            local badgeText = count == 0 and "(0) nothing" or string.format("(%d) selected", count)
-
-            local badgeBtn = make("TextButton", {
-                Size = UDim2.new(1, -155, 1, 0),
-                Position = UDim2.new(0, 100, 0, 0),
-                BackgroundColor3 = Color3.fromRGB(24, 30, 44),
-                Text = badgeText,
-                TextColor3 = count > 0 and Color3.fromRGB(0, 215, 255) or C.text2,
-                TextSize = 9.5,
-                Font = Enum.Font.Montserrat,
-                BorderSizePixel = 0,
-                AutoButtonColor = false,
-                ZIndex = 100004,
-            }, row)
-            corner(4, badgeBtn); stroke(1, C.border, badgeBtn)
-
-            local clearBtn = make("TextButton", {
-                Size = UDim2.new(0, 48, 1, 0),
-                Position = UDim2.new(1, -48, 0, 0),
-                BackgroundColor3 = Color3.fromRGB(28, 22, 32),
-                Text = "clear",
-                TextColor3 = count > 0 and C.red or C.textMuted,
-                TextSize = 9,
-                Font = Enum.Font.MontserratBold,
-                BorderSizePixel = 0,
-                ZIndex = 100004,
-            }, row)
-            corner(4, clearBtn); stroke(1, C.border, clearBtn)
-
-            badgeBtn.MouseButton1Click:Connect(function()
-                openPicker(title or labelText, optionsGetter(), targetSet, function()
-                    renderModalBody()
-                end)
-            end)
-
-            clearBtn.MouseButton1Click:Connect(function()
-                table.clear(targetSet)
-                saveConfig()
-                renderModalBody()
-            end)
-            return row
-        end
-
-        renderModalBody = function()
-            for _, c in ipairs(leftScroll:GetChildren()) do if not c:IsA("UIListLayout") then c:Destroy() end end
-            for _, c in ipairs(rightPane:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end end
-
-            tw(btnRulesTab, 0.12, {
-                BackgroundColor3 = currentSubtab == "rules" and Color3.fromRGB(60, 120, 220) or C.card,
-                TextColor3 = currentSubtab == "rules" and Color3.fromRGB(255, 255, 255) or C.text2
-            })
-            tw(btnListsTab, 0.12, {
-                BackgroundColor3 = currentSubtab == "lists" and Color3.fromRGB(60, 120, 220) or C.card,
-                TextColor3 = currentSubtab == "lists" and Color3.fromRGB(255, 255, 255) or C.text2
-            })
-
-            -- ── MODE 1: [LISTS] (Default Lanes) ──
-            if currentSubtab == "lists" then
-                leftHeader.Text = "LISTS (per lane)"
-                leftFooter.Text = "The number is how many things that lane filters on."
-
-                local lanes = {"Pickup", "Shelves", "AutoSell", "Grading", "Auction"}
-                for _, laneName in ipairs(lanes) do
-                    local isSel = (currentSelectedLane == laneName)
-                    local cnt = getLaneTotalFilters(laneName)
-                    makeLeftLaneButton(laneName, cnt, isSel, function()
-                        currentSelectedLane = laneName
-                        renderModalBody()
-                    end)
-                end
-
-                local lists = gConfig.itemLists
-                if currentSelectedLane == "AutoSell" then
-                    local autoSell = lists.AutoSell
-                    autoSell.items = autoSell.items or {}
-                    autoSell.mutations = autoSell.mutations or {}
-                    autoSell.categories = autoSell.categories or {}
-                    autoSell.rarities = autoSell.rarities or {}
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "AutoSell -- never sold",
-                        TextColor3 = Color3.fromRGB(80, 160, 255),
-                        TextSize = 11, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 14),
-                        BackgroundTransparency = 1,
-                        Text = "Anything picked here is kept rather than sold.",
-                        TextColor3 = C.text2,
-                        TextSize = 9, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    makeInspectorSelectorRow(rightPane, "Item names", autoSell.items, getLiveCatalogItems, "Item Names")
-                    
-                    makeInspectorCheckbox(rightPane, "Vault items (safes)", "Unopened safes, which the locksmith can still open.", autoSell.vaultItems == true, function(s)
-                        autoSell.vaultItems = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Energy drinks", "Your luck and rush potions.", autoSell.energyDrinks == true, function(s)
-                        autoSell.energyDrinks = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Event exclusives", "In-game events (Sandstorm, Police). Usually worth keeping.", autoSell.eventExclusives == true, function(s)
-                        autoSell.eventExclusives = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Limited items", "Timed-event items (Alien Invasion). Usually worth keeping.", autoSell.limitedItems == true, function(s)
-                        autoSell.limitedItems = s; saveConfig(); renderModalBody()
-                    end)
-
-                    makeInspectorSelectorRow(rightPane, "Mutations", autoSell.mutations, function() return knownMutationsList end, "Mutations")
-                    makeInspectorSelectorRow(rightPane, "Categories", autoSell.categories, getLiveCategories, "Categories")
-                    makeInspectorSelectorRow(rightPane, "Rarities", autoSell.rarities, function() return knownRaritiesList end, "Rarities")
-
-                elseif currentSelectedLane == "Grading" then
-                    local grading = lists.Grading
-                    grading.rarities = grading.rarities or {}
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "Grading -- which rarities get graded",
-                        TextColor3 = Color3.fromRGB(80, 160, 255),
-                        TextSize = 11, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 14),
-                        BackgroundTransparency = 1,
-                        Text = "These rarities ARE graded -- a keep-list, not a skip-list.",
-                        TextColor3 = C.text2,
-                        TextSize = 9, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 48),
-                        BackgroundTransparency = 1,
-                        Text = "No name, category, mutation or limited boxes: Auto Grade never had them. Use a rule.\n\"Grade Vault Before Opening\" stays on the Processing tab: it is a sequencing switch, not a filter: with Auto Vault on it grades safes even if Auto Grade is off, so it is not something this list controls.",
-                        TextColor3 = Color3.fromRGB(240, 180, 60),
-                        TextSize = 8, Font = Enum.Font.Montserrat,
-                        TextWrapped = true,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    makeInspectorSelectorRow(rightPane, "Rarities to grade", grading.rarities, function() return knownRaritiesList end, "Rarities")
-
-                    makeInspectorCheckbox(rightPane, "Energy drinks (grade them)", "ON = graded first and regardless of the rarity list. The console says why if one is not.", grading.energyDrinks == true, function(s)
-                        grading.energyDrinks = s; saveConfig(); renderModalBody()
-                    end)
-
-                elseif currentSelectedLane == "Auction" then
-                    local auction = lists.Auction
-                    auction.mutations = auction.mutations or {}
-                    auction.items = auction.items or {}
-                    auction.rarities = auction.rarities or {}
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "Auction -- ignores your Min Bid",
-                        TextColor3 = Color3.fromRGB(80, 160, 255),
-                        TextSize = 11, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 14),
-                        BackgroundTransparency = 1,
-                        Text = "A garage holding any of these is worth entering under Min Bid.",
-                        TextColor3 = C.text2,
-                        TextSize = 9, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 50),
-                        BackgroundTransparency = 1,
-                        Text = "Boxed items never match whatever you tick: roughly half a garage cannot be identified by anyone before the win. That is the real ceiling here.\nNo category/limited/vault boxes: they are reachable the same way rarities are, but each name costs ~68ms to learn and the preview cache dies near 141. Value is the one thing genuinely unknowable before a win.",
-                        TextColor3 = Color3.fromRGB(240, 180, 60),
-                        TextSize = 8, Font = Enum.Font.Montserrat,
-                        TextWrapped = true,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    makeInspectorSelectorRow(rightPane, "Mutations", auction.mutations, function() return knownMutationsList end, "Mutations")
-                    makeInspectorSelectorRow(rightPane, "Item names", auction.items, getLiveCatalogItems, "Item Names")
-                    makeInspectorSelectorRow(rightPane, "Rarities", auction.rarities, function() return knownRaritiesList end, "Rarities")
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "WHAT IS ACTUALLY WATCHED",
-                        TextColor3 = Color3.fromRGB(0, 200, 255),
-                        TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 36),
-                        BackgroundTransparency = 1,
-                        Text = "No item or rarity selected -- Min Bid applies normally.\nMutations always work. Items and rarities must be learned first with \"Learn ALL Items\" on the Auction tab. Boxed items never match.",
-                        TextColor3 = Color3.fromRGB(240, 180, 60),
-                        TextSize = 8, Font = Enum.Font.Montserrat,
-                        TextWrapped = true,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                elseif currentSelectedLane == "Pickup" then
-                    local pickup = lists.Pickup
-                    pickup.items = pickup.items or {}
-                    pickup.categories = pickup.categories or {}
-                    pickup.rarities = pickup.rarities or {}
-                    pickup.mutations = pickup.mutations or {}
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "Pickup -- left on ground",
-                        TextColor3 = Color3.fromRGB(80, 160, 255),
-                        TextSize = 11, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 14),
-                        BackgroundTransparency = 1,
-                        Text = "Anything picked here is ignored and left on the ground.",
-                        TextColor3 = C.text2,
-                        TextSize = 9, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    makeInspectorSelectorRow(rightPane, "Item names", pickup.items, getLiveCatalogItems, "Item Names")
-                    makeInspectorSelectorRow(rightPane, "Categories", pickup.categories, getLiveCategories, "Categories")
-                    makeInspectorSelectorRow(rightPane, "Rarities", pickup.rarities, function() return knownRaritiesList end, "Rarities")
-                    makeInspectorSelectorRow(rightPane, "Mutations", pickup.mutations, function() return knownMutationsList end, "Mutations")
-
-                    makeInspectorCheckbox(rightPane, "Limited items", "Timed-event items (Alien Invasion). Usually left if inventory full.", pickup.limitedItems == true, function(s)
-                        pickup.limitedItems = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Vault items", "Unopened safes.", pickup.vaultItems == true, function(s)
-                        pickup.vaultItems = s; saveConfig(); renderModalBody()
-                    end)
-
-                elseif currentSelectedLane == "Shelves" then
-                    local shelves = lists.Shelves
-                    shelves.items = shelves.items or {}
-                    shelves.mutations = shelves.mutations or {}
-                    shelves.categories = shelves.categories or {}
-                    shelves.rarities = shelves.rarities or {}
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "Shelves -- never put on shelf",
-                        TextColor3 = Color3.fromRGB(80, 160, 255),
-                        TextSize = 11, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 14),
-                        BackgroundTransparency = 1,
-                        Text = "Anything picked here stays in your bag rather than displayed.",
-                        TextColor3 = C.text2,
-                        TextSize = 9, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    makeInspectorSelectorRow(rightPane, "Item names", shelves.items, getLiveCatalogItems, "Item Names")
-
-                    makeInspectorCheckbox(rightPane, "Vault items", "Unopened safes.", shelves.vaultItems == true, function(s)
-                        shelves.vaultItems = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Limited items", "Timed-event items.", shelves.limitedItems == true, function(s)
-                        shelves.limitedItems = s; saveConfig(); renderModalBody()
-                    end)
-                    makeInspectorCheckbox(rightPane, "Event exclusives", "In-game event items.", shelves.eventExclusives == true, function(s)
-                        shelves.eventExclusives = s; saveConfig(); renderModalBody()
-                    end)
-
-                    makeInspectorSelectorRow(rightPane, "Mutations", shelves.mutations, function() return knownMutationsList end, "Mutations")
-                    makeInspectorSelectorRow(rightPane, "Categories", shelves.categories, getLiveCategories, "Categories")
-                    makeInspectorSelectorRow(rightPane, "Rarities", shelves.rarities, function() return knownRaritiesList end, "Rarities")
-                end
-
-            -- ── MODE 2: [RULES] (Custom Prioritized Engine) ──
-            else
-                leftHeader.Text = "RULES (ordered)"
-                leftFooter.Text = "First match wins. Drag or use arrows to prioritize."
-
-                local rules = gConfig.itemRules
-                for idx, rule in ipairs(rules) do
-                    local isSel = (currentSelectedRuleIdx == idx)
-                    local rowFrame = make("Frame", {
-                        Size = UDim2.new(1, 0, 0, 26),
-                        BackgroundColor3 = isSel and Color3.fromRGB(35, 45, 68) or Color3.fromRGB(20, 25, 36),
-                        BorderSizePixel = 0,
-                        ZIndex = 100004,
-                    }, leftScroll)
-                    corner(5, rowFrame)
-                    if isSel then stroke(1, Color3.fromRGB(0, 200, 255), rowFrame) end
-
-                    local selectBtn = make("TextButton", {
-                        Size = UDim2.new(1, -55, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = string.format(" %d. %s", idx, rule.name or "empty"),
-                        TextColor3 = isSel and Color3.fromRGB(255, 255, 255) or C.text2,
-                        TextSize = 9.5,
-                        Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        TextTruncate = Enum.TextTruncate.AtEnd,
-                        ZIndex = 100005,
-                    }, rowFrame)
-                    selectBtn.MouseButton1Click:Connect(function()
-                        currentSelectedRuleIdx = idx
-                        renderModalBody()
-                    end)
-
-                    local btnUp = make("TextButton", {
-                        Size = UDim2.new(0, 16, 0, 18),
-                        Position = UDim2.new(1, -52, 0.5, -9),
-                        BackgroundColor3 = C.card,
-                        Text = "^", TextColor3 = C.text2,
-                        TextSize = 8, Font = Enum.Font.MontserratBold,
-                        BorderSizePixel = 0, ZIndex = 100005,
-                    }, rowFrame)
-                    corner(3, btnUp)
-                    btnUp.MouseButton1Click:Connect(function()
-                        if idx > 1 then
-                            local temp = rules[idx]
-                            rules[idx] = rules[idx - 1]
-                            rules[idx - 1] = temp
-                            currentSelectedRuleIdx = idx - 1
-                            saveConfig()
-                            renderModalBody()
-                        end
-                    end)
-
-                    local btnDown = make("TextButton", {
-                        Size = UDim2.new(0, 16, 0, 18),
-                        Position = UDim2.new(1, -34, 0.5, -9),
-                        BackgroundColor3 = C.card,
-                        Text = "v", TextColor3 = C.text2,
-                        TextSize = 8, Font = Enum.Font.MontserratBold,
-                        BorderSizePixel = 0, ZIndex = 100005,
-                    }, rowFrame)
-                    corner(3, btnDown)
-                    btnDown.MouseButton1Click:Connect(function()
-                        if idx < #rules then
-                            local temp = rules[idx]
-                            rules[idx] = rules[idx + 1]
-                            rules[idx + 1] = temp
-                            currentSelectedRuleIdx = idx + 1
-                            saveConfig()
-                            renderModalBody()
-                        end
-                    end)
-
-                    local btnDel = make("TextButton", {
-                        Size = UDim2.new(0, 16, 0, 18),
-                        Position = UDim2.new(1, -17, 0.5, -9),
-                        BackgroundColor3 = Color3.fromRGB(60, 20, 25),
-                        Text = "x", TextColor3 = C.red,
-                        TextSize = 8, Font = Enum.Font.MontserratBold,
-                        BorderSizePixel = 0, ZIndex = 100005,
-                    }, rowFrame)
-                    corner(3, btnDel)
-                    btnDel.MouseButton1Click:Connect(function()
-                        table.remove(rules, idx)
-                        if currentSelectedRuleIdx > #rules then currentSelectedRuleIdx = math.max(1, #rules) end
-                        saveConfig()
-                        renderModalBody()
-                    end)
-                end
-
-                local ruleActionsRow = make("Frame", {
-                    Size = UDim2.new(1, 0, 0, 24),
-                    BackgroundTransparency = 1,
-                    ZIndex = 100004,
-                }, leftScroll)
-                list(Enum.HorizontalAlignment.Center, 4, ruleActionsRow).FillDirection = Enum.FillDirection.Horizontal
-
-                local btnAddRule = make("TextButton", {
-                    Size = UDim2.new(0.55, -2, 1, 0),
-                    BackgroundColor3 = Color3.fromRGB(24, 32, 50),
-                    Text = "+ Add rule",
-                    TextColor3 = Color3.fromRGB(0, 200, 255),
-                    TextSize = 9, Font = Enum.Font.MontserratBold,
-                    BorderSizePixel = 0, ZIndex = 100005,
-                }, ruleActionsRow)
-                corner(4, btnAddRule); stroke(1, C.border, btnAddRule)
-
-                btnAddRule.MouseButton1Click:Connect(function()
-                    table.insert(rules, {
-                        name = "New Rule",
-                        appliesTo = "ALL",
-                        items = {},
-                        mutations = {},
-                        categories = {},
-                        rarities = {},
-                        isTypes = {},
-                        worthMin = 0, worthMax = 0,
-                        weightMin = 0, weightMax = 0,
-                        effects = {},
-                    })
-                    currentSelectedRuleIdx = #rules
-                    saveConfig()
-                    renderModalBody()
-                end)
-
-                local btnClearRule = make("TextButton", {
-                    Size = UDim2.new(0.45, -2, 1, 0),
-                    BackgroundColor3 = Color3.fromRGB(30, 22, 28),
-                    Text = "Clear rule",
-                    TextColor3 = C.red,
-                    TextSize = 9, Font = Enum.Font.MontserratBold,
-                    BorderSizePixel = 0, ZIndex = 100005,
-                }, ruleActionsRow)
-                corner(4, btnClearRule); stroke(1, C.border, btnClearRule)
-
-                btnClearRule.MouseButton1Click:Connect(function()
-                    local cur = rules[currentSelectedRuleIdx]
-                    if cur then
-                        cur.name = "empty"
-                        cur.items = {}
-                        cur.mutations = {}
-                        cur.categories = {}
-                        cur.rarities = {}
-                        cur.isTypes = {}
-                        cur.worthMin = 0; cur.worthMax = 0
-                        cur.weightMin = 0; cur.weightMax = 0
-                        cur.effects = {}
-                        saveConfig()
-                        renderModalBody()
-                    end
-                end)
-
-                local activeRule = rules[currentSelectedRuleIdx]
-                if not activeRule then
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 50),
-                        BackgroundTransparency = 1,
-                        Text = "No rules defined yet.\nClick \"+ Add rule\" on the left to create your first rule.",
-                        TextColor3 = C.text2,
-                        TextSize = 10, Font = Enum.Font.Montserrat,
-                        TextXAlignment = Enum.TextXAlignment.Center,
-                        ZIndex = 100003,
-                    }, rightPane)
-                else
-                    activeRule.items = activeRule.items or {}
-                    activeRule.mutations = activeRule.mutations or {}
-                    activeRule.categories = activeRule.categories or {}
-                    activeRule.rarities = activeRule.rarities or {}
-                    activeRule.isTypes = activeRule.isTypes or {}
-                    activeRule.effects = activeRule.effects or {}
-
-                    local nameRow = make("Frame", {
-                        Size = UDim2.new(1, 0, 0, 26),
-                        BackgroundTransparency = 1,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(0, 50, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = "Call it",
-                        TextColor3 = C.text2,
-                        TextSize = 10, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100004,
-                    }, nameRow)
-
-                    local nameBox = make("TextBox", {
-                        Size = UDim2.new(1, -55, 1, 0),
-                        Position = UDim2.new(0, 55, 0, 0),
-                        BackgroundColor3 = Color3.fromRGB(20, 26, 38),
-                        Text = activeRule.name or "",
-                        PlaceholderText = "Rule name...",
-                        TextColor3 = C.text,
-                        PlaceholderColor3 = C.text2,
-                        TextSize = 10, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        BorderSizePixel = 0, ClearTextOnFocus = false,
-                        ZIndex = 100004,
-                    }, nameRow)
-                    corner(4, nameBox); pad(6, nameBox); stroke(1, C.border, nameBox)
-
-                    nameBox.FocusLost:Connect(function()
-                        activeRule.name = nameBox.Text
-                        saveConfig()
-                        renderModalBody()
-                    end)
-
-                    local appliesRow = make("Frame", {
-                        Size = UDim2.new(1, 0, 0, 24),
-                        BackgroundTransparency = 1,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(0, 90, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = "APPLIES TO:",
-                        TextColor3 = Color3.fromRGB(0, 200, 255),
-                        TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100004,
-                    }, appliesRow)
-
-                    local isAll = (activeRule.appliesTo ~= "ANY")
-                    local btnAll = make("TextButton", {
-                        Size = UDim2.new(0, 55, 1, 0),
-                        Position = UDim2.new(0, 95, 0, 0),
-                        BackgroundColor3 = isAll and Color3.fromRGB(60, 120, 220) or C.card,
-                        Text = "ALL", TextColor3 = isAll and Color3.fromRGB(255, 255, 255) or C.text2,
-                        TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        BorderSizePixel = 0, ZIndex = 100004,
-                    }, appliesRow)
-                    corner(4, btnAll)
-
-                    local btnAny = make("TextButton", {
-                        Size = UDim2.new(0, 55, 1, 0),
-                        Position = UDim2.new(0, 155, 0, 0),
-                        BackgroundColor3 = (not isAll) and Color3.fromRGB(60, 120, 220) or C.card,
-                        Text = "ANY", TextColor3 = (not isAll) and Color3.fromRGB(255, 255, 255) or C.text2,
-                        TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        BorderSizePixel = 0, ZIndex = 100004,
-                    }, appliesRow)
-                    corner(4, btnAny)
-
-                    btnAll.MouseButton1Click:Connect(function() activeRule.appliesTo = "ALL"; saveConfig(); renderModalBody() end)
-                    btnAny.MouseButton1Click:Connect(function() activeRule.appliesTo = "ANY"; saveConfig(); renderModalBody() end)
-
-                    makeInspectorSelectorRow(rightPane, "Item name", activeRule.items, getLiveCatalogItems, "Item Names")
-                    makeInspectorSelectorRow(rightPane, "Mutation", activeRule.mutations, function() return knownMutationsList end, "Mutations")
-                    makeInspectorSelectorRow(rightPane, "Category", activeRule.categories, getLiveCategories, "Categories")
-                    makeInspectorSelectorRow(rightPane, "Rarity", activeRule.rarities, function() return knownRaritiesList end, "Rarities")
-                    makeInspectorSelectorRow(rightPane, "Is", activeRule.isTypes, function() return knownIsTypesList end, "Types")
-
-                    local worthRow = make("Frame", {
-                        Size = UDim2.new(1, 0, 0, 24),
-                        BackgroundTransparency = 1,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(0, 95, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = "Worth range",
-                        TextColor3 = C.text2, TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 100004,
-                    }, worthRow)
-
-                    local minWBox = make("TextBox", {
-                        Size = UDim2.new(0, 75, 1, 0),
-                        Position = UDim2.new(0, 100, 0, 0),
-                        BackgroundColor3 = Color3.fromRGB(20, 26, 38),
-                        Text = tostring(activeRule.worthMin or 0),
-                        TextColor3 = C.text, TextSize = 9, Font = Enum.Font.Montserrat,
-                        BorderSizePixel = 0, ClearTextOnFocus = false, ZIndex = 100004,
-                    }, worthRow)
-                    corner(4, minWBox); stroke(1, C.border, minWBox)
-                    minWBox.FocusLost:Connect(function()
-                        activeRule.worthMin = tonumber(minWBox.Text) or 0
-                        saveConfig()
-                    end)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(0, 20, 1, 0),
-                        Position = UDim2.new(0, 180, 0, 0),
-                        BackgroundTransparency = 1, Text = "to",
-                        TextColor3 = C.textMuted, TextSize = 9, Font = Enum.Font.Montserrat, ZIndex = 100004,
-                    }, worthRow)
-
-                    local maxWBox = make("TextBox", {
-                        Size = UDim2.new(0, 75, 1, 0),
-                        Position = UDim2.new(0, 205, 0, 0),
-                        BackgroundColor3 = Color3.fromRGB(20, 26, 38),
-                        Text = tostring(activeRule.worthMax or 0),
-                        TextColor3 = C.text, TextSize = 9, Font = Enum.Font.Montserrat,
-                        BorderSizePixel = 0, ClearTextOnFocus = false, ZIndex = 100004,
-                    }, worthRow)
-                    corner(4, maxWBox); stroke(1, C.border, maxWBox)
-                    maxWBox.FocusLost:Connect(function()
-                        activeRule.worthMax = tonumber(maxWBox.Text) or 0
-                        saveConfig()
-                    end)
-
-                    make("TextLabel", {
-                        Size = UDim2.new(1, 0, 0, 18),
-                        BackgroundTransparency = 1,
-                        Text = "RULE EFFECTS (10 Actions)",
-                        TextColor3 = Color3.fromRGB(0, 200, 255),
-                        TextSize = 9.5, Font = Enum.Font.MontserratBold,
-                        TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    local effectsGrid = make("Frame", {
-                        Size = UDim2.new(1, 0, 0, 120),
-                        BackgroundTransparency = 1,
-                        ZIndex = 100003,
-                    }, rightPane)
-
-                    local eff = activeRule.effects
-                    local function makeEffToggle(xOff, yOff, name, key, mutuallyExclusiveKey)
-                        local isChecked = (eff[key] == true)
-                        local chk = make("TextButton", {
-                            Size = UDim2.new(0.48, -4, 0, 20),
-                            Position = UDim2.new(xOff, 0, 0, yOff),
-                            BackgroundColor3 = isChecked and Color3.fromRGB(28, 38, 58) or Color3.fromRGB(18, 22, 32),
-                            Text = (isChecked and " [X]  " or " [ ]  ") .. name,
-                            TextColor3 = isChecked and Color3.fromRGB(0, 215, 255) or C.text2,
-                            TextSize = 9, Font = Enum.Font.MontserratBold,
-                            TextXAlignment = Enum.TextXAlignment.Left,
-                            BorderSizePixel = 0, AutoButtonColor = false,
-                            ZIndex = 100004,
-                        }, effectsGrid)
-                        corner(4, chk)
-                        chk.MouseButton1Click:Connect(function()
-                            local nVal = not isChecked
-                            eff[key] = nVal
-                            if nVal and mutuallyExclusiveKey then eff[mutuallyExclusiveKey] = false end
-                            saveConfig()
-                            renderModalBody()
-                        end)
-                    end
-
-                    makeEffToggle(0, 0, "Always pick up", "always_pickup", "never_pickup")
-                    makeEffToggle(0.5, 0, "Never pick up", "never_pickup", "always_pickup")
-
-                    makeEffToggle(0, 24, "Allow selling", "allow_selling", "never_sell")
-                    makeEffToggle(0.5, 24, "Never sell", "never_sell", "allow_selling")
-
-                    makeEffToggle(0, 48, "Allow placing", "allow_placing", "never_place")
-                    makeEffToggle(0.5, 48, "Never place", "never_place", "allow_placing")
-
-                    makeEffToggle(0, 72, "Allow grading", "allow_grading", "never_grade")
-                    makeEffToggle(0.5, 72, "Never grade", "never_grade", "allow_grading")
-
-                    makeEffToggle(0, 96, "Never wash", "never_wash", nil)
-                    makeEffToggle(0.5, 96, "Ignore Min Bid", "ignore_min_bid", nil)
-                end
-            end
-        end
-
-        btnRulesTab.MouseButton1Click:Connect(function()
-            currentSubtab = "rules"
-            renderModalBody()
-        end)
-        btnListsTab.MouseButton1Click:Connect(function()
-            currentSubtab = "lists"
-            renderModalBody()
-        end)
-
-        _G.refreshItemRulesModal = renderModalBody
-        renderModalBody()
-
-        -- ── 5. LAUNCHER TAB IN MAIN WINDOW (`tabItemRules`) ──
-        list(nil, 6, tabItemRules)
-
-        local launcherHeader = make("Frame", {
-            Size = UDim2.new(1, 0, 0, 32),
-            BackgroundColor3 = Color3.fromRGB(24, 30, 46),
-            BorderSizePixel = 0,
-        }, tabItemRules)
-        corner(6, launcherHeader)
-
-        make("TextLabel", {
-            Size = UDim2.new(1, -20, 1, 0),
-            Position = UDim2.new(0, 10, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "ITEM RULES & LANE LIFECYCLE (BETA)",
-            TextColor3 = Color3.fromRGB(0, 200, 255),
-            TextSize = 10, Font = Enum.Font.MontserratBold,
-            TextXAlignment = Enum.TextXAlignment.Left,
-        }, launcherHeader)
-
-        local openEditorBtn = make("TextButton", {
-            Size = UDim2.new(1, 0, 0, 36),
-            BackgroundColor3 = Color3.fromRGB(18, 26, 44),
-            Text = "Open the rule editor",
-            TextColor3 = Color3.fromRGB(0, 215, 255),
-            TextSize = 11, Font = Enum.Font.MontserratBold,
-            BorderSizePixel = 0, AutoButtonColor = false,
-        }, tabItemRules)
-        corner(6, openEditorBtn)
-        stroke(1.5, Color3.fromRGB(0, 180, 255), openEditorBtn)
-
-        openEditorBtn.MouseButton1Click:Connect(function()
-            ItemRulesModal.Visible = not ItemRulesModal.Visible
-            if ItemRulesModal.Visible then
-                renderModalBody()
-            end
-        end)
-
-        make("TextLabel", {
-            Size = UDim2.new(1, 0, 0, 18),
-            BackgroundTransparency = 1,
-            Text = "Shortcut: Press [ J ] to toggle the rule editor anytime.",
-            TextColor3 = C.gold,
-            TextSize = 9.5, Font = Enum.Font.MontserratBold,
-            TextXAlignment = Enum.TextXAlignment.Center,
-        }, tabItemRules)
-
-        local statsCard = make("Frame", {
-            Size = UDim2.new(1, 0, 0, 80),
-            BackgroundColor3 = C.card,
-            BorderSizePixel = 0,
-        }, tabItemRules)
-        corner(6, statsCard); pad(8, statsCard); stroke(1, C.border, statsCard)
-
-        local statsLabel = make("TextLabel", {
-            Size = UDim2.new(1, 0, 1, 0),
-            BackgroundTransparency = 1,
-            Text = "Loading rules configuration...",
-            TextColor3 = C.text2,
-            TextSize = 9, Font = Enum.Font.Montserrat,
-            TextWrapped = true,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextYAlignment = Enum.TextYAlignment.Top,
-        }, statsCard)
-
-        local function updateLauncherStats()
-            local ruleCnt = gConfig.itemRules and #gConfig.itemRules or 0
-            local pCnt = getLaneTotalFilters("Pickup")
-            local sCnt = getLaneTotalFilters("Shelves")
-            local aCnt = getLaneTotalFilters("AutoSell")
-            local gCnt = getLaneTotalFilters("Grading")
-            local aucCnt = getLaneTotalFilters("Auction")
-
-            statsLabel.Text = string.format(
-                "Active Custom Rules: %d\n" ..
-                "Active Lane Filters: Pickup (%d) | Shelves (%d) | AutoSell (%d) | Grading (%d) | Auction (%d)\n\n" ..
-                "Evaluation Order: Custom Rules (First match wins) -> Default Lane Lists -> Tab Settings fallback.",
-                ruleCnt, pCnt, sCnt, aCnt, gCnt, aucCnt
-            )
-        end
-        updateLauncherStats()
-
-        -- ── 6. HOTKEY LISTENER FOR [ J ] ──
-        table.insert(cleanUpSignals, UserInputService.InputBegan:Connect(function(inp, gpe)
-            if not gpe and inp.KeyCode == Enum.KeyCode.J then
-                ItemRulesModal.Visible = not ItemRulesModal.Visible
-                if ItemRulesModal.Visible then
-                    renderModalBody()
-                end
-            end
-        end))
-
-    end -- end Item Rules system block
 
     -- DEDICATED CHARMS TAB SETUP
     do
@@ -19353,8 +25134,32 @@ local function handlePlaceErrorToast(msg)
         if _G.AHLastPlacingGuid then
             _G.AHUnsellableGuids[_G.AHLastPlacingGuid] = true
         end
+    elseif lowerMsg:find("vehicle") and lowerMsg:find("too far") then
+        if AB then
+            AB.vehicleTooFarTriggered = true
+            AB.vehicleTooFarAt = os.clock()
+        end
+        if (gConfig and gConfig.autoRecallVehicle ~= false)
+            and not _G.AHPickupCycleRunning
+            and not _G.AHVehicleRecallInProgress
+            and not _G.AHVehicleToastRecallPending
+            and LocalPlayer:GetAttribute("InAuction") ~= true then
+            _G.AHVehicleToastRecallPending = true
+            task.spawn(function()
+                pcall(function()
+                    if _G.ensureVehicleNearby then
+                        local ch = LocalPlayer.Character
+                        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+                        local gHint = (AB and AB.activeGarageInstance) or _G.AHLastTargetLot
+                        _G.ensureVehicleNearby(hrp and hrp.Position or nil, gHint, { force = true, waitForCooldown = true })
+                    end
+                end)
+                _G.AHVehicleToastRecallPending = false
+            end)
+        end
     end
 end
+_G.AHHandlePlaceErrorToast = handlePlaceErrorToast
 
 local NotifyRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("UI") and ReplicatedStorage.Events.UI:FindFirstChild("Notify")
 if NotifyRemote then
@@ -19363,14 +25168,43 @@ if NotifyRemote then
     end))
 end
 
+do
+    local vehicleSpawnResRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Vehicles") and ReplicatedStorage.Events.Vehicles:FindFirstChild("SpawnResult")
+    if vehicleSpawnResRemote then
+        table.insert(cleanUpSignals, vehicleSpawnResRemote.OnClientEvent:Connect(function(ok, _)
+            if ok == true then
+                _G.AHLastVehicleSpawnAt = os.clock()
+            end
+        end))
+    end
+end
+
 pcall(function()
     local ToastsMod = require(ReplicatedStorage.Modules.Screens.Toasts)
-    if ToastsMod and type(ToastsMod.Show) == "function" and not _G.AHToastsHooked then
+    if ToastsMod and type(ToastsMod.Show) == "function" then
+        local origShow = _G.AHOrigToastsShow
+        if type(origShow) ~= "function" then
+            if _G.AHToastsHooked and debug and debug.getupvalue and debug.info then
+                local okUv, uv2 = pcall(debug.getupvalue, ToastsMod.Show, 2)
+                if okUv and type(uv2) == "function" then
+                    local okInfo, fnName = pcall(debug.info, uv2, "n")
+                    if okInfo and fnName == "Show" then
+                        origShow = uv2
+                    end
+                end
+            end
+            if type(origShow) ~= "function" then
+                origShow = ToastsMod.Show
+            end
+            _G.AHOrigToastsShow = origShow
+        end
         _G.AHToastsHooked = true
-        local oldShow = ToastsMod.Show
         ToastsMod.Show = function(self, msg, ...)
-            handlePlaceErrorToast(msg)
-            return oldShow(self, msg, ...)
+            local actualMsg = (type(self) == "string") and self or msg
+            if _G.AHHandlePlaceErrorToast then
+                pcall(_G.AHHandlePlaceErrorToast, actualMsg)
+            end
+            return origShow(self, msg, ...)
         end
     end
 end)
@@ -19392,10 +25226,23 @@ _G.AHScanner_CleanUp = function()
         AB.auctionOpen = false
         stopBidLoop()
     end
+    pcall(function()
+        if type(_G.AHOrigToastsShow) == "function" then
+            local ToastsMod = require(ReplicatedStorage.Modules.Screens.Toasts)
+            if ToastsMod then
+                ToastsMod.Show = _G.AHOrigToastsShow
+            end
+        end
+        _G.AHToastsHooked = nil
+    end)
     for _, conn in ipairs(cleanUpSignals) do
         pcall(function() conn:Disconnect() end)
     end
     table.clear(cleanUpSignals)
+    if _G.AHScanNPCThread then
+        pcall(function() task.cancel(_G.AHScanNPCThread) end)
+        _G.AHScanNPCThread = nil
+    end
     if _G.AHAutoPlaceThread then
         pcall(function() task.cancel(_G.AHAutoPlaceThread) end)
         _G.AHAutoPlaceThread = nil
@@ -19418,7 +25265,7 @@ syncUI()
 
 setShopType("Wash")
 doScan()
-print("NexWorks v16.1 Beta | High UNC Build | Loaded successfully!")
+print("NexWorks v16.6 | High UNC Build | Loaded successfully!")
 
 if _G.AHAutoPlaceThread then
     pcall(function() task.cancel(_G.AHAutoPlaceThread) end)
@@ -19638,7 +25485,7 @@ local function executeSmartPlotPlacement(force)
                 local itemConf = ItemsDataMod[tostring(data.ItemId)] or ItemsDataMod[tonumber(data.ItemId)]
                 if itemConf then
                     local name = itemConf.Name or ""
-                    if not isItemExcluded(name, data, "place") then
+                    if not isItemExcluded(name, data) then
                         local price = MutatorMod:CalculatePriceForEntry(itemConf.BasePrice or 0, data)
                         local minThreshold = tonumber(gConfig.minAutoPlaceValue) or 0
                         local maxThreshold = tonumber(gConfig.maxAutoPlaceValue) or 0
@@ -19968,7 +25815,7 @@ _G.AHAutoPlaceThread = task.spawn(function()
                             if not isWIP then
                                 local itemConf = ItemsDataMod[tostring(data.ItemId)] or ItemsDataMod[tonumber(data.ItemId)]
                                 local name = itemConf and itemConf.Name or ""
-                                if itemConf and not isItemExcluded(name, data, "place") then
+                                if itemConf and not isItemExcluded(name, data) then
                                     placableCount = placableCount + 1
                                 end
                             end
@@ -20050,10 +25897,63 @@ end)
 
 
 
--- Enforce notification suppression and sound muting states
+-- Enforce notification suppression, sound muting states, and ItemTooltipOverlay layering above modal windows
 task.spawn(function()
+    local function fixGameTooltipLayers()
+        pcall(function()
+            local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+            if not playerGui then return end
+            local uiCtrl = playerGui:FindFirstChild("UIControllerGui")
+            if uiCtrl and uiCtrl:IsA("ScreenGui") then
+                if uiCtrl.DisplayOrder > 100 then
+                    uiCtrl.DisplayOrder = 10
+                end
+                local hoverTt = uiCtrl:FindFirstChild("HoverTooltip")
+                if hoverTt and hoverTt:IsA("GuiObject") then
+                    if hoverTt.ZIndex < 50000 then hoverTt.ZIndex = 50000 end
+                    for _, d in ipairs(hoverTt:GetDescendants()) do
+                        if d:IsA("GuiObject") and d.ZIndex < 50001 then
+                            d.ZIndex = 50001
+                        end
+                    end
+                end
+            end
+            local overlay = playerGui:FindFirstChild("ItemTooltipOverlay")
+            if not overlay then
+                overlay = Instance.new("ScreenGui")
+                overlay.Name = "ItemTooltipOverlay"
+                overlay.IgnoreGuiInset = true
+                overlay.ResetOnSpawn = false
+                overlay.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                overlay.DisplayOrder = 100000
+                overlay.Parent = playerGui
+            else
+                if overlay.DisplayOrder < 100000 then
+                    overlay.DisplayOrder = 100000
+                end
+                overlay.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                overlay.IgnoreGuiInset = true
+                overlay.Enabled = true
+            end
+            for _, child in ipairs(overlay:GetChildren()) do
+                if child:IsA("GuiObject") then
+                    if child.ZIndex < 50000 then child.ZIndex = 50000 end
+                    local ttText = child:FindFirstChild("TooltipText")
+                    if ttText and ttText:IsA("GuiObject") and ttText.ZIndex < 50001 then
+                        ttText.ZIndex = 50001
+                    end
+                    if child.BackgroundTransparency >= 0.99 and child.Position.X.Scale > 0 then
+                        child.Position = UDim2.fromOffset(-9999, -9999)
+                    end
+                end
+            end
+        end)
+    end
+    fixGameTooltipLayers()
+
     while ScreenGui and ScreenGui.Parent do
         task.wait(0.5)
+        fixGameTooltipLayers()
         pcall(function()
             local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
             local toasts = playerGui and playerGui:FindFirstChild("ToastsGui")
@@ -20089,38 +25989,16 @@ task.spawn(function()
     end
 end)
 
--- Auto-Unload on Full Cargo loop
+-- Auto-Unload on Full Cargo loop (works 100% remotely while seated OR on foot!)
 task.spawn(function()
     while ScreenGui and ScreenGui.Parent do
         task.wait(2.5)
         if autoUnloadFull or gConfig.afAutoUnload then
             pcall(function()
-                local vehicle = getMyVehicle()
-                if vehicle then
-                    local weight = vehicle:GetAttribute("CargoWeight") or 0
-                    local limit = vehicle:GetAttribute("CargoWeightLimit") or 100
-                    local thresholdVal = (gConfig and gConfig.autoUnloadThreshold) or 80
-                    local thresholdRatio = thresholdVal / 100
-                    
-                    if limit > 0 and (weight >= (limit * thresholdRatio)) then
-                        local vehicleId = vehicle:GetAttribute("VehicleGUID") or LocalPlayer:GetAttribute("EquippedVehicle")
-                        local getItemsRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Vehicles"):FindFirstChild("GetVehicleItems")
-                        local transferRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Vehicles"):FindFirstChild("TransferVehicleItemsToInventory")
-                        if getItemsRemote and transferRemote then
-                            local items = getItemsRemote:InvokeServer(vehicleId)
-                            if items then
-                                local guids = {}
-                                for guid, _ in pairs(items) do
-                                    table.insert(guids, guid)
-                                end
-                                if #guids > 0 then
-                                    transferRemote:FireServer(guids)
-                                    abLog("[Truck] Auto-Unloaded " .. #guids .. " items from truck to inventory!", C.green)
-                                    task.wait(0.5)
-                                end
-                            end
-                        end
-                    end
+                local over, veh = isVehicleOverweight(true)
+                if over then
+                    local inActiveAuction = (AB and (AB.auctionOpen or AB.biddingUIOpen) and not AB.isCollecting)
+                    instantUnloadVehicle(veh, { allowSeatHop = not inActiveAuction })
                 end
             end)
         end
@@ -20132,22 +26010,28 @@ end)
 task.spawn(function()
     local lastTargetLot = nil
     local lastEngineerCheckAt = 0
+    local lastVehicleSpawnAttempt = 0
 
     while ScreenGui and ScreenGui.Parent do
         task.wait(0.15)
         if gConfig.seatedAutofarm or gConfig.seizedGarageSniping then
-            pcall(function()
+            local okAf, errAf = pcall(function()
+                if _G._AHUnloadingVehicle and (os.clock() - (_G._AHUnloadingVehicleAt or 0) < 8) then return end
                 local char = LocalPlayer.Character
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if not hum or hum.Health <= 0 then return end
                 
-                -- [Stop] BIDIRECTIONAL LOCK: Yield if Mining, Freight collection, Quest TP, LeaveAuction, or other background tasks are active!
+                -- [Stop] BIDIRECTIONAL LOCK: Yield if Mining, Freight collection, Quest TP, Bunker TP, LeaveAuction, or other background tasks are active!
                 if AB.leavingAuction and AB.leaveStartedAt and (os.clock() - AB.leaveStartedAt > 4.5) then
                     AB.leavingAuction = false
                     AB.leaveStartedAt = nil
                 end
-                if AB.pickupPhase or _G.AHPickupCycleRunning or _G.isMiningActive or _G.isFreightCollecting or _G.isPickupActive or _G.questTpInProgress or AB.quickWinActive or AB.leavingAuction then
+                if AB.startingAuction and AB.startingAuctionAt and (os.clock() - AB.startingAuctionAt > 15) and not AB.auctionOpen then
+                    AB.startingAuction = false
+                    AB.startingAuctionAt = nil
+                end
+                if AB.pickupPhase or _G.AHPickupCycleRunning or _G.isMiningActive or _G.isFreightCollecting or _G.isPickupActive or _G.questTpInProgress or _G.bunkerTpInProgress or AB.quickWinActive or AB.leavingAuction then
                     return
                 end
                 if LocalPlayer:GetAttribute("InAuction") == true and not AB.auctionOpen and not AB.startingAuction then
@@ -20157,6 +26041,11 @@ task.spawn(function()
                 
                 local debris = workspace:FindFirstChild("_Debris")
                 local garages = debris and debris:FindFirstChild("Garages")
+                if AB.activeLot and not AB.auctionOpen and not AB.startingAuction and not AB.biddingUIOpen and not AB.quickWinActive and LocalPlayer:GetAttribute("InAuction") ~= true then
+                    AB.activeLot = nil
+                    AB.activeLotData = nil
+                    AB.activeGarageInstance = nil
+                end
                 local currentLotName = AB.activeLot
                 
                 local targetGarage = nil
@@ -20202,7 +26091,7 @@ task.spawn(function()
                         for _, data in pairs(inv) do
                             local itemConf = ItemsData[tostring(data.ItemId)] or ItemsData[tonumber(data.ItemId)]
                             local name = itemConf and itemConf.Name or ""
-                            if not isItemExcluded(name, data, "place") then
+                            if not isItemExcluded(name, data) then
                                 nonExcludedCount = nonExcludedCount + 1
                             end
                         end
@@ -20245,12 +26134,39 @@ task.spawn(function()
                         end
                     end
                     
-                    -- [Sync] PRIORITY 2: ROUTINE FARMING (Fallback - ONLY if Main Autofarm is enabled!)
+                    -- [Index] Sync Pilgrim Pete pool automatically before choosing next lot in Thanksgiving Pool Mode
+                    if gConfig.seatedAutofarm and gConfig.autoIndexHunter == true and _G.ensureIndexHunterPoolSync then
+                        pcall(_G.ensureIndexHunterPoolSync)
+                    end
+
+                    -- [Priority] PRIORITY 1.5: INDEX HUNTER, TURKEY SAFE, FEAST FOOD, FISHING BAIT & PICKLE RAIN TARGETS
+                    if not targetGarage and gConfig.seatedAutofarm and _G.findPriorityEventGarage then
+                        local okP, prioG, prioLot, prioReason = pcall(_G.findPriorityEventGarage, garages)
+                        if okP and prioG and prioLot then
+                            targetGarage = prioG
+                            targetLotName = prioLot
+                            abLog("[Priority] " .. tostring(prioReason) .. " Target Acquired: " .. tostring(prioLot), Color3.fromRGB(115, 210, 75))
+                        end
+                    end
+
+                    -- [Sync] PRIORITY 2: ROUTINE FARMING (Index Hunter Routing -> Fallback Normal Autofarm!)
                     if not targetGarage and gConfig.seatedAutofarm then
+                        local okHR, hunterRoute = false, nil
+                        if gConfig.autoIndexHunter == true and _G.getIndexHunterRoutingFilter then
+                            okHR, hunterRoute = pcall(_G.getIndexHunterRoutingFilter)
+                            if not okHR then hunterRoute = nil end
+                        end
                         local hasAnyAfSel = false
+                        local hasAnyTgAfSel = false
                         if gConfig.afSelectedGarages then
-                            for _, v in pairs(gConfig.afSelectedGarages) do
-                                if v == true then hasAnyAfSel = true; break end
+                            for kSel, v in pairs(gConfig.afSelectedGarages) do
+                                if v == true then
+                                    hasAnyAfSel = true
+                                    local kCat = GARAGE_CATALOG[kSel]
+                                    if (kCat and kCat.area == "Thanksgiving") or string.find(tostring(kSel), "Thanksgiving") then
+                                        hasAnyTgAfSel = true
+                                    end
+                                end
                             end
                         end
 
@@ -20262,7 +26178,6 @@ task.spawn(function()
 
                         for _, garage in ipairs(garages:GetChildren()) do
                             local lotName = garage:GetAttribute("GarageId") or garage.Name
-                            local garageSelected = isGarageAllowed(lotName, true)
                             local catEntry = GARAGE_CATALOG[lotName]
                             if not catEntry then
                                 for k, v in pairs(GARAGE_CATALOG) do
@@ -20273,23 +26188,41 @@ task.spawn(function()
                                 end
                             end
                             local areaName = (catEntry and catEntry.area) or garage:GetAttribute("AreaName") or ""
+                            local garageSelected = false
                             local areaOk = false
-                            if hasAnyAfSel then
-                                -- When user explicitly selects garage(s), selection overrides the general Area filter!
-                                areaOk = garageSelected
-                            elseif gConfig.afAutoBuyAreas then
-                                if gConfig.afAutoBuyAreas["Any Area"] or gConfig.afAutoBuyAreas[areaName] then
-                                    areaOk = true
-                                else
-                                    for selArea, isEn in pairs(gConfig.afAutoBuyAreas) do
-                                        if isEn and (selArea == areaName or string.find(areaName, selArea) or string.find(selArea, areaName)) then
-                                            areaOk = true
-                                            break
-                                        end
+
+                            if hunterRoute and hunterRoute.active then
+                                if hunterRoute.mode == "Thanksgiving Pool" then
+                                    local isTgLot = (areaName == "Thanksgiving") or (string.find(lotName, "Thanksgiving") ~= nil)
+                                    if isTgLot and (not isGaragePrereqMet or isGaragePrereqMet(lotName)) then
+                                        areaOk = true
+                                        garageSelected = (not hasAnyTgAfSel) or (gConfig.afSelectedGarages and gConfig.afSelectedGarages[lotName] == true)
+                                    end
+                                elseif hunterRoute.mode == "Native Area" and type(hunterRoute.areas) == "table" then
+                                    if hunterRoute.areas[areaName] == true and (not isGaragePrereqMet or isGaragePrereqMet(lotName)) then
+                                        areaOk = true
+                                        garageSelected = true
                                     end
                                 end
                             else
-                                areaOk = (gConfig.afAutoBuyArea == "Any Area" or areaName == gConfig.afAutoBuyArea or string.find(areaName, gConfig.afAutoBuyArea))
+                                garageSelected = isGarageAllowed(lotName, true)
+                                if hasAnyAfSel then
+                                    -- When user explicitly selects garage(s), selection overrides the general Area filter!
+                                    areaOk = garageSelected
+                                elseif gConfig.afAutoBuyAreas then
+                                    if gConfig.afAutoBuyAreas["Any Area"] or gConfig.afAutoBuyAreas[areaName] then
+                                        areaOk = true
+                                    else
+                                        for selArea, isEn in pairs(gConfig.afAutoBuyAreas) do
+                                            if isEn and (selArea == areaName or string.find(areaName, selArea) or string.find(selArea, areaName)) then
+                                                areaOk = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                else
+                                    areaOk = (gConfig.afAutoBuyArea == "Any Area" or areaName == gConfig.afAutoBuyArea or string.find(areaName, gConfig.afAutoBuyArea))
+                                end
                             end
                             
                             local gKey = garage:GetAttribute("GUID") or garage.Name
@@ -20330,6 +26263,12 @@ task.spawn(function()
                             targetLotName = bestLotName
                             currentGarageIsSeized = false
                             _G.AHIsCurrentGarageSeized = false
+                        elseif hunterRoute and hunterRoute.active and hunterRoute.mode == "Thanksgiving Pool" then
+                            local tgHub = Vector3.new(-57.5, 1720.13, -811.5)
+                            if (comparePos - tgHub).Magnitude > 220 and (os.clock() - (_G._lastTgStreamAt or 0) > 6) then
+                                _G._lastTgStreamAt = os.clock()
+                                pcall(function() LocalPlayer:RequestStreamAroundAsync(tgHub) end)
+                            end
                         end
                     end
                 end
@@ -20341,38 +26280,67 @@ task.spawn(function()
                     return
                 end
                 
-                -- State 1: Vehicle Boarding / On-Foot Preparation
+                -- State 1: Vehicle Spawn (only when Auto-Recall Far Vehicle is ON; keeping avatar unseated on foot)
                 local vehicle = getMyVehicle()
-                if not vehicle then
+                if (not gConfig or gConfig.autoRecallVehicle ~= false) and not vehicle and (os.clock() - lastVehicleSpawnAttempt > 15) and (os.clock() - (_G.AHLastVehicleSpawnAt or 0) > 6) then
+                    lastVehicleSpawnAttempt = os.clock()
                     local spawnRemote = ReplicatedStorage:FindFirstChild("Events")
                         and ReplicatedStorage.Events:FindFirstChild("Vehicles")
                         and ReplicatedStorage.Events.Vehicles:FindFirstChild("RequestSpawn")
                     if spawnRemote then
-                        spawnRemote:FireServer()
-                        task.wait(1.0)
+                        local eqGuid = LocalPlayer:GetAttribute("EquippedVehicle")
+                        _G.AHLastVehicleSpawnAt = os.clock()
+                        pcall(function()
+                            if typeof(eqGuid) == "string" and eqGuid ~= "" then
+                                spawnRemote:FireServer(eqGuid)
+                            else
+                                spawnRemote:FireServer()
+                            end
+                        end)
+                        -- Server auto-seats ~0.6-0.8s after RequestSpawn; wait briefly and break seat so avatar stays on foot
+                        local s0 = os.clock()
+                        while os.clock() - s0 < 0.95 do
+                            if hum and (hum.SeatPart or hum.Sit) then
+                                local sp = hum.SeatPart
+                                hum.Sit = false
+                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                                if sp then
+                                    local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                                    if sw then pcall(function() sw:Destroy() end) end
+                                end
+                                task.wait(0.08)
+                                if not hum.SeatPart and not hum.Sit then break end
+                            end
+                            task.wait(0.05)
+                        end
                         vehicle = getMyVehicle()
                     end
                 end
-                
-                if vehicle and not AB.pickupPhase and not _G.AHPickupCycleRunning and not AB.quickWinActive then
-                    local seat = vehicle:FindFirstChild("DriveSeat") or vehicle:FindFirstChildWhichIsA("VehicleSeat")
-                    if seat and hum and hum.SeatPart ~= seat then
-                        seat:Sit(hum)
-                        local sitDeadline = os.clock() + 0.3
-                        while hum.SeatPart ~= seat and os.clock() < sitDeadline do
-                            task.wait(0.03)
+
+                -- Always keep avatar ON FOOT for autofarm navigation & bidding (prevents massive/flying vehicles from blocking EnterAuction or wedging physics, while keeping vehicle spawned for cargo weight capacity!)
+                if not AB.pickupPhase and not _G.AHPickupCycleRunning and not AB.quickWinActive then
+                    if hum and (hum.SeatPart or hum.Sit) then
+                        local sp = hum.SeatPart
+                        hum.Sit = false
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                        if sp then
+                            local sw = sp:FindFirstChild("SeatWeld") or sp:FindFirstChildWhichIsA("Weld") or sp:FindFirstChildWhichIsA("WeldConstraint")
+                            if sw then pcall(function() sw:Destroy() end) end
+                        end
+                        local unsitWait = os.clock()
+                        while (hum.SeatPart or hum.Sit) and (os.clock() - unsitWait < 0.4) do
+                            hum.Sit = false
+                            task.wait(0.04)
                         end
                     end
                 end
-                
-                -- Support BOTH Seated Driving & On-Foot Autofarm (never freezes if player has no car!)
-                local isSeatedInCar = vehicle and hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(vehicle)
-                local moverPart = isSeatedInCar and (vehicle.PrimaryPart or vehicle:FindFirstChild("Body") or vehicle:FindFirstChildWhichIsA("BasePart")) or root
+
+                local moverPart = root
                 
                 if not AB.pickupPhase and not _G.AHPickupCycleRunning and moverPart and hum and hum.Health > 0 then
                     local vehicleRoot = moverPart
                     
-                    -- State 2: Safe TP Navigation to active lot
+                    -- State 2: Safe On-Foot TP Navigation to active lot
                     if currentLotName then
                         local bestGarage = nil
                         local bestDist = math.huge
@@ -20382,7 +26350,10 @@ task.spawn(function()
                         if garages then
                             for _, garage in ipairs(garages:GetChildren()) do
                                 local lotName = garage:GetAttribute("GarageId") or garage.Name
-                                local garageSelected = isGarageAllowed(lotName, true) or (gConfig.seizedGarageSniping and isGarageSeized(garage))
+                                local garageSelected = isGarageAllowed(lotName, true)
+                                    or (gConfig.seizedGarageSniping and isGarageSeized(garage))
+                                    or (_G.isPriorityEventGarage and _G.isPriorityEventGarage(garage))
+                                    or (_G.isIndexHunterRoutedGarage and _G.isIndexHunterRoutedGarage(garage, lotName))
                                 if garageSelected and (garage.Name == currentLotName or garage:GetAttribute("GarageId") == currentLotName or string.find(garage.Name, currentLotName)) then
                                     local promptPart = garage:FindFirstChild("EntrySquare") and garage.EntrySquare:FindFirstChild("PromptPart")
                                     local cf = (promptPart and promptPart.CFrame) or getGarageEntranceCFrame(garage) or garage:GetPivot()
@@ -20420,17 +26391,23 @@ task.spawn(function()
                             -- AUCTION GUARD: If auction is open and player is already within 75 studs, DO NOT teleport (we are bidding!)
                             local inAuctionRadius = bestDist <= 75
                             if not inAuctionRadius and not AB.auctionOpen then
-                                if vehicle then
-                                    parkVehicleAtGarage(vehicle, bestGarage, bestCF)
-                                else
-                                    local rp = RaycastParams.new()
-                                    rp.FilterDescendantsInstances = { char }
-                                    rp.FilterType = Enum.RaycastFilterType.Exclude
-                                    local gHit = workspace:Raycast(bestCF.Position + Vector3.new(0, 4, 0), Vector3.new(0, -16, 0), rp)
-                                    local gy = gHit and gHit.Position.Y or (bestCF.Position.Y - 2.5)
-                                    root.AssemblyLinearVelocity = Vector3.zero
-                                    root.CFrame = CFrame.new(bestCF.Position.X, gy + 3.0, bestCF.Position.Z)
-                                end
+                                local rp = RaycastParams.new()
+                                rp.FilterDescendantsInstances = { char }
+                                rp.FilterType = Enum.RaycastFilterType.Exclude
+                                local gHit = workspace:Raycast(bestCF.Position + Vector3.new(0, 4, 0), Vector3.new(0, -16, 0), rp)
+                                local gy = gHit and gHit.Position.Y or (bestCF.Position.Y - 2.5)
+                                local plat = Instance.new("Part")
+                                plat.Size = Vector3.new(16, 1, 16)
+                                plat.Anchored = true
+                                plat.CanCollide = true
+                                plat.Transparency = 1
+                                plat.Position = Vector3.new(bestCF.Position.X, gy - 0.5, bestCF.Position.Z)
+                                plat.Parent = workspace
+                                task.delay(3.0, function() if plat then pcall(function() plat:Destroy() end) end end)
+                                if hum.PlatformStand then hum.PlatformStand = false end
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                root.AssemblyAngularVelocity = Vector3.zero
+                                root.CFrame = CFrame.new(bestCF.Position.X, gy + 3.0, bestCF.Position.Z)
                                 task.wait(0.15)
                             end
                             lastTargetLot = bestGarage
@@ -20443,35 +26420,41 @@ task.spawn(function()
                         local canStart = (prompt and prompt.Enabled) or (not prompt)
                         if canStart then
                             AB.startingAuction = true -- Set active trigger lock
+                            AB.startingAuctionAt = os.clock()
                             task.delay(10, function()
                                 if AB.startingAuction and not AB.activeLot then
                                     AB.startingAuction = false
+                                    AB.startingAuctionAt = nil
                                 end
                             end)
                             
                             local targetCF = (promptPart and promptPart.CFrame) or getGarageEntranceCFrame(garage) or garage:GetPivot()
                             if targetCF then
-                                local driveSeat = vehicle and (vehicle:FindFirstChildWhichIsA("VehicleSeat", true)
-                                    or vehicle:FindFirstChild("DriveSeat", true)
-                                    or vehicle:FindFirstChildWhichIsA("Seat", true)) or nil
-
-                                local playerCheckPos = (driveSeat and driveSeat.Position) or root.Position
+                                local playerCheckPos = root.Position
                                 local playerDistXZ = Vector2.new(playerCheckPos.X - targetCF.Position.X, playerCheckPos.Z - targetCF.Position.Z).Magnitude
 
-                                -- Reposition once if not in range or if garage changed; prevent jittering during prompt hold
-                                if playerDistXZ > 5.5 or lastTargetLot ~= garage then
-                                    if vehicle then
-                                        parkVehicleAtGarage(vehicle, garage, targetCF)
-                                    else
-                                        local rp = RaycastParams.new()
-                                        rp.FilterDescendantsInstances = { char }
-                                        rp.FilterType = Enum.RaycastFilterType.Exclude
-                                        local gHit = workspace:Raycast(targetCF.Position + Vector3.new(0, 4, 0), Vector3.new(0, -16, 0), rp)
-                                        local gy = gHit and gHit.Position.Y or (targetCF.Position.Y - 2.5)
-                                        if hum.PlatformStand then hum.PlatformStand = false end
-                                        root.AssemblyLinearVelocity = Vector3.zero
-                                        root.CFrame = CFrame.new(targetCF.Position.X, gy + 3.0, targetCF.Position.Z)
+                                -- Reposition once on foot if not in range or if garage changed; stream unstreamed garages safely
+                                if playerDistXZ > 5.5 or lastTargetLot ~= garage or not promptPart then
+                                    if not promptPart then
+                                        pcall(function() LocalPlayer:RequestStreamAroundAsync(targetCF.Position) end)
                                     end
+                                    local rp = RaycastParams.new()
+                                    rp.FilterDescendantsInstances = { char }
+                                    rp.FilterType = Enum.RaycastFilterType.Exclude
+                                    local gHit = workspace:Raycast(targetCF.Position + Vector3.new(0, 4, 0), Vector3.new(0, -16, 0), rp)
+                                    local gy = gHit and gHit.Position.Y or (targetCF.Position.Y - 2.5)
+                                    local plat = Instance.new("Part")
+                                    plat.Size = Vector3.new(16, 1, 16)
+                                    plat.Anchored = true
+                                    plat.CanCollide = true
+                                    plat.Transparency = 1
+                                    plat.Position = Vector3.new(targetCF.Position.X, gy - 0.5, targetCF.Position.Z)
+                                    plat.Parent = workspace
+                                    task.delay(3.0, function() if plat then pcall(function() plat:Destroy() end) end end)
+                                    if hum.PlatformStand then hum.PlatformStand = false end
+                                    root.AssemblyLinearVelocity = Vector3.zero
+                                    root.AssemblyAngularVelocity = Vector3.zero
+                                    root.CFrame = CFrame.new(targetCF.Position.X, gy + 3.0, targetCF.Position.Z)
                                     task.wait(0.08)
                                 end
                                 
@@ -20508,8 +26491,11 @@ task.spawn(function()
                                     end
                                     pcall(function()
                                         actualPrompt:InputHoldBegin()
-                                        task.wait(holdDur + 0.12)
+                                        task.wait(holdDur + 0.15)
                                         actualPrompt:InputHoldEnd()
+                                        if not AB.auctionOpen and LocalPlayer:GetAttribute("InAuction") ~= true and fireproximityprompt and actualPrompt.Parent and actualPrompt.Enabled then
+                                            fireproximityprompt(actualPrompt, holdDur)
+                                        end
                                         actualPrompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
                                     end)
 
@@ -20620,11 +26606,14 @@ task.spawn(function()
                                     else
                                         -- Zero delay on skip / lost auction - instantly move to next garage!
                                         abLog("[Autofarm] Skipped / Lost auction - moving to next garage immediately.", C.text2)
+                                        local isTgLotCd = (tostring(garage:GetAttribute("AreaName") or "") == "Thanksgiving") or (string.find(tostring(lotName or ""), "Thanksgiving") ~= nil)
                                         _G.AHGarageCooldowns = _G.AHGarageCooldowns or {}
-                                        _G.AHGarageCooldowns[gKey] = os.clock() + 45
+                                        _G.AHGarageCooldowns[gKey] = os.clock() + (isTgLotCd and 12 or 45)
                                     end
 
                                     AB.biddingUIOpen = false
+                                    AB.activeLot = nil
+                                    AB.activeLotData = nil
                                     AB.activeGarageInstance = nil
                                     AB.startingAuction = false
                                     lastTargetLot = nil
@@ -20647,6 +26636,12 @@ task.spawn(function()
                     end
                     end
             end)
+            if not okAf and errAf then
+                if not _G._lastAfErrAt or (os.clock() - _G._lastAfErrAt > 5) then
+                    _G._lastAfErrAt = os.clock()
+                    abLog("[Autofarm Err] " .. tostring(errAf), C.red)
+                end
+            end
         end
     end
 end)
@@ -20663,6 +26658,7 @@ setupUI()
 -- Background Mobile Controls Restorer
 task.spawn(function()
     while task.wait(0.5) do
+        if _G.AHScanner_RunID ~= myRunID then break end
         if gConfig.seatedAutofarm and not AB.auctionOpen and not _G.isPickupActive then
             pcall(function()
                 local player = game:GetService("Players").LocalPlayer
@@ -20741,8 +26737,12 @@ task.spawn(function()
                                     local chosenItem = nil
                                     -- Try to prioritize Mint condition items first for Perfect mutator upgrade chance
                                     for _, item in ipairs(eligible) do
-                                        local cond = tostring(item.Condition or item.condition or ""):lower()
-                                        if cond == "mint" and not processedGuids[item.guid] then
+                                        local d = type(item.data) == "table" and item.data or item
+                                        local isFav = item.Favorited == true or item.Favorite == true or item.Locked == true or item.IsFavorited == true
+                                            or d.Favorited == true or d.Favorite == true or d.Locked == true or d.IsFavorited == true
+                                        local rawCond = d.Condition or d.condition or item.Condition or item.condition
+                                        local cond = tostring(rawCond or ""):lower()
+                                        if not isFav and (cond == "mint" or tonumber(rawCond) == 100) and not processedGuids[item.guid] then
                                             chosenItem = item
                                             break
                                         end
@@ -20750,7 +26750,10 @@ task.spawn(function()
                                     -- If no Mint items are found, select the first unprocessed eligible item
                                     if not chosenItem then
                                         for _, item in ipairs(eligible) do
-                                            if not processedGuids[item.guid] then
+                                            local d = type(item.data) == "table" and item.data or item
+                                            local isFav = item.Favorited == true or item.Favorite == true or item.Locked == true or item.IsFavorited == true
+                                                or d.Favorited == true or d.Favorite == true or d.Locked == true or d.IsFavorited == true
+                                            if not isFav and not processedGuids[item.guid] then
                                                 chosenItem = item
                                                 break
                                             end
@@ -20810,7 +26813,10 @@ task.spawn(function()
                                 if eligible and #eligible > 0 then
                                     local chosenItem = nil
                                     for _, item in ipairs(eligible) do
-                                        if not processedGuids[item.guid] then
+                                        local d = type(item.data) == "table" and item.data or item
+                                        local isFav = item.Favorited == true or item.Favorite == true or item.Locked == true or item.IsFavorited == true
+                                            or d.Favorited == true or d.Favorite == true or d.Locked == true or d.IsFavorited == true
+                                        if not isFav and not processedGuids[item.guid] then
                                             chosenItem = item
                                             break
                                         end
@@ -20889,50 +26895,97 @@ task.spawn(function()
     end
 end)
 
--- AUTO CLAIM INDEX REWARDS BACKGROUND LOOP
-task.spawn(function()
-    while task.wait(15) do
-        if _G.AHScanner_RunID ~= myRunID then break end
-        if gConfig.autoClaimIndexRewards then
-            pcall(function()
-                local collectionsEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Collections")
-                local getState = collectionsEvents and collectionsEvents:FindFirstChild("GetCollectionState")
-                local claimMilestone = collectionsEvents and collectionsEvents:FindFirstChild("ClaimMilestoneReward")
-                
-                if getState and claimMilestone then
-                    local state = getState:InvokeServer()
-                    local Collections = require(ReplicatedStorage.Modules.Collections)
-                    if state and type(state) == "table" and state.discovered and state.areaCatalog and state.milestones then
-                        local discovered = state.discovered
-                        local areaCatalog = state.areaCatalog
-                        local milestones = state.milestones
-                        
-                        for _, area in ipairs(Collections.Areas) do
-                            if not gConfig.autoClaimIndexRewards then break end
-                            local areaName = area.Name
-                            local itemsList = areaCatalog[areaName] or {}
-                            local total = #itemsList
-                            local found = 0
-                            for _, itemName in ipairs(itemsList) do
-                                if discovered[itemName] then
-                                    found = found + 1
-                                end
+-- AUTO CLAIM INDEX REWARDS & AUTO MASTER AREA BACKGROUND LOOP
+do
+    local indexPassBusy = false
+    _G.runIndexClaimAndMasterPass = function(forceClaim, forceMaster)
+        if indexPassBusy then return 0, 0 end
+        local doClaim = (forceClaim == true) or (gConfig.autoClaimIndexRewards == true)
+        local doMaster = (forceMaster == true) or (gConfig.autoMasterArea == true)
+        if not doClaim and not doMaster then return 0, 0 end
+        indexPassBusy = true
+        local claimedSteps, masteredCount = 0, 0
+        pcall(function()
+            local collectionsEvents = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Collections")
+            local getState = collectionsEvents and collectionsEvents:FindFirstChild("GetCollectionState")
+            local claimMilestone = collectionsEvents and collectionsEvents:FindFirstChild("ClaimMilestoneReward")
+            local claimTier = collectionsEvents and collectionsEvents:FindFirstChild("ClaimTierReward")
+            local masterAreaRemote = collectionsEvents and collectionsEvents:FindFirstChild("MasterArea")
+            if not getState then return end
+            local state = getState:InvokeServer()
+            local Collections = require(ReplicatedStorage.Modules.Collections)
+            if state and type(state) == "table" and state.discovered and state.areaCatalog then
+                local discovered = state.discovered
+                local areaCatalog = state.areaCatalog
+                local milestones = state.milestones or {}
+                local areasIter = Collections.Areas or {}
+
+                for _, area in ipairs(areasIter) do
+                    local areaName = type(area) == "table" and area.Name or tostring(area)
+                    local itemsList = areaCatalog[areaName] or {}
+                    local total = #itemsList
+                    local found = 0
+                    for _, itemId in ipairs(itemsList) do
+                        if discovered[itemId] or discovered[tostring(itemId)] then
+                            found = found + 1
+                        end
+                    end
+
+                    local isMasterable = Collections.IsMasteryArea and Collections.IsMasteryArea(areaName) or false
+                    local isReadyMaster = isMasterable and total > 0 and found >= total
+
+                    -- Always claim eligible milestones BEFORE mastering (or when Auto Claim is enabled)
+                    if claimMilestone and (doClaim or (doMaster and isReadyMaster)) then
+                        local claimKey = Collections.ClaimKey and Collections.ClaimKey(areaName, "Base") or (areaName .. ":Base")
+                        local claimed = tonumber(milestones[claimKey]) or 0
+                        local eligible = Collections.GetEligibleMilestoneCount and Collections.GetEligibleMilestoneCount(found, total, areaName) or 0
+                        if claimed < eligible then
+                            for step = claimed + 1, eligible do
+                                local okC = pcall(function() claimMilestone:InvokeServer(areaName) end)
+                                if okC then claimedSteps = claimedSteps + 1 end
+                                task.wait(0.35)
                             end
-                            
-                            local claimKey = Collections.ClaimKey(areaName, "Base")
-                            local claimed = milestones[claimKey] or 0
-                            local eligible = Collections.GetEligibleMilestoneCount(found, total, areaName)
-                            
-                            if claimed < eligible then
-                                for step = claimed + 1, eligible do
-                                    pcall(function() claimMilestone:InvokeServer(areaName) end)
-                                    task.wait(0.5)
-                                end
+                        end
+                        if claimTier and (claimed < eligible or isReadyMaster) then
+                            pcall(function() claimTier:InvokeServer(areaName) end)
+                        end
+                    end
+
+                    -- Auto Master Area at 100% (never fires MasterAreaDouble — Robux)
+                    if doMaster and isReadyMaster and masterAreaRemote then
+                        local okM, resM = pcall(function() return masterAreaRemote:InvokeServer(areaName) end)
+                        local masterOk = okM and (resM == true or (type(resM) == "table" and resM.success == true))
+                        if masterOk then
+                            masteredCount = masteredCount + 1
+                            local newStars = (type(resM) == "table" and resM.count) or "?"
+                            local mp = Collections.GetMasteryPoints and Collections.GetMasteryPoints(areaName) or 0
+                            local dia = Collections.GetMasteryDiamonds and Collections.GetMasteryDiamonds(areaName) or 0
+                            abLog(string.format("[Mastery] MASTERED %s (★%s)! +%d MP, +%d Diamonds", areaName, tostring(newStars), mp, dia), C.gold)
+                            if showWorkshopPopup then
+                                showWorkshopPopup(string.format("Mastered %s (★%s) +%d MP!", areaName, tostring(newStars), mp), C.gold)
                             end
+                            if _G.onAreaMastered then pcall(_G.onAreaMastered, areaName, newStars) end
+                            task.wait(0.5)
                         end
                     end
                 end
-            end)
+            end
+        end)
+        indexPassBusy = false
+        if (claimedSteps > 0 or masteredCount > 0) and _G.refreshMasteryState then
+            task.spawn(function() pcall(_G.refreshMasteryState, true) end)
+        end
+        return claimedSteps, masteredCount
+    end
+end
+
+task.spawn(function()
+    while task.wait(12) do
+        if _G.AHScanner_RunID ~= myRunID then break end
+        if gConfig.autoClaimIndexRewards or gConfig.autoMasterArea then
+            if _G.runIndexClaimAndMasterPass then
+                pcall(_G.runIndexClaimAndMasterPass, false, false)
+            end
         end
     end
 end)
@@ -21149,7 +27202,7 @@ end)
 task.spawn(function()
     while task.wait(5) do
         if _G.AHScanner_RunID ~= myRunID then break end
-        if gConfig.autoMineNodes and not AB.quickWinActive and not AB.pickupPhase and (gConfig.continuousMiningDuringAuctions or (not AB.startingAuction and not AB.activeLot)) and not _G.questTpInProgress and not _G.isFreightCollecting then
+        if gConfig.autoMineNodes and not _G.isCrystalCavernPriority and (lp:GetAttribute("InMiningSeason") ~= true) and not AB.quickWinActive and not AB.pickupPhase and (gConfig.continuousMiningDuringAuctions or (not AB.startingAuction and not AB.activeLot)) and not _G.questTpInProgress and not _G.isFreightCollecting then
             if not _G.isMiningActive and _G.startMiningSession then
                 _G.startMiningSession(true)
             end
@@ -21197,7 +27250,7 @@ task.spawn(function()
                             local targetGuid = nil
                             if inv and type(inv) == "table" then
                                 for guid, item in pairs(inv) do
-                                    if type(item) == "table" and tonumber(item.ItemId) == drk.itemId then
+                                    if type(item) == "table" and tonumber(item.ItemId) == drk.itemId and not (item.Favorited == true or item.Favorite == true or item.Locked == true or item.IsFavorited == true) then
                                         targetGuid = guid
                                         break
                                     end
@@ -21258,11 +27311,27 @@ task.spawn(function()
         if _G.AHScanner_RunID ~= myRunID then break end
         local char = LocalPlayer and LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and root.Position.Y < 1500 then
+        local inCavern = LocalPlayer and (LocalPlayer:GetAttribute("InMiningSeason") == true)
+        -- Surface map sits at Y ~1726 while The Mines / Crystal Cavern spans Y ~1579 down through deep rock layers (< 1500),
+        -- so never rescue above true void depths and never teleport into Police Station (169.9, 1726, -210).
+        local voidFloorY = inCavern and 1340 or 600
+        if root and root.Position.Y < voidFloorY then
+            local safeCF = CFrame.new(389.57, 1725.0, -177.07)
+            if inCavern then
+                local areas = workspace:FindFirstChild("Areas")
+                local mines = areas and areas:FindFirstChild("The Mines")
+                local ms = mines and mines:FindFirstChild("MiningSeason")
+                local sp = ms and ms:FindFirstChild("Spawn")
+                if sp and sp:IsA("BasePart") then
+                    safeCF = sp.CFrame + Vector3.new(0, 3, 0)
+                else
+                    safeCF = CFrame.new(-3161.96, 1582.0, -1911.54)
+                end
+            end
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
             root.Anchored = true
-            root.CFrame = CFrame.new(169.9, 1726.0, -210.0)
+            root.CFrame = safeCF
             task.wait(0.15)
             root.Anchored = false
             root.AssemblyLinearVelocity = Vector3.zero
